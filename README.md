@@ -41,10 +41,13 @@ free GUI that does **mounting** first and does it well.
 - [x] Auto-download of the rclone engine if missing
 - [x] Open mounted folder in your file manager
 - [x] Google Drive, Dropbox, Box, pCloud, Yandex Disk (OneDrive experimental)
+- [x] Detects mounts made outside Mountie (systemd, manual `rclone mount`)
+  and refuses to double-mount a remote — two VFS caches can corrupt files
+- [x] Remounts your drives automatically when the app starts
 
 ## Roadmap
 
-- [ ] Mount automatically on login
+- [ ] Autostart on login (tray app)
 - [ ] System tray
 - [ ] Custom mount points and per-remote VFS options
 - [ ] Own OAuth client id wizard (rclone's shared client id is being retired in 2026)

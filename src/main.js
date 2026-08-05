@@ -12,6 +12,18 @@ const PROVIDER_LABELS = {
 
 const $ = (id) => document.getElementById(id);
 
+// Remotes the user mounted through Mountie — remounted on next launch.
+const AUTOMOUNT_KEY = "mountie.automount";
+const getAutomount = () => {
+  try {
+    return JSON.parse(localStorage.getItem(AUTOMOUNT_KEY)) || [];
+  } catch {
+    return [];
+  }
+};
+const setAutomount = (names) =>
+  localStorage.setItem(AUTOMOUNT_KEY, JSON.stringify([...new Set(names)]));
+
 function setEngine(stateClass, label) {
   $("engine-dot").className = `dot ${stateClass}`;
   $("engine-label").textContent = label;
@@ -29,14 +41,29 @@ async function rc(path, body = {}) {
 
 // ---------- rendering ----------
 
-async function refreshRemotes() {
-  const [dump, mounts] = await Promise.all([
+async function fetchState() {
+  const [dump, mounts, sysMounts] = await Promise.all([
     rc("config/dump"),
     rc("mount/listmounts"),
+    invoke("list_system_mounts"),
   ]);
-  const mounted = new Map(
+  // Mounts owned by our engine.
+  const own = new Map(
     (mounts.mountPoints || []).map((m) => [m.Fs.replace(/:$/, ""), m.MountPoint])
   );
+  // Mounts made outside Mountie (systemd units, manual rclone mount, …).
+  const ownPoints = new Set(own.values());
+  const external = new Map();
+  for (const m of sysMounts) {
+    if (!ownPoints.has(m.mountPoint) && !external.has(m.remote)) {
+      external.set(m.remote, m.mountPoint);
+    }
+  }
+  return { dump, own, external };
+}
+
+async function refreshRemotes() {
+  const { dump, own, external } = await fetchState();
   const names = Object.keys(dump).sort();
   const list = $("remotes-list");
   list.innerHTML = "";
@@ -44,7 +71,14 @@ async function refreshRemotes() {
 
   for (const name of names) {
     const type = dump[name].type || "?";
-    const mountPoint = mounted.get(name);
+    const ownPoint = own.get(name);
+    const extPoint = external.get(name);
+    const stateChip = ownPoint
+      ? '<span class="chip state on">mounted</span>'
+      : extPoint
+        ? '<span class="chip state ext" title="Mounted outside Mountie (e.g. a systemd service). Mountie won\'t touch it.">mounted · system</span>'
+        : '<span class="chip state">not mounted</span>';
+
     const card = document.createElement("div");
     card.className = "card remote-card";
     card.innerHTML = `
@@ -52,35 +86,40 @@ async function refreshRemotes() {
         <div class="remote-title">
           <span class="remote-name"></span>
           <span class="chip provider"></span>
-          <span class="chip state ${mountPoint ? "on" : ""}">${
-            mountPoint ? "mounted" : "not mounted"
-          }</span>
+          ${stateChip}
         </div>
         <div class="remote-path muted"></div>
       </div>
       <div class="remote-actions"></div>`;
     card.querySelector(".remote-name").textContent = name;
     card.querySelector(".provider").textContent = PROVIDER_LABELS[type] || type;
-    card.querySelector(".remote-path").textContent = mountPoint || "";
+    card.querySelector(".remote-path").textContent = ownPoint || extPoint || "";
 
     const actions = card.querySelector(".remote-actions");
-    if (mountPoint) {
+    if (ownPoint) {
       actions.append(
-        makeBtn("Open folder", "", () => openPath(mountPoint)),
+        makeBtn("Open folder", "", () => openPath(ownPoint)),
         makeBtn("Unmount", "", async () => {
-          await invoke("unmount_remote", { mountPoint });
+          await invoke("unmount_remote", { mountPoint: ownPoint });
+          setAutomount(getAutomount().filter((n) => n !== name));
           await refreshRemotes();
         })
       );
+    } else if (extPoint) {
+      // Managed elsewhere: only offer to open it. Mounting again would
+      // double-mount; removing would break the external setup's config.
+      actions.append(makeBtn("Open folder", "", () => openPath(extPoint)));
     } else {
       actions.append(
         makeBtn("Mount", "primary", async () => {
           await invoke("mount_remote", { name });
+          setAutomount([...getAutomount(), name]);
           await refreshRemotes();
         }),
         makeBtn("Remove", "danger", async () => {
           if (!confirm(`Disconnect "${name}"? Files in the cloud are not touched.`))
             return;
+          setAutomount(getAutomount().filter((n) => n !== name));
           await invoke("delete_remote", { name });
           await refreshRemotes();
         })
@@ -108,6 +147,22 @@ function makeBtn(label, extra, onClick) {
   return b;
 }
 
+// Remount everything the user had mounted last time.
+async function autoRemount() {
+  const wanted = getAutomount();
+  if (!wanted.length) return;
+  const { dump, own, external } = await fetchState();
+  for (const name of wanted) {
+    if (!(name in dump)) continue; // remote was deleted elsewhere
+    if (own.has(name) || external.has(name)) continue; // already mounted
+    try {
+      await invoke("mount_remote", { name });
+    } catch (e) {
+      showError(`Auto-mount of "${name}" failed: ${e}`);
+    }
+  }
+}
+
 // ---------- boot ----------
 
 async function boot() {
@@ -127,6 +182,7 @@ async function boot() {
     await invoke("start_engine");
     setEngine("ok", status.version || "engine running");
     $("remotes-section").classList.remove("hidden");
+    await autoRemount();
     await refreshRemotes();
   } catch (e) {
     setEngine("err", "engine failed");

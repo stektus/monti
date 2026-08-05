@@ -110,16 +110,30 @@ fn start_engine_locked(app: &AppHandle, eng: &mut Engine) -> Result<(), String> 
     let rclone = find_rclone(app).ok_or("rclone not found")?;
     let port = free_port()?;
     let pass = rand_hex(16)?;
-    let child = Command::new(&rclone)
-        .args([
-            "rcd",
-            &format!("--rc-addr=127.0.0.1:{port}"),
-            &format!("--rc-user={RC_USER}"),
-            &format!("--rc-pass={pass}"),
-        ])
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
+    let mut cmd = Command::new(&rclone);
+    cmd.args([
+        "rcd",
+        &format!("--rc-addr=127.0.0.1:{port}"),
+        &format!("--rc-user={RC_USER}"),
+        &format!("--rc-pass={pass}"),
+    ])
+    .stdin(Stdio::null())
+    .stdout(Stdio::null())
+    .stderr(Stdio::null());
+    // Make the daemon die with us: without this, killing the app bypasses
+    // RunEvent::Exit (e.g. Ctrl+C in dev) and leaves an orphan rcd holding
+    // FUSE mounts.
+    #[cfg(target_os = "linux")]
+    {
+        use std::os::unix::process::CommandExt;
+        unsafe {
+            cmd.pre_exec(|| {
+                libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGTERM);
+                Ok(())
+            });
+        }
+    }
+    let child = cmd
         .spawn()
         .map_err(|e| format!("failed to start rclone: {e}"))?;
 
@@ -147,6 +161,43 @@ fn stop_engine_locked(eng: &mut Engine) {
     }
     eng.port = 0;
     eng.pass.clear();
+}
+
+// ---------- system mounts ----------
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct SystemMount {
+    remote: String,
+    mount_point: String,
+}
+
+/// All rclone FUSE mounts on the machine, including ones created outside
+/// Mountie (systemd units, manual `rclone mount`, another instance).
+fn read_proc_mounts() -> Vec<SystemMount> {
+    let Ok(data) = fs::read_to_string("/proc/mounts") else {
+        return Vec::new();
+    };
+    data.lines()
+        .filter_map(|line| {
+            let mut fields = line.split_whitespace();
+            let src = fields.next()?;
+            let mount_point = fields.next()?;
+            if fields.next()? != "fuse.rclone" {
+                return None;
+            }
+            Some(SystemMount {
+                remote: src.split(':').next()?.to_string(),
+                // /proc/mounts octal-escapes spaces and tabs
+                mount_point: mount_point.replace("\\040", " ").replace("\\011", "\t"),
+            })
+        })
+        .collect()
+}
+
+#[tauri::command]
+fn list_system_mounts() -> Vec<SystemMount> {
+    read_proc_mounts()
 }
 
 // ---------- commands ----------
@@ -295,6 +346,15 @@ fn delete_remote(app: AppHandle, state: State<EngineState>, name: String) -> Res
 
 #[tauri::command]
 fn mount_remote(app: AppHandle, state: State<EngineState>, name: String) -> Result<String, String> {
+    // Refuse to mount a remote that is already mounted anywhere on the
+    // system: two VFS caches over one remote can corrupt files.
+    if let Some(existing) = read_proc_mounts().into_iter().find(|m| m.remote == name) {
+        return Err(format!(
+            "\"{name}\" is already mounted at {} (outside Mountie). \
+             Use that folder, or unmount it there first.",
+            existing.mount_point
+        ));
+    }
     let home = app.path().home_dir().map_err(|e| e.to_string())?;
     let mount_point = home.join("CloudDrives").join(&name);
     fs::create_dir_all(&mount_point).map_err(|e| e.to_string())?;
@@ -342,6 +402,7 @@ pub fn run() {
             delete_remote,
             mount_remote,
             unmount_remote,
+            list_system_mounts,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

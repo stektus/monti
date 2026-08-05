@@ -118,6 +118,12 @@ a { color: var(--accent); }
   border-color: color-mix(in srgb, var(--ok) 40%, transparent);
   background: color-mix(in srgb, var(--ok) 10%, transparent);
 }
+.chip.state.ext {
+  color: var(--warn);
+  border-color: color-mix(in srgb, var(--warn) 40%, transparent);
+  background: color-mix(in srgb, var(--warn) 10%, transparent);
+  cursor: help;
+}
 
 .remote-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 
