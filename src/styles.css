@@ -1,0 +1,187 @@
+:root {
+  --bg: #f6f7f9;
+  --surface: #ffffff;
+  --text: #1c1e21;
+  --muted: #66707b;
+  --border: #e2e6ea;
+  --accent: #2563eb;
+  --accent-text: #ffffff;
+  --ok: #16a34a;
+  --warn: #d97706;
+  --err: #dc2626;
+  --danger-bg: #fef2f2;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #17191c;
+    --surface: #212428;
+    --text: #e8eaed;
+    --muted: #9aa4af;
+    --border: #33383e;
+    --accent: #3b82f6;
+    --danger-bg: #2c1f1f;
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+a { color: var(--accent); }
+
+.topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 24px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+
+.brand { display: flex; align-items: center; gap: 12px; }
+.brand-icon { font-size: 28px; }
+.brand h1 { margin: 0; font-size: 20px; }
+.tagline { margin: 0; font-size: 12.5px; color: var(--muted); }
+
+.engine-pill {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 12.5px;
+  color: var(--muted);
+  max-width: 40%;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.dot {
+  width: 9px; height: 9px; border-radius: 50%;
+  background: var(--muted); flex: none;
+}
+.dot.ok { background: var(--ok); }
+.dot.warn { background: var(--warn); }
+.dot.err { background: var(--err); }
+
+.container { max-width: 760px; margin: 0 auto; padding: 24px; }
+
+.section-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+.section-head h2 { margin: 0; font-size: 17px; }
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 16px 20px;
+  margin-bottom: 12px;
+}
+
+.install-card h2 { margin-top: 0; }
+
+.remote-card {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.remote-title { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.remote-name { font-weight: 600; font-size: 16px; }
+.remote-path { font-size: 12.5px; word-break: break-all; }
+
+.chip {
+  font-size: 11.5px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--muted);
+}
+.chip.state.on {
+  color: var(--ok);
+  border-color: color-mix(in srgb, var(--ok) 40%, transparent);
+  background: color-mix(in srgb, var(--ok) 10%, transparent);
+}
+
+.remote-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+.btn {
+  font: inherit;
+  font-size: 13.5px;
+  padding: 7px 16px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+  transition: filter 0.12s;
+}
+.btn:hover:not(:disabled) { filter: brightness(0.96); }
+.btn:disabled { opacity: 0.55; cursor: default; }
+.btn.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-text);
+}
+.btn.danger { color: var(--err); background: var(--danger-bg); border-color: transparent; }
+
+.muted { color: var(--muted); font-size: 13px; }
+.empty { text-align: center; padding: 24px 0; }
+.error { color: var(--err); font-size: 13.5px; white-space: pre-wrap; }
+.hidden { display: none !important; }
+
+dialog {
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface);
+  color: var(--text);
+  padding: 22px 24px;
+  width: min(420px, 90vw);
+}
+dialog::backdrop { background: rgb(0 0 0 / 45%); }
+dialog h2 { margin: 0 0 14px; font-size: 17px; }
+
+dialog label {
+  display: block;
+  margin-bottom: 12px;
+  font-size: 13.5px;
+  font-weight: 500;
+}
+
+dialog input,
+dialog select {
+  display: block;
+  width: 100%;
+  margin-top: 5px;
+  padding: 8px 10px;
+  font: inherit;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.auth-wait { font-weight: 500; }

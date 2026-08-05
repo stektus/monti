@@ -1,0 +1,355 @@
+// Mountie — a friendly GUI for rclone.
+//
+// Architecture: this backend manages an `rclone rcd` daemon (the "engine")
+// and proxies JSON-RPC calls to it. The frontend never talks to rclone
+// directly and never sees the RC credentials.
+
+use std::{
+    fs,
+    io::Read,
+    net::TcpListener,
+    path::PathBuf,
+    process::{Child, Command, Stdio},
+    sync::Mutex,
+    thread,
+    time::Duration,
+};
+
+use serde::Serialize;
+use serde_json::{json, Value};
+use tauri::{AppHandle, Manager, RunEvent, State};
+
+const RC_USER: &str = "mountie";
+
+#[derive(Default)]
+struct Engine {
+    child: Option<Child>,
+    port: u16,
+    pass: String,
+}
+
+struct EngineState(Mutex<Engine>);
+
+// ---------- helpers ----------
+
+fn app_bin_dir(app: &AppHandle) -> Result<PathBuf, String> {
+    let dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| e.to_string())?
+        .join("bin");
+    Ok(dir)
+}
+
+/// rclone bundled into app data takes priority over the system one,
+/// so "Install engine" works even on distros where rclone is absent.
+fn find_rclone(app: &AppHandle) -> Option<PathBuf> {
+    if let Ok(dir) = app_bin_dir(app) {
+        let bundled = dir.join("rclone");
+        if bundled.is_file() {
+            return Some(bundled);
+        }
+    }
+    let path = std::env::var("PATH").ok()?;
+    std::env::split_paths(&path)
+        .map(|d| d.join("rclone"))
+        .find(|c| c.is_file())
+}
+
+fn rand_hex(n_bytes: usize) -> Result<String, String> {
+    let mut buf = vec![0u8; n_bytes];
+    fs::File::open("/dev/urandom")
+        .and_then(|mut f| f.read_exact(&mut buf))
+        .map_err(|e| e.to_string())?;
+    Ok(buf.iter().map(|b| format!("{b:02x}")).collect())
+}
+
+fn free_port() -> Result<u16, String> {
+    let listener = TcpListener::bind("127.0.0.1:0").map_err(|e| e.to_string())?;
+    let port = listener.local_addr().map_err(|e| e.to_string())?.port();
+    drop(listener); // tiny race window, acceptable for a local daemon
+    Ok(port)
+}
+
+fn rc_raw(port: u16, pass: &str, path: &str, body: &Value) -> Result<Value, String> {
+    if port == 0 {
+        return Err("engine is not running".into());
+    }
+    let client = reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(120))
+        .build()
+        .map_err(|e| e.to_string())?;
+    let resp = client
+        .post(format!("http://127.0.0.1:{port}/{path}"))
+        .basic_auth(RC_USER, Some(pass))
+        .json(body)
+        .send()
+        .map_err(|e| e.to_string())?;
+    let status = resp.status();
+    let value: Value = resp
+        .json()
+        .unwrap_or_else(|e| json!({ "error": e.to_string() }));
+    if status.is_success() {
+        Ok(value)
+    } else {
+        Err(value["error"]
+            .as_str()
+            .unwrap_or("rclone rc call failed")
+            .to_string())
+    }
+}
+
+fn start_engine_locked(app: &AppHandle, eng: &mut Engine) -> Result<(), String> {
+    // Already running?
+    if let Some(child) = &mut eng.child {
+        if matches!(child.try_wait(), Ok(None)) {
+            return Ok(());
+        }
+        eng.child = None;
+    }
+    let rclone = find_rclone(app).ok_or("rclone not found")?;
+    let port = free_port()?;
+    let pass = rand_hex(16)?;
+    let child = Command::new(&rclone)
+        .args([
+            "rcd",
+            &format!("--rc-addr=127.0.0.1:{port}"),
+            &format!("--rc-user={RC_USER}"),
+            &format!("--rc-pass={pass}"),
+        ])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|e| format!("failed to start rclone: {e}"))?;
+
+    // Wait until the RC API answers.
+    for _ in 0..50 {
+        if rc_raw(port, &pass, "rc/noop", &json!({})).is_ok() {
+            eng.child = Some(child);
+            eng.port = port;
+            eng.pass = pass;
+            return Ok(());
+        }
+        thread::sleep(Duration::from_millis(100));
+    }
+    Err("rclone engine did not become ready in 5s".into())
+}
+
+fn stop_engine_locked(eng: &mut Engine) {
+    if let Some(mut child) = eng.child.take() {
+        // Unmount everything first so FUSE mounts don't go stale.
+        let _ = rc_raw(eng.port, &eng.pass, "mount/unmountall", &json!({}));
+        let _ = rc_raw(eng.port, &eng.pass, "core/quit", &json!({}));
+        thread::sleep(Duration::from_millis(300));
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+    eng.port = 0;
+    eng.pass.clear();
+}
+
+// ---------- commands ----------
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct EngineStatus {
+    rclone_found: bool,
+    rclone_path: Option<String>,
+    version: Option<String>,
+    engine_running: bool,
+}
+
+#[tauri::command]
+fn engine_status(app: AppHandle, state: State<EngineState>) -> EngineStatus {
+    let rclone = find_rclone(&app);
+    let version = rclone.as_ref().and_then(|p| {
+        Command::new(p)
+            .arg("version")
+            .output()
+            .ok()
+            .and_then(|o| String::from_utf8(o.stdout).ok())
+            .and_then(|s| s.lines().next().map(str::to_string))
+    });
+    let mut eng = state.0.lock().unwrap();
+    let running = eng
+        .child
+        .as_mut()
+        .is_some_and(|c| matches!(c.try_wait(), Ok(None)));
+    EngineStatus {
+        rclone_found: rclone.is_some(),
+        rclone_path: rclone.map(|p| p.display().to_string()),
+        version,
+        engine_running: running,
+    }
+}
+
+/// Download the latest rclone build into the app data dir — this is what
+/// makes Mountie "just install and click" on distros without rclone.
+#[tauri::command]
+fn install_rclone(app: AppHandle) -> Result<String, String> {
+    let arch = match std::env::consts::ARCH {
+        "x86_64" => "amd64",
+        "aarch64" => "arm64",
+        other => return Err(format!("unsupported architecture: {other}")),
+    };
+    let url = format!("https://downloads.rclone.org/rclone-current-linux-{arch}.zip");
+    let bytes = reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(600))
+        .build()
+        .map_err(|e| e.to_string())?
+        .get(&url)
+        .send()
+        .map_err(|e| format!("download failed: {e}"))?
+        .error_for_status()
+        .map_err(|e| format!("download failed: {e}"))?
+        .bytes()
+        .map_err(|e| e.to_string())?;
+
+    let mut zip = zip::ZipArchive::new(std::io::Cursor::new(bytes)).map_err(|e| e.to_string())?;
+    let bin_dir = app_bin_dir(&app)?;
+    fs::create_dir_all(&bin_dir).map_err(|e| e.to_string())?;
+    let target = bin_dir.join("rclone");
+
+    for i in 0..zip.len() {
+        let mut entry = zip.by_index(i).map_err(|e| e.to_string())?;
+        if entry.name().ends_with("/rclone") {
+            let mut out = fs::File::create(&target).map_err(|e| e.to_string())?;
+            std::io::copy(&mut entry, &mut out).map_err(|e| e.to_string())?;
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                fs::set_permissions(&target, fs::Permissions::from_mode(0o755))
+                    .map_err(|e| e.to_string())?;
+            }
+            return Ok(target.display().to_string());
+        }
+    }
+    Err("rclone binary not found inside the downloaded archive".into())
+}
+
+#[tauri::command]
+fn start_engine(app: AppHandle, state: State<EngineState>) -> Result<(), String> {
+    let mut eng = state.0.lock().unwrap();
+    start_engine_locked(&app, &mut eng)
+}
+
+/// Generic proxy: the frontend calls rclone's RC API through this,
+/// credentials never leave the Rust side.
+#[tauri::command]
+fn rc(state: State<EngineState>, path: String, body: Value) -> Result<Value, String> {
+    let (port, pass) = {
+        let eng = state.0.lock().unwrap();
+        (eng.port, eng.pass.clone())
+    };
+    rc_raw(port, &pass, &path, &body)
+}
+
+/// Create a remote via the rclone CLI: for OAuth providers it opens the
+/// system browser and blocks until the user authorizes. The engine is
+/// restarted afterwards so the daemon picks up the new config.
+#[tauri::command]
+fn create_remote(
+    app: AppHandle,
+    state: State<EngineState>,
+    name: String,
+    provider: String,
+) -> Result<(), String> {
+    let ok_name = !name.is_empty()
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
+    if !ok_name {
+        return Err("remote name may contain only letters, digits, '-' and '_'".into());
+    }
+    const ALLOWED: &[&str] = &["drive", "dropbox", "onedrive", "box", "pcloud", "yandex"];
+    if !ALLOWED.contains(&provider.as_str()) {
+        return Err(format!("unsupported provider: {provider}"));
+    }
+    let rclone = find_rclone(&app).ok_or("rclone not found")?;
+    let out = Command::new(&rclone)
+        .args(["config", "create", &name, &provider])
+        .stdin(Stdio::null())
+        .output()
+        .map_err(|e| e.to_string())?;
+    if !out.status.success() {
+        return Err(String::from_utf8_lossy(&out.stderr).trim().to_string());
+    }
+    let mut eng = state.0.lock().unwrap();
+    stop_engine_locked(&mut eng);
+    start_engine_locked(&app, &mut eng)
+}
+
+#[tauri::command]
+fn delete_remote(app: AppHandle, state: State<EngineState>, name: String) -> Result<(), String> {
+    let mut eng = state.0.lock().unwrap();
+    rc_raw(
+        eng.port,
+        &eng.pass,
+        "config/delete",
+        &json!({ "name": name }),
+    )?;
+    stop_engine_locked(&mut eng);
+    start_engine_locked(&app, &mut eng)
+}
+
+#[tauri::command]
+fn mount_remote(app: AppHandle, state: State<EngineState>, name: String) -> Result<String, String> {
+    let home = app.path().home_dir().map_err(|e| e.to_string())?;
+    let mount_point = home.join("CloudDrives").join(&name);
+    fs::create_dir_all(&mount_point).map_err(|e| e.to_string())?;
+    let eng = state.0.lock().unwrap();
+    rc_raw(
+        eng.port,
+        &eng.pass,
+        "mount/mount",
+        &json!({
+            "fs": format!("{name}:"),
+            "mountPoint": mount_point,
+            // CacheMode 3 = "full": required so apps like KeePassXC can
+            // save files in place (atomic rename over FUSE).
+            "vfsOpt": { "CacheMode": 3 },
+        }),
+    )?;
+    Ok(mount_point.display().to_string())
+}
+
+#[tauri::command]
+fn unmount_remote(state: State<EngineState>, mount_point: String) -> Result<(), String> {
+    let eng = state.0.lock().unwrap();
+    rc_raw(
+        eng.port,
+        &eng.pass,
+        "mount/unmount",
+        &json!({ "mountPoint": mount_point }),
+    )?;
+    Ok(())
+}
+
+// ---------- entry ----------
+
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
+pub fn run() {
+    tauri::Builder::default()
+        .plugin(tauri_plugin_opener::init())
+        .manage(EngineState(Mutex::new(Engine::default())))
+        .invoke_handler(tauri::generate_handler![
+            engine_status,
+            install_rclone,
+            start_engine,
+            rc,
+            create_remote,
+            delete_remote,
+            mount_remote,
+            unmount_remote,
+        ])
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            if let RunEvent::Exit = event {
+                let state: State<EngineState> = app.state();
+                let mut eng = state.0.lock().unwrap();
+                stop_engine_locked(&mut eng);
+            }
+        });
+}

@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="stylesheet" href="styles.css" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mountie</title>
+    <script type="module" src="/main.js" defer></script>
+  </head>
+
+  <body>
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-icon">☁️</span>
+        <div>
+          <h1>Mountie</h1>
+          <p class="tagline">Cloud storage, mounted like local drives</p>
+        </div>
+      </div>
+      <div class="engine-pill" id="engine-pill">
+        <span class="dot" id="engine-dot"></span>
+        <span id="engine-label">starting…</span>
+      </div>
+    </header>
+
+    <main class="container">
+      <!-- Shown only when rclone is missing -->
+      <section class="card install-card hidden" id="install-card">
+        <h2>One more step</h2>
+        <p>
+          Mountie uses the open-source
+          <a href="https://rclone.org" target="_blank" rel="noreferrer">rclone</a>
+          engine to talk to cloud providers. It isn't installed yet — click below
+          and Mountie will download it automatically (no admin rights needed).
+        </p>
+        <button class="btn primary" id="install-btn">Download engine</button>
+        <p class="muted" id="install-status"></p>
+      </section>
+
+      <section id="remotes-section" class="hidden">
+        <div class="section-head">
+          <h2>Your clouds</h2>
+          <button class="btn primary" id="add-btn">＋ Add cloud</button>
+        </div>
+        <div id="remotes-list"></div>
+        <p class="muted empty hidden" id="empty-hint">
+          No clouds connected yet. Click <b>Add cloud</b> — sign in through your
+          browser, and your files will appear in a folder on this computer.
+        </p>
+      </section>
+
+      <p class="error hidden" id="global-error"></p>
+    </main>
+
+    <!-- Add-cloud dialog -->
+    <dialog id="add-dialog">
+      <form method="dialog" id="add-form">
+        <h2>Add a cloud</h2>
+        <label>
+          Provider
+          <select id="add-provider">
+            <option value="drive">Google Drive</option>
+            <option value="dropbox">Dropbox</option>
+            <option value="onedrive">OneDrive (experimental)</option>
+            <option value="box">Box</option>
+            <option value="pcloud">pCloud</option>
+            <option value="yandex">Yandex Disk</option>
+          </select>
+        </label>
+        <label>
+          Name <span class="muted">(folder will be called this)</span>
+          <input id="add-name" placeholder="e.g. gdrive" pattern="[A-Za-z0-9_-]+" required />
+        </label>
+        <p class="muted">
+          Your browser will open — sign in and allow access. Mountie never sees
+          your password; the access token is stored locally by rclone.
+        </p>
+        <p class="muted auth-wait hidden" id="add-status">
+          ⏳ Waiting for you to authorize in the browser…
+        </p>
+        <div class="dialog-actions">
+          <button class="btn" type="button" id="add-cancel">Cancel</button>
+          <button class="btn primary" type="submit" id="add-submit">Connect</button>
+        </div>
+      </form>
+    </dialog>
+  </body>
+</html>
