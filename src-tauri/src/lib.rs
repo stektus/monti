@@ -30,6 +30,11 @@ struct Engine {
 
 struct EngineState(Mutex<Engine>);
 
+/// The in-flight `rclone config create` process (browser OAuth), if any.
+/// Kept separately so the Cancel button can kill it while `create_remote`
+/// is still polling.
+struct CreateState(Mutex<Option<Child>>);
+
 // ---------- helpers ----------
 
 fn app_bin_dir(app: &AppHandle) -> Result<PathBuf, String> {
@@ -63,6 +68,22 @@ fn rand_hex(n_bytes: usize) -> Result<String, String> {
         .map_err(|e| e.to_string())?;
     Ok(buf.iter().map(|b| format!("{b:02x}")).collect())
 }
+
+/// Make a child process receive SIGTERM when we die, so no rclone process
+/// ever outlives the app (covers dev-mode Ctrl+C and crashes).
+#[cfg(target_os = "linux")]
+fn die_with_parent(cmd: &mut Command) {
+    use std::os::unix::process::CommandExt;
+    unsafe {
+        cmd.pre_exec(|| {
+            libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGTERM);
+            Ok(())
+        });
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+fn die_with_parent(_cmd: &mut Command) {}
 
 fn free_port() -> Result<u16, String> {
     let listener = TcpListener::bind("127.0.0.1:0").map_err(|e| e.to_string())?;
@@ -120,19 +141,7 @@ fn start_engine_locked(app: &AppHandle, eng: &mut Engine) -> Result<(), String> 
     .stdin(Stdio::null())
     .stdout(Stdio::null())
     .stderr(Stdio::null());
-    // Make the daemon die with us: without this, killing the app bypasses
-    // RunEvent::Exit (e.g. Ctrl+C in dev) and leaves an orphan rcd holding
-    // FUSE mounts.
-    #[cfg(target_os = "linux")]
-    {
-        use std::os::unix::process::CommandExt;
-        unsafe {
-            cmd.pre_exec(|| {
-                libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGTERM);
-                Ok(())
-            });
-        }
-    }
+    die_with_parent(&mut cmd);
     let child = cmd
         .spawn()
         .map_err(|e| format!("failed to start rclone: {e}"))?;
@@ -297,12 +306,15 @@ fn rc(state: State<EngineState>, path: String, body: Value) -> Result<Value, Str
 }
 
 /// Create a remote via the rclone CLI: for OAuth providers it opens the
-/// system browser and blocks until the user authorizes. The engine is
-/// restarted afterwards so the daemon picks up the new config.
+/// system browser. We poll the child instead of blocking on it, so the
+/// user can cancel (browser closed, changed their mind) and we time out
+/// instead of hanging forever. The engine is restarted afterwards so the
+/// daemon picks up the new config.
 #[tauri::command]
 fn create_remote(
     app: AppHandle,
     state: State<EngineState>,
+    create: State<CreateState>,
     name: String,
     provider: String,
 ) -> Result<(), String> {
@@ -318,17 +330,81 @@ fn create_remote(
         return Err(format!("unsupported provider: {provider}"));
     }
     let rclone = find_rclone(&app).ok_or("rclone not found")?;
-    let out = Command::new(&rclone)
-        .args(["config", "create", &name, &provider])
-        .stdin(Stdio::null())
-        .output()
-        .map_err(|e| e.to_string())?;
-    if !out.status.success() {
-        return Err(String::from_utf8_lossy(&out.stderr).trim().to_string());
+
+    {
+        let mut guard = create.0.lock().unwrap();
+        if guard.is_some() {
+            return Err("another connection attempt is already in progress".into());
+        }
+        let mut cmd = Command::new(&rclone);
+        cmd.args(["config", "create", &name, &provider])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped());
+        die_with_parent(&mut cmd);
+        *guard = Some(cmd.spawn().map_err(|e| e.to_string())?);
     }
-    let mut eng = state.0.lock().unwrap();
-    stop_engine_locked(&mut eng);
-    start_engine_locked(&app, &mut eng)
+
+    const TIMEOUT: Duration = Duration::from_secs(300);
+    let started = std::time::Instant::now();
+    let result = loop {
+        thread::sleep(Duration::from_millis(500));
+        let mut guard = create.0.lock().unwrap();
+        let Some(child) = guard.as_mut() else {
+            // Taken away by cancel_create_remote.
+            break Err("Authorization cancelled.".to_string());
+        };
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                let mut child = guard.take().unwrap();
+                let mut stderr = String::new();
+                if let Some(mut pipe) = child.stderr.take() {
+                    let _ = pipe.read_to_string(&mut stderr);
+                }
+                let _ = child.wait();
+                if status.success() {
+                    break Ok(());
+                }
+                let msg = stderr.trim();
+                break Err(if msg.is_empty() {
+                    "rclone config create failed".to_string()
+                } else {
+                    msg.to_string()
+                });
+            }
+            Ok(None) => {
+                if started.elapsed() > TIMEOUT {
+                    let mut child = guard.take().unwrap();
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    break Err("Authorization timed out after 5 minutes.".to_string());
+                }
+            }
+            Err(e) => {
+                if let Some(mut child) = guard.take() {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                }
+                break Err(e.to_string());
+            }
+        }
+    };
+
+    if result.is_ok() {
+        let mut eng = state.0.lock().unwrap();
+        stop_engine_locked(&mut eng);
+        start_engine_locked(&app, &mut eng)?;
+    }
+    result
+}
+
+/// Abort an in-flight browser authorization (Cancel button).
+#[tauri::command]
+fn cancel_create_remote(create: State<CreateState>) {
+    if let Some(mut child) = create.0.lock().unwrap().take() {
+        let _ = child.kill();
+        let _ = child.wait();
+    }
 }
 
 #[tauri::command]
@@ -393,12 +469,14 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .manage(EngineState(Mutex::new(Engine::default())))
+        .manage(CreateState(Mutex::new(None)))
         .invoke_handler(tauri::generate_handler![
             engine_status,
             install_rclone,
             start_engine,
             rc,
             create_remote,
+            cancel_create_remote,
             delete_remote,
             mount_remote,
             unmount_remote,
@@ -408,6 +486,11 @@ pub fn run() {
         .expect("error while building tauri application")
         .run(|app, event| {
             if let RunEvent::Exit = event {
+                let create: State<CreateState> = app.state();
+                if let Some(mut child) = create.0.lock().unwrap().take() {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                }
                 let state: State<EngineState> = app.state();
                 let mut eng = state.0.lock().unwrap();
                 stop_engine_locked(&mut eng);

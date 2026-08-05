@@ -209,12 +209,26 @@ window.addEventListener("DOMContentLoaded", () => {
     }
   });
 
+  let authInProgress = false;
+  let userCancelled = false;
+
+  const abortAuth = async () => {
+    if (!authInProgress) return;
+    userCancelled = true;
+    await invoke("cancel_create_remote").catch(() => {});
+  };
+
   $("add-btn").addEventListener("click", () => {
     $("add-form").reset();
     $("add-status").classList.add("hidden");
     $("add-dialog").showModal();
   });
-  $("add-cancel").addEventListener("click", () => $("add-dialog").close());
+  $("add-cancel").addEventListener("click", async () => {
+    await abortAuth();
+    $("add-dialog").close();
+  });
+  // Esc key closes the dialog — abort a pending authorization too.
+  $("add-dialog").addEventListener("cancel", () => abortAuth());
 
   $("add-form").addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -223,13 +237,17 @@ window.addEventListener("DOMContentLoaded", () => {
     $("add-submit").disabled = true;
     $("add-status").classList.remove("hidden");
     showError("");
+    authInProgress = true;
+    userCancelled = false;
     try {
       await invoke("create_remote", { name, provider });
       $("add-dialog").close();
       await refreshRemotes();
     } catch (err) {
-      showError(String(err));
+      // Deliberate cancel isn't an error worth shouting about.
+      if (!userCancelled) showError(String(err));
     } finally {
+      authInProgress = false;
       $("add-submit").disabled = false;
       $("add-status").classList.add("hidden");
     }
