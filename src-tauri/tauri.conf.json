@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "mountie",
-  "version": "0.1.0",
-  "identifier": "com.oxigen.mountie",
+  "productName": "Monti",
+  "version": "0.2.0",
+  "identifier": "app.monti.desktop",
   "build": {
     "frontendDist": "../src"
   },
@@ -10,11 +10,11 @@
     "withGlobalTauri": true,
     "windows": [
       {
-        "title": "Mountie — cloud drives",
-        "width": 860,
-        "height": 640,
-        "minWidth": 560,
-        "minHeight": 420
+        "title": "Monti",
+        "width": 960,
+        "height": 680,
+        "minWidth": 600,
+        "minHeight": 440
       }
     ],
     "security": {
@@ -25,8 +25,8 @@
     "active": true,
     "targets": ["appimage", "deb", "rpm"],
     "category": "Utility",
-    "shortDescription": "Mount cloud storage as local drives",
-    "longDescription": "Mountie mounts Google Drive, Dropbox, OneDrive and other cloud storage as regular local folders. A friendly GUI on top of the rclone engine.",
+    "shortDescription": "Mount your clouds",
+    "longDescription": "Monti mounts Google Drive, Dropbox, OneDrive and other cloud storage as regular local folders. A friendly GUI on top of the rclone engine.",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

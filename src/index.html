@@ -4,55 +4,132 @@
     <meta charset="UTF-8" />
     <link rel="stylesheet" href="styles.css" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Mountie</title>
+    <title>Monti</title>
     <script type="module" src="/main.js" defer></script>
   </head>
 
   <body>
     <header class="topbar">
       <div class="brand">
-        <span class="brand-icon">☁️</span>
+        <svg class="brand-logo" viewBox="0 0 64 64" aria-hidden="true">
+          <defs>
+            <linearGradient id="lg-sky" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0" stop-color="#1e40af"/>
+              <stop offset="1" stop-color="#60a5fa"/>
+            </linearGradient>
+          </defs>
+          <rect x="2" y="2" width="60" height="60" rx="14" fill="url(#lg-sky)"/>
+          <path d="M 4 58 L 27 24 L 39 42 L 47 32 L 60 52 L 60 58 Z" fill="#172554"/>
+          <path d="M 27 24 L 32.6 32.6 L 30.2 32 L 28 34 L 25.6 32 L 23.4 33.6 Z" fill="#eff6ff"/>
+          <g fill="#ffffff">
+            <ellipse cx="25" cy="22" rx="7.5" ry="4.8"/>
+            <ellipse cx="33" cy="20" rx="9" ry="5.6"/>
+            <ellipse cx="41" cy="22.5" rx="7" ry="4.2"/>
+            <rect x="20" y="21.5" width="26" height="4.5" rx="2.2"/>
+          </g>
+        </svg>
         <div>
-          <h1>Mountie</h1>
-          <p class="tagline">Cloud storage, mounted like local drives</p>
+          <h1>Monti</h1>
+          <p class="tagline">Mount your clouds</p>
         </div>
       </div>
-      <div class="engine-pill" id="engine-pill">
+
+      <nav class="seg" role="tablist">
+        <button class="seg-btn active" data-view="drives">Drives</button>
+        <button class="seg-btn" data-view="settings">Settings</button>
+      </nav>
+
+      <div class="engine-pill" id="engine-pill" title="Engine status">
         <span class="dot" id="engine-dot"></span>
         <span id="engine-label">starting…</span>
       </div>
     </header>
 
     <main class="container">
-      <!-- Shown only when rclone is missing -->
-      <section class="card install-card hidden" id="install-card">
-        <h2>One more step</h2>
-        <p>
-          Mountie uses the open-source
-          <a href="https://rclone.org" target="_blank" rel="noreferrer">rclone</a>
-          engine to talk to cloud providers. It isn't installed yet — click below
-          and Mountie will download it automatically (no admin rights needed).
-        </p>
-        <button class="btn primary" id="install-btn">Download engine</button>
-        <p class="muted" id="install-status"></p>
-      </section>
+      <!-- ============ DRIVES VIEW ============ -->
+      <div id="view-drives">
+        <!-- Shown only when rclone is missing -->
+        <section class="card install-card hidden" id="install-card">
+          <h2>One more step</h2>
+          <p>
+            Monti uses the open-source
+            <a href="https://rclone.org" target="_blank" rel="noreferrer">rclone</a>
+            engine to talk to cloud providers. It isn't installed yet — click
+            below and Monti will download it automatically (no admin rights
+            needed).
+          </p>
+          <button class="btn primary" id="install-btn">Download engine</button>
+          <p class="muted" id="install-status"></p>
+        </section>
 
-      <section id="remotes-section" class="hidden">
-        <div class="section-head">
-          <h2>Your clouds</h2>
-          <button class="btn primary" id="add-btn">＋ Add cloud</button>
-        </div>
-        <div id="remotes-list"></div>
-        <p class="muted empty hidden" id="empty-hint">
-          No clouds connected yet. Click <b>Add cloud</b> — sign in through your
-          browser, and your files will appear in a folder on this computer.
-        </p>
-      </section>
+        <section id="remotes-section" class="hidden">
+          <div class="section-head">
+            <h2>Your drives</h2>
+            <button class="btn primary" id="add-btn">＋ Add cloud</button>
+          </div>
+          <div id="remotes-list" class="grid"></div>
+          <div class="empty hidden" id="empty-hint">
+            <div class="empty-cloud">☁️</div>
+            <h3>No clouds connected yet</h3>
+            <p class="muted">
+              Click <b>Add cloud</b>, sign in through your browser, and your
+              files will appear as a regular folder on this computer.
+            </p>
+          </div>
+        </section>
+      </div>
+
+      <!-- ============ SETTINGS VIEW ============ -->
+      <div id="view-settings" class="hidden">
+        <section class="card">
+          <h2>General</h2>
+          <div class="setting-row">
+            <div>
+              <div class="setting-name">Start Monti on login</div>
+              <div class="muted">Your drives will be ready as soon as you sign in.</div>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="opt-autostart" />
+              <span class="slider"></span>
+            </label>
+          </div>
+          <div class="setting-row">
+            <div>
+              <div class="setting-name">Keep running in the tray</div>
+              <div class="muted" id="tray-hint">
+                Closing the window keeps drives mounted; quit from the tray icon.
+              </div>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="opt-tray" />
+              <span class="slider"></span>
+            </label>
+          </div>
+        </section>
+
+        <section class="card">
+          <h2>About</h2>
+          <div class="about-rows">
+            <div class="about-row"><span class="muted">Monti</span><span id="about-version">—</span></div>
+            <div class="about-row"><span class="muted">Engine</span><span id="about-rclone">—</span></div>
+            <div class="about-row"><span class="muted">Engine path</span><span id="about-rclone-path" class="mono">—</span></div>
+            <div class="about-row"><span class="muted">Connections file</span><span id="about-config" class="mono">—</span></div>
+          </div>
+          <div class="about-actions">
+            <button class="btn" id="open-config-btn">Open config folder</button>
+            <a class="btn" href="https://github.com" target="_blank" rel="noreferrer" id="about-github">GitHub</a>
+          </div>
+          <p class="muted">
+            Free and open source, MIT license. Powered by
+            <a href="https://rclone.org" target="_blank" rel="noreferrer">rclone</a>.
+          </p>
+        </section>
+      </div>
 
       <p class="error hidden" id="global-error"></p>
     </main>
 
-    <!-- Add-cloud dialog -->
+    <!-- ============ ADD CLOUD DIALOG ============ -->
     <dialog id="add-dialog">
       <form method="dialog" id="add-form">
         <h2>Add a cloud</h2>
@@ -68,11 +145,11 @@
           </select>
         </label>
         <label>
-          Name <span class="muted">(folder will be called this)</span>
+          Name <span class="muted">(the folder will be called this)</span>
           <input id="add-name" placeholder="e.g. gdrive" pattern="[A-Za-z0-9_-]+" required />
         </label>
         <p class="muted">
-          Your browser will open — sign in and allow access. Mountie never sees
+          Your browser will open — sign in and allow access. Monti never sees
           your password; the access token is stored locally by rclone.
         </p>
         <p class="muted auth-wait hidden" id="add-status">
@@ -81,6 +158,26 @@
         <div class="dialog-actions">
           <button class="btn" type="button" id="add-cancel">Cancel</button>
           <button class="btn primary" type="submit" id="add-submit">Connect</button>
+        </div>
+      </form>
+    </dialog>
+
+    <!-- ============ DRIVE SETTINGS DIALOG ============ -->
+    <dialog id="remote-dialog">
+      <form method="dialog" id="remote-form">
+        <h2 id="remote-title">Drive settings</h2>
+        <label>
+          Mount folder
+          <input id="remote-mountpoint" placeholder="~/CloudDrives/…" />
+        </label>
+        <p class="muted">Leave empty for the default. Applies on next mount.</p>
+        <label class="check-row">
+          <input type="checkbox" id="remote-automount" />
+          <span>Mount automatically when Monti starts</span>
+        </label>
+        <div class="dialog-actions">
+          <button class="btn" type="button" id="remote-cancel">Cancel</button>
+          <button class="btn primary" type="submit">Save</button>
         </div>
       </form>
     </dialog>

@@ -1,0 +1,54 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <!-- macOS Big Sur-style rounded square -->
+    <clipPath id="squircle">
+      <rect x="64" y="64" width="896" height="896" rx="200"/>
+    </clipPath>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1e40af"/>
+      <stop offset="0.45" stop-color="#2563eb"/>
+      <stop offset="1" stop-color="#60a5fa"/>
+    </linearGradient>
+    <linearGradient id="peakL" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1e3a8a"/>
+      <stop offset="1" stop-color="#172554"/>
+    </linearGradient>
+    <linearGradient id="peakR" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#31479e"/>
+      <stop offset="1" stop-color="#1e2f6e"/>
+    </linearGradient>
+    <linearGradient id="cloudg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#dbeafe"/>
+    </linearGradient>
+  </defs>
+
+  <g clip-path="url(#squircle)">
+    <rect x="64" y="64" width="896" height="896" fill="url(#sky)"/>
+
+    <!-- back ridge -->
+    <path d="M 64 960 L 320 520 L 470 760 L 560 640 L 700 860 L 960 960 Z"
+          fill="url(#peakR)" opacity="0.85"/>
+
+    <!-- main peak (Hoverla) -->
+    <path d="M 64 960 L 430 380 L 620 660 L 760 500 L 960 830 L 960 960 Z"
+          fill="url(#peakL)"/>
+
+    <!-- snow cap on the main peak -->
+    <path d="M 430 380 L 522 522 L 486 512 L 452 546 L 412 512 L 372 540 L 430 380 Z"
+          fill="#eff6ff"/>
+    <!-- snow cap on the right peak -->
+    <path d="M 760 500 L 826 610 L 792 596 L 766 622 L 730 594 L 760 500 Z"
+          fill="#dbeafe" opacity="0.9"/>
+
+    <!-- cloud hugging the summit -->
+    <g fill="url(#cloudg)">
+      <ellipse cx="404" cy="360" rx="118" ry="74"/>
+      <ellipse cx="524" cy="330" rx="140" ry="88"/>
+      <ellipse cx="646" cy="372" rx="110" ry="66"/>
+      <rect x="330" y="358" width="390" height="60" rx="30"/>
+    </g>
+    <!-- soft cloud shadow -->
+    <ellipse cx="530" cy="424" rx="230" ry="26" fill="#172554" opacity="0.18"/>
+  </g>
+</svg>

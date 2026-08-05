@@ -1,4 +1,4 @@
-// Mountie — a friendly GUI for rclone.
+// Monti — mount your clouds. A friendly GUI for rclone.
 //
 // Architecture: this backend manages an `rclone rcd` daemon (the "engine")
 // and proxies JSON-RPC calls to it. The frontend never talks to rclone
@@ -10,16 +10,33 @@ use std::{
     net::TcpListener,
     path::PathBuf,
     process::{Child, Command, Stdio},
-    sync::Mutex,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Mutex,
+    },
     thread,
     time::Duration,
 };
 
 use serde::Serialize;
 use serde_json::{json, Value};
-use tauri::{AppHandle, Manager, RunEvent, State};
+use tauri::{
+    menu::{Menu, MenuItem, PredefinedMenuItem},
+    tray::TrayIconBuilder,
+    AppHandle, Manager, RunEvent, State, WindowEvent,
+};
 
-const RC_USER: &str = "mountie";
+const RC_USER: &str = "monti";
+
+/// Runtime toggles shared between the window-event handler and commands.
+struct Flags {
+    /// Closing the window hides to tray instead of quitting (only honored
+    /// when the tray actually built — see `tray_ok`).
+    close_to_tray: AtomicBool,
+    /// Whether the system tray icon was created successfully. On Linux this
+    /// needs a StatusNotifier host (present on KDE/GNOME with extension).
+    tray_ok: AtomicBool,
+}
 
 #[derive(Default)]
 struct Engine {
@@ -182,7 +199,7 @@ struct SystemMount {
 }
 
 /// All rclone FUSE mounts on the machine, including ones created outside
-/// Mountie (systemd units, manual `rclone mount`, another instance).
+/// Monti (systemd units, manual `rclone mount`, another instance).
 fn read_proc_mounts() -> Vec<SystemMount> {
     let Ok(data) = fs::read_to_string("/proc/mounts") else {
         return Vec::new();
@@ -245,7 +262,7 @@ fn engine_status(app: AppHandle, state: State<EngineState>) -> EngineStatus {
 }
 
 /// Download the latest rclone build into the app data dir — this is what
-/// makes Mountie "just install and click" on distros without rclone.
+/// makes Monti "just install and click" on distros without rclone.
 #[tauri::command]
 fn install_rclone(app: AppHandle) -> Result<String, String> {
     let arch = match std::env::consts::ARCH {
@@ -391,9 +408,31 @@ fn create_remote(
     };
 
     if result.is_ok() {
+        // The daemon reads the config at startup, so it must be restarted
+        // to see the remote the CLI just created. Preserve existing mounts
+        // across the restart — users should never lose a mounted drive
+        // because they added another one.
         let mut eng = state.0.lock().unwrap();
+        let mounts = rc_raw(eng.port, &eng.pass, "mount/listmounts", &json!({}))
+            .ok()
+            .and_then(|v| v.get("mountPoints").cloned());
         stop_engine_locked(&mut eng);
         start_engine_locked(&app, &mut eng)?;
+        if let Some(Value::Array(list)) = mounts {
+            for m in list {
+                if let (Some(fs), Some(mp)) = (
+                    m.get("Fs").and_then(Value::as_str),
+                    m.get("MountPoint").and_then(Value::as_str),
+                ) {
+                    let _ = rc_raw(
+                        eng.port,
+                        &eng.pass,
+                        "mount/mount",
+                        &json!({ "fs": fs, "mountPoint": mp, "vfsOpt": { "CacheMode": 3 } }),
+                    );
+                }
+            }
+        }
     }
     result
 }
@@ -407,33 +446,56 @@ fn cancel_create_remote(create: State<CreateState>) {
     }
 }
 
+/// Delete a remote from the rclone config. Done through the RC API, which
+/// updates both the daemon's memory and the config file — no engine
+/// restart, so other mounted drives are untouched.
 #[tauri::command]
-fn delete_remote(app: AppHandle, state: State<EngineState>, name: String) -> Result<(), String> {
-    let mut eng = state.0.lock().unwrap();
+fn delete_remote(state: State<EngineState>, name: String) -> Result<(), String> {
+    let eng = state.0.lock().unwrap();
     rc_raw(
         eng.port,
         &eng.pass,
         "config/delete",
         &json!({ "name": name }),
     )?;
-    stop_engine_locked(&mut eng);
-    start_engine_locked(&app, &mut eng)
+    Ok(())
 }
 
 #[tauri::command]
-fn mount_remote(app: AppHandle, state: State<EngineState>, name: String) -> Result<String, String> {
+fn mount_remote(
+    app: AppHandle,
+    state: State<EngineState>,
+    name: String,
+    mount_point: Option<String>,
+) -> Result<String, String> {
     // Refuse to mount a remote that is already mounted anywhere on the
     // system: two VFS caches over one remote can corrupt files.
     if let Some(existing) = read_proc_mounts().into_iter().find(|m| m.remote == name) {
         return Err(format!(
-            "\"{name}\" is already mounted at {} (outside Mountie). \
+            "\"{name}\" is already mounted at {} (outside Monti). \
              Use that folder, or unmount it there first.",
             existing.mount_point
         ));
     }
-    let home = app.path().home_dir().map_err(|e| e.to_string())?;
-    let mount_point = home.join("CloudDrives").join(&name);
+    let mount_point = match mount_point.filter(|s| !s.trim().is_empty()) {
+        Some(custom) => PathBuf::from(custom),
+        None => {
+            let home = app.path().home_dir().map_err(|e| e.to_string())?;
+            home.join("CloudDrives").join(&name)
+        }
+    };
     fs::create_dir_all(&mount_point).map_err(|e| e.to_string())?;
+    // FUSE needs an empty directory to mount over.
+    if fs::read_dir(&mount_point)
+        .map_err(|e| e.to_string())?
+        .next()
+        .is_some()
+    {
+        return Err(format!(
+            "mount folder {} is not empty — pick an empty folder",
+            mount_point.display()
+        ));
+    }
     let eng = state.0.lock().unwrap();
     rc_raw(
         eng.port,
@@ -462,6 +524,147 @@ fn unmount_remote(state: State<EngineState>, mount_point: String) -> Result<(), 
     Ok(())
 }
 
+/// Unmount an rclone mount that was made outside Monti (systemd unit,
+/// manual `rclone mount`). Validated against /proc/mounts so this can
+/// never be pointed at an arbitrary path.
+#[tauri::command]
+fn unmount_external(mount_point: String) -> Result<(), String> {
+    if !read_proc_mounts()
+        .iter()
+        .any(|m| m.mount_point == mount_point)
+    {
+        return Err("not an rclone mount".into());
+    }
+    for bin in ["fusermount3", "fusermount"] {
+        match Command::new(bin).args(["-uz", &mount_point]).output() {
+            Ok(out) if out.status.success() => return Ok(()),
+            Ok(out) => {
+                return Err(String::from_utf8_lossy(&out.stderr).trim().to_string());
+            }
+            Err(_) => continue, // binary not found, try the next name
+        }
+    }
+    Err("fusermount not found".into())
+}
+
+// ---------- app settings ----------
+
+fn autostart_file(app: &AppHandle) -> Result<PathBuf, String> {
+    Ok(app
+        .path()
+        .config_dir()
+        .map_err(|e| e.to_string())?
+        .join("autostart")
+        .join("monti.desktop"))
+}
+
+#[tauri::command]
+fn get_autostart(app: AppHandle) -> bool {
+    autostart_file(&app).map(|p| p.is_file()).unwrap_or(false)
+}
+
+/// Start Monti on login via the XDG autostart spec (KDE, GNOME, XFCE, …).
+#[tauri::command]
+fn set_autostart(app: AppHandle, enabled: bool) -> Result<(), String> {
+    let file = autostart_file(&app)?;
+    if !enabled {
+        if file.exists() {
+            fs::remove_file(&file).map_err(|e| e.to_string())?;
+        }
+        return Ok(());
+    }
+    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+    if let Some(dir) = file.parent() {
+        fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    }
+    let entry = format!(
+        "[Desktop Entry]\n\
+         Type=Application\n\
+         Name=Monti\n\
+         Comment=Mount your clouds\n\
+         Exec=\"{}\"\n\
+         Icon=monti\n\
+         Terminal=false\n\
+         X-GNOME-Autostart-enabled=true\n",
+        exe.display()
+    );
+    fs::write(&file, entry).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn set_close_to_tray(flags: State<Flags>, enabled: bool) {
+    flags.close_to_tray.store(enabled, Ordering::Relaxed);
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AppInfo {
+    app_version: String,
+    rclone_version: Option<String>,
+    rclone_path: Option<String>,
+    config_path: Option<String>,
+    tray_available: bool,
+}
+
+#[tauri::command]
+fn app_info(app: AppHandle, flags: State<Flags>) -> AppInfo {
+    let rclone = find_rclone(&app);
+    let rclone_version = rclone.as_ref().and_then(|p| {
+        Command::new(p)
+            .arg("version")
+            .output()
+            .ok()
+            .and_then(|o| String::from_utf8(o.stdout).ok())
+            .and_then(|s| s.lines().next().map(str::to_string))
+    });
+    // `rclone config file` prints a header line, then the path.
+    let config_path = rclone.as_ref().and_then(|p| {
+        Command::new(p)
+            .args(["config", "file"])
+            .output()
+            .ok()
+            .and_then(|o| String::from_utf8(o.stdout).ok())
+            .and_then(|s| s.lines().last().map(str::to_string))
+    });
+    AppInfo {
+        app_version: app.package_info().version.to_string(),
+        rclone_version,
+        rclone_path: rclone.map(|p| p.display().to_string()),
+        config_path,
+        tray_available: flags.tray_ok.load(Ordering::Relaxed),
+    }
+}
+
+// ---------- tray ----------
+
+fn build_tray(app: &AppHandle) -> tauri::Result<()> {
+    let show = MenuItem::with_id(app, "show", "Open Monti", true, None::<&str>)?;
+    let sep = PredefinedMenuItem::separator(app)?;
+    let quit = MenuItem::with_id(app, "quit", "Quit (unmounts drives)", true, None::<&str>)?;
+    let menu = Menu::with_items(app, &[&show, &sep, &quit])?;
+    TrayIconBuilder::with_id("monti-tray")
+        .icon(
+            app.default_window_icon()
+                .expect("bundle has icons")
+                .clone(),
+        )
+        .tooltip("Monti — cloud drives")
+        .menu(&menu)
+        .on_menu_event(|app, event| match event.id.as_ref() {
+            "show" => {
+                if let Some(w) = app.get_webview_window("main") {
+                    let _ = w.show();
+                    let _ = w.unminimize();
+                    let _ = w.set_focus();
+                }
+            }
+            "quit" => app.exit(0),
+            _ => {}
+        })
+        .build(app)?;
+    Ok(())
+}
+
 // ---------- entry ----------
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -470,6 +673,29 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .manage(EngineState(Mutex::new(Engine::default())))
         .manage(CreateState(Mutex::new(None)))
+        .manage(Flags {
+            close_to_tray: AtomicBool::new(true),
+            tray_ok: AtomicBool::new(false),
+        })
+        .setup(|app| {
+            let ok = build_tray(app.handle()).is_ok();
+            app.state::<Flags>().tray_ok.store(ok, Ordering::Relaxed);
+            Ok(())
+        })
+        .on_window_event(|window, event| {
+            if let WindowEvent::CloseRequested { api, .. } = event {
+                // Hide to tray so mounted drives stay alive — but only when
+                // a tray icon actually exists, otherwise the app would
+                // become unreachable.
+                let flags = window.state::<Flags>();
+                if flags.tray_ok.load(Ordering::Relaxed)
+                    && flags.close_to_tray.load(Ordering::Relaxed)
+                {
+                    let _ = window.hide();
+                    api.prevent_close();
+                }
+            }
+        })
         .invoke_handler(tauri::generate_handler![
             engine_status,
             install_rclone,
@@ -480,7 +706,12 @@ pub fn run() {
             delete_remote,
             mount_remote,
             unmount_remote,
+            unmount_external,
             list_system_mounts,
+            get_autostart,
+            set_autostart,
+            set_close_to_tray,
+            app_info,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
