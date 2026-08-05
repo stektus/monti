@@ -24,6 +24,14 @@
   "bundle": {
     "active": true,
     "targets": ["appimage", "deb", "rpm"],
+    "linux": {
+      "deb": {
+        "depends": ["libayatana-appindicator3-1", "fuse3"]
+      },
+      "rpm": {
+        "depends": ["libappindicator-gtk3", "fuse3"]
+      }
+    },
     "category": "Utility",
     "shortDescription": "Mount your clouds",
     "longDescription": "Monti mounts Google Drive, Dropbox, OneDrive and other cloud storage as regular local folders. A friendly GUI on top of the rclone engine.",

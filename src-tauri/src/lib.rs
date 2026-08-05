@@ -678,7 +678,21 @@ pub fn run() {
             tray_ok: AtomicBool::new(false),
         })
         .setup(|app| {
-            let ok = build_tray(app.handle()).is_ok();
+            // libappindicator-sys PANICS (not errors) when the appindicator
+            // .so is absent, which would crash the whole app on distros
+            // without it. Catch the panic: no tray is a degraded mode, not
+            // a fatal one.
+            let handle = app.handle().clone();
+            let ok = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                build_tray(&handle).is_ok()
+            }))
+            .unwrap_or(false);
+            if !ok {
+                eprintln!(
+                    "monti: system tray unavailable (install libayatana-appindicator \
+                     for close-to-tray support); window close will quit the app"
+                );
+            }
             app.state::<Flags>().tray_ok.store(ok, Ordering::Relaxed);
             Ok(())
         })
