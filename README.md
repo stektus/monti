@@ -44,8 +44,13 @@ free GUI that does **mounting** first and does it well.
   sees your cloud password.
 - Mounts use `--vfs-cache-mode full`, so apps that save files in place
   (KeePassXC, office suites) work correctly.
-- Every rclone process is tied to Monti's lifetime (PDEATHSIG) — no orphan
-  daemons, no stale mounts.
+- The engine is a separate background process. With *Keep drives mounted
+  after quitting* on (the default), closing Monti leaves your folders
+  working; on the next start Monti verifies the daemon's identity
+  (pid + start time + port ownership) and reconnects to it. With the
+  option off, quitting stops the engine — after draining pending uploads.
+- A health probe watches the engine; if it dies, Monti shows a warning
+  and restores all mounts with their exact options on one click.
 
 ## Features
 
@@ -54,6 +59,8 @@ free GUI that does **mounting** first and does it well.
 - Automatic mounting of chosen drives on start
 - Start on login (XDG autostart) — drives ready right after you sign in
 - Close to tray: the window closes, drives stay mounted
+- Keep drives mounted after quitting — the engine stays in the
+  background and Monti picks it up again on next start
 - Detects mounts made outside Monti (systemd, manual `rclone mount`),
   shows them, can unmount them, and refuses to double-mount a remote —
   two VFS caches over one remote can corrupt files
@@ -94,10 +101,14 @@ Prefer packages? Grab them from the
 
 - **`.AppImage`** — any distro: `chmod +x Monti_*.AppImage && ./Monti_*.AppImage`
 - **`.deb`** — Debian / Ubuntu / Mint: `sudo apt install ./Monti_*.deb`
-- **`.rpm`** — Fedora / openSUSE: `sudo dnf install ./Monti_*.rpm`
+- **`.rpm`** — Fedora: `sudo dnf install ./Monti_*.rpm`, openSUSE: `sudo zypper install ./Monti_*.rpm`
+
+A `SHA256SUMS` file is published with each release; the install script
+verifies the download against it automatically.
 
 FUSE3 is required at runtime (preinstalled on most desktop distros).
 Arch/Manjaro users: the AppImage works fine; an AUR package is planned.
+Prebuilt packages are x86_64 only for now — on arm64, build from source.
 
 ## Building from source
 
@@ -122,8 +133,9 @@ npm run tauri build    # produce .AppImage / .deb / .rpm in src-tauri/target/rel
 ## Contributing
 
 Issues and PRs are welcome. The codebase is deliberately small:
-`src-tauri/src/lib.rs` (engine supervisor) and `src/main.js` (UI). If you can
-read those two files, you understand the whole app.
+`src-tauri/src/engine.rs` (daemon lifecycle), `src-tauri/src/lib.rs`
+(commands and tray) and `src/main.js` (UI). If you can read those three
+files, you understand the whole app.
 
 ## License
 
