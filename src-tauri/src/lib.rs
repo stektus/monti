@@ -175,15 +175,14 @@ fn start_engine_locked(app: &AppHandle, eng: &mut Engine) -> Result<(), String> 
     let port = free_port()?;
     let pass = rand_hex(16)?;
     let mut cmd = Command::new(&rclone);
-    cmd.args([
-        "rcd",
-        &format!("--rc-addr=127.0.0.1:{port}"),
-        &format!("--rc-user={RC_USER}"),
-        &format!("--rc-pass={pass}"),
-    ])
-    .stdin(Stdio::null())
-    .stdout(Stdio::null())
-    .stderr(Stdio::null());
+    // Credentials go through the environment: /proc/<pid>/cmdline is
+    // world-readable, /proc/<pid>/environ is not.
+    cmd.args(["rcd", &format!("--rc-addr=127.0.0.1:{port}")])
+        .env("RCLONE_RC_USER", RC_USER)
+        .env("RCLONE_RC_PASS", &pass)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
     die_with_parent(&mut cmd);
     let child = cmd
         .spawn()
@@ -207,7 +206,14 @@ fn stop_engine_locked(eng: &mut Engine) {
         // Unmount everything first so FUSE mounts don't go stale.
         let _ = rc_raw(eng.port, &eng.pass, "mount/unmountall", &json!({}));
         let _ = rc_raw(eng.port, &eng.pass, "core/quit", &json!({}));
-        thread::sleep(Duration::from_millis(300));
+        // Give the daemon a moment to exit on its own; killing it mid-write
+        // is what the VFS cache protects against, but no need to test that.
+        for _ in 0..20 {
+            if matches!(child.try_wait(), Ok(Some(_))) {
+                break;
+            }
+            thread::sleep(Duration::from_millis(100));
+        }
         let _ = child.kill();
         let _ = child.wait();
     }
@@ -296,18 +302,49 @@ fn install_rclone(app: AppHandle) -> Result<String, String> {
         "aarch64" => "arm64",
         other => return Err(format!("unsupported architecture: {other}")),
     };
-    let url = format!("https://downloads.rclone.org/rclone-current-linux-{arch}.zip");
-    let bytes = reqwest::blocking::Client::builder()
+    let client = reqwest::blocking::Client::builder()
         .timeout(Duration::from_secs(600))
         .build()
-        .map_err(|e| e.to_string())?
-        .get(&url)
-        .send()
-        .map_err(|e| format!("download failed: {e}"))?
-        .error_for_status()
-        .map_err(|e| format!("download failed: {e}"))?
+        .map_err(|e| e.to_string())?;
+    let fetch = |url: &str| -> Result<reqwest::blocking::Response, String> {
+        client
+            .get(url)
+            .send()
+            .map_err(|e| format!("download failed: {e}"))?
+            .error_for_status()
+            .map_err(|e| format!("download failed: {e}"))
+    };
+
+    // Resolve the concrete version so the archive can be verified against
+    // its published SHA256SUMS — "current" has no stable checksum entry.
+    let version = fetch("https://downloads.rclone.org/version.txt")?
+        .text()
+        .map_err(|e| e.to_string())?;
+    let version = version.trim().strip_prefix("rclone ").map(str::to_string).ok_or("unexpected version.txt format")?;
+    let file_name = format!("rclone-{version}-linux-{arch}.zip");
+    let bytes = fetch(&format!("https://downloads.rclone.org/{version}/{file_name}"))?
         .bytes()
         .map_err(|e| e.to_string())?;
+
+    let sums = fetch(&format!("https://downloads.rclone.org/{version}/SHA256SUMS"))?
+        .text()
+        .map_err(|e| e.to_string())?;
+    let expected = sums
+        .lines()
+        .filter_map(|l| {
+            let mut it = l.split_whitespace();
+            Some((it.next()?, it.next()?))
+        })
+        .find(|(_, name)| *name == file_name)
+        .map(|(hash, _)| hash.to_lowercase())
+        .ok_or("checksum for the downloaded archive not found in SHA256SUMS")?;
+    let actual = {
+        use sha2::{Digest, Sha256};
+        format!("{:x}", Sha256::digest(&bytes))
+    };
+    if actual != expected {
+        return Err("downloaded rclone failed checksum verification — try again later".into());
+    }
 
     let mut zip = zip::ZipArchive::new(std::io::Cursor::new(bytes)).map_err(|e| e.to_string())?;
     let bin_dir = app_bin_dir(&app)?;
@@ -337,10 +374,15 @@ fn start_engine(app: AppHandle, state: State<EngineState>) -> Result<(), String>
     start_engine_locked(&app, &mut eng)
 }
 
-/// Generic proxy: the frontend calls rclone's RC API through this,
-/// credentials never leave the Rust side.
+/// Read-only proxy to rclone's RC API: credentials never leave the Rust
+/// side, and only the endpoints the UI actually needs are reachable —
+/// anything with side effects goes through a dedicated command above.
 #[tauri::command]
 fn rc(state: State<EngineState>, path: String, body: Value) -> Result<Value, String> {
+    const ALLOWED: &[&str] = &["config/dump", "mount/listmounts", "core/stats", "vfs/stats"];
+    if !ALLOWED.contains(&path.as_str()) {
+        return Err(format!("rc path not allowed: {path}"));
+    }
     let (port, pass) = {
         let eng = state.0.lock().unwrap();
         (eng.port, eng.pass.clone())
@@ -352,6 +394,10 @@ fn rc(state: State<EngineState>, path: String, body: Value) -> Result<Value, Str
 /// create / config reconnect). The child is polled instead of blocked on,
 /// so the user can cancel and we time out instead of hanging forever.
 fn run_auth_child(rclone: &PathBuf, create: &CreateState, args: &[String]) -> Result<(), String> {
+    // Drain stderr on a thread: a child that fills the pipe buffer while
+    // nobody reads would block forever and we'd "time out" a healthy run.
+    let stderr_buf = std::sync::Arc::new(Mutex::new(String::new()));
+    let mut reader = None;
     {
         let mut guard = create.0.lock().unwrap();
         if guard.is_some() {
@@ -364,7 +410,16 @@ fn run_auth_child(rclone: &PathBuf, create: &CreateState, args: &[String]) -> Re
             .stdout(Stdio::null())
             .stderr(Stdio::piped());
         die_with_parent(&mut cmd);
-        *guard = Some(cmd.spawn().map_err(|e| e.to_string())?);
+        let mut child = cmd.spawn().map_err(|e| e.to_string())?;
+        if let Some(mut pipe) = child.stderr.take() {
+            let buf = std::sync::Arc::clone(&stderr_buf);
+            reader = Some(thread::spawn(move || {
+                let mut s = String::new();
+                let _ = pipe.read_to_string(&mut s);
+                *buf.lock().unwrap() = s;
+            }));
+        }
+        *guard = Some(child);
     }
 
     const TIMEOUT: Duration = Duration::from_secs(300);
@@ -379,14 +434,15 @@ fn run_auth_child(rclone: &PathBuf, create: &CreateState, args: &[String]) -> Re
         match child.try_wait() {
             Ok(Some(status)) => {
                 let mut child = guard.take().unwrap();
-                let mut stderr = String::new();
-                if let Some(mut pipe) = child.stderr.take() {
-                    let _ = pipe.read_to_string(&mut stderr);
-                }
                 let _ = child.wait();
+                drop(guard);
+                if let Some(handle) = reader.take() {
+                    let _ = handle.join(); // stderr hits EOF once the child died
+                }
                 if status.success() {
                     return Ok(());
                 }
+                let stderr = stderr_buf.lock().unwrap();
                 let msg = stderr.trim();
                 return Err(if msg.is_empty() {
                     "rclone exited with an error".to_string()
@@ -468,11 +524,25 @@ fn create_remote(
     if !ok_name {
         return Err("remote name may contain only letters, digits, '-' and '_'".into());
     }
-    // OAuth providers open the browser; the rest are configured entirely
-    // from form fields (whitelisted below — nothing else reaches the CLI).
+    // OAuth providers need the CLI (it opens the browser); everything else
+    // is created through the RC API so passwords travel in a localhost
+    // request body — never on a world-readable command line — and the
+    // daemon sees the change without a restart.
     const OAUTH: &[&str] = &["drive", "dropbox", "onedrive", "box", "pcloud", "yandex"];
     let allowed_params: &[&str] = match provider.as_str() {
-        p if OAUTH.contains(&p) => &[],
+        p if OAUTH.contains(&p) => {
+            let rclone = find_rclone(&app).ok_or("rclone not found")?;
+            let mut args: Vec<String> =
+                vec!["config".into(), "create".into(), name, provider.clone()];
+            if let Some(id) = client_id.filter(|s| !s.trim().is_empty()) {
+                args.push(format!("client_id={}", id.trim()));
+            }
+            if let Some(secret) = client_secret.filter(|s| !s.trim().is_empty()) {
+                args.push(format!("client_secret={}", secret.trim()));
+            }
+            run_auth_child(&rclone, &create, &args)?;
+            return restart_engine_preserving_mounts(&app, &state);
+        }
         "webdav" => &["url", "vendor", "user", "pass"],
         "s3" => &[
             "provider",
@@ -484,15 +554,8 @@ fn create_remote(
         "sftp" => &["host", "port", "user", "pass", "key_file"],
         _ => return Err(format!("unsupported provider: {provider}")),
     };
-    let rclone = find_rclone(&app).ok_or("rclone not found")?;
 
-    let mut args: Vec<String> = vec!["config".into(), "create".into(), name, provider.clone()];
-    if let Some(id) = client_id.filter(|s| !s.trim().is_empty()) {
-        args.push(format!("client_id={}", id.trim()));
-    }
-    if let Some(secret) = client_secret.filter(|s| !s.trim().is_empty()) {
-        args.push(format!("client_secret={}", secret.trim()));
-    }
+    let mut parameters = serde_json::Map::new();
     for (key, value) in params.unwrap_or_default() {
         let value = value.trim();
         if value.is_empty() {
@@ -501,15 +564,27 @@ fn create_remote(
         if !allowed_params.contains(&key.as_str()) {
             return Err(format!("unexpected option: {key}"));
         }
-        args.push(format!("{key}={value}"));
+        parameters.insert(key, Value::String(value.to_string()));
     }
     if provider == "s3" {
         // Keys come from the form, never from env vars / IAM profiles.
-        args.push("env_auth=false".into());
+        parameters.insert("env_auth".into(), Value::String("false".into()));
     }
-
-    run_auth_child(&rclone, &create, &args)?;
-    restart_engine_preserving_mounts(&app, &state)
+    let eng = state.0.lock().unwrap();
+    rc_raw(
+        eng.port,
+        &eng.pass,
+        "config/create",
+        &json!({
+            "name": name,
+            "type": provider,
+            "parameters": parameters,
+            // obscure: store password fields rclone-obscured;
+            // nonInteractive: never fall into a token/oauth prompt.
+            "opt": { "obscure": true, "nonInteractive": true },
+        }),
+    )?;
+    Ok(())
 }
 
 /// Re-run the browser authorization for an existing remote — after the
@@ -569,6 +644,14 @@ fn cancel_create_remote(create: State<CreateState>) {
 /// restart, so other mounted drives are untouched.
 #[tauri::command]
 fn delete_remote(state: State<EngineState>, name: String) -> Result<(), String> {
+    // Deleting the config of a mounted remote would strand the mount
+    // (and a systemd-managed one would break on its next restart).
+    if let Some(m) = read_proc_mounts().into_iter().find(|m| m.remote == name) {
+        return Err(format!(
+            "\"{name}\" is mounted at {} — unmount it first.",
+            m.mount_point
+        ));
+    }
     let eng = state.0.lock().unwrap();
     rc_raw(
         eng.port,
@@ -596,12 +679,19 @@ fn mount_remote(
             existing.mount_point
         ));
     }
-    let mount_point = match mount_point.filter(|s| !s.trim().is_empty()) {
-        Some(custom) => PathBuf::from(custom),
-        None => {
-            let home = app.path().home_dir().map_err(|e| e.to_string())?;
-            home.join("CloudDrives").join(&name)
+    let home = app.path().home_dir().map_err(|e| e.to_string())?;
+    let mount_point = match mount_point.map(|s| s.trim().to_string()).filter(|s| !s.is_empty()) {
+        Some(custom) => {
+            let path = match custom.strip_prefix("~/") {
+                Some(rest) => home.join(rest),
+                None => PathBuf::from(custom),
+            };
+            if !path.is_absolute() {
+                return Err("mount folder must be an absolute path (or start with ~/)".into());
+            }
+            path
         }
+        None => home.join("CloudDrives").join(&name),
     };
     fs::create_dir_all(&mount_point).map_err(|e| e.to_string())?;
     // FUSE needs an empty directory to mount over.
