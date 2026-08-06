@@ -192,6 +192,13 @@ async function healthTick() {
 let ownMounts = new Map(); // remote name -> mount point, kept fresh by refreshRemotes
 let activityTimer = null;
 
+const fmtBytes = (n) =>
+  n >= 1073741824
+    ? `${(n / 1073741824).toFixed(1)} GB`
+    : n >= 1048576
+      ? `${Math.round(n / 1048576)} MB`
+      : `${Math.max(1, Math.round(n / 1024))} kB`;
+
 const fmtSpeed = (bps) =>
   bps >= 1048576
     ? `${(bps / 1048576).toFixed(1)} MB/s`
@@ -347,10 +354,22 @@ async function refreshRemotes() {
               `drive is removed from the rclone config on this machine.`
           );
           if (!ok) return;
+          await invoke("delete_remote", { name });
+          // Only forget the prefs once the remote is really gone — a failed
+          // delete (e.g. still mounted) keeps the drive fully configured.
           const all = loadPrefs();
           delete all[name];
           savePrefs(all);
-          await invoke("delete_remote", { name });
+          const cached = await invoke("vfs_cache_size", { name }).catch(() => 0);
+          if (
+            cached > 0 &&
+            confirm(
+              `"${name}" left ${fmtBytes(cached)} of downloaded file copies ` +
+                `in the local cache. Delete them too?\n\nFiles in the cloud are not affected.`
+            )
+          ) {
+            await invoke("clear_vfs_cache", { name }).catch((e) => showError(String(e)));
+          }
           await refreshRemotes();
         })
       );

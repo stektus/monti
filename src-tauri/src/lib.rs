@@ -650,6 +650,50 @@ async fn delete_remote(
     Ok(())
 }
 
+/// rclone's local VFS cache for one remote: vfs/<name> holds file copies,
+/// vfsMeta/<name> their metadata.
+fn vfs_cache_dirs(app: &AppHandle, name: &str) -> Result<Vec<PathBuf>, String> {
+    // The name lands in a filesystem path — refuse anything that could
+    // escape the cache root. rclone itself forbids '/' in remote names.
+    if name.is_empty() || name.contains('/') || name.contains('\\') || name.starts_with('.') {
+        return Err(format!("invalid remote name: {name:?}"));
+    }
+    let cache = app.path().cache_dir().map_err(|e| e.to_string())?; // ~/.cache
+    let root = cache.join("rclone");
+    Ok(vec![root.join("vfs").join(name), root.join("vfsMeta").join(name)])
+}
+
+fn dir_size(path: &std::path::Path) -> u64 {
+    let Ok(entries) = fs::read_dir(path) else { return 0 };
+    entries
+        .flatten()
+        .map(|e| match e.metadata() {
+            Ok(m) if m.is_dir() => dir_size(&e.path()),
+            Ok(m) => m.len(),
+            Err(_) => 0,
+        })
+        .sum()
+}
+
+/// Bytes of cached file copies a remote keeps under ~/.cache/rclone.
+#[tauri::command]
+fn vfs_cache_size(app: AppHandle, name: String) -> Result<u64, String> {
+    Ok(vfs_cache_dirs(&app, &name)?.iter().map(|d| dir_size(d)).sum())
+}
+
+/// Delete a remote's local VFS cache (offered by the UI after the remote
+/// itself is removed). Cloud data is not touched.
+#[tauri::command]
+fn clear_vfs_cache(app: AppHandle, name: String) -> Result<(), String> {
+    for dir in vfs_cache_dirs(&app, &name)? {
+        if dir.is_dir() {
+            fs::remove_dir_all(&dir).map_err(|e| e.to_string())?;
+        }
+    }
+    log_line(&app, &format!("cleared vfs cache of {name}"));
+    Ok(())
+}
+
 #[tauri::command]
 async fn mount_remote(
     app: AppHandle,
@@ -1095,6 +1139,8 @@ pub fn run() {
             update_remote_key,
             cancel_create_remote,
             delete_remote,
+            vfs_cache_size,
+            clear_vfs_cache,
             mount_remote,
             unmount_remote,
             unmount_external,
