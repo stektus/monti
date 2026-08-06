@@ -759,7 +759,12 @@ fn set_autostart(app: AppHandle, enabled: bool) -> Result<(), String> {
         }
         return Ok(());
     }
-    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+    // Inside an AppImage current_exe() is the throwaway squashfs mount under
+    // /tmp/.mount_*; $APPIMAGE holds the real, persistent file the user runs.
+    let exe = match std::env::var_os("APPIMAGE") {
+        Some(p) if !p.is_empty() => PathBuf::from(p),
+        _ => std::env::current_exe().map_err(|e| e.to_string())?,
+    };
     if let Some(dir) = file.parent() {
         fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     }
