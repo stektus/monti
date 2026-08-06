@@ -287,7 +287,20 @@ async function refreshRemotes() {
       actions.append(
         makeBtn("Open folder", "primary", () => openPath(ownPoint)),
         makeBtn("Unmount", "", async () => {
-          await invoke("unmount_remote", { mountPoint: ownPoint });
+          try {
+            await invoke("unmount_remote", { mountPoint: ownPoint });
+          } catch (e) {
+            const m = String(e).match(/UPLOADS_PENDING:(\d+)/);
+            if (!m) throw e;
+            const ok = confirm(
+              `${m[1]} file(s) from this drive are still uploading to the cloud.\n\n` +
+                `If you unmount now, the upload pauses and resumes on the next ` +
+                `mount — but if you shut the computer down before that, unsaved ` +
+                `changes stay only on this machine.\n\nUnmount anyway?`
+            );
+            if (!ok) return;
+            await invoke("unmount_remote", { mountPoint: ownPoint, force: true });
+          }
           await refreshRemotes();
         }),
         makeBtn("⚙", "icon", () => openRemoteDialog(name), "Drive settings")

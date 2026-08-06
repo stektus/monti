@@ -670,15 +670,35 @@ async fn unmount_remote(
     app: AppHandle,
     state: State<'_, EngineState>,
     mount_point: String,
+    force: Option<bool>,
 ) -> Result<(), String> {
     let mut eng = state.0.lock().unwrap();
+    // Unmounting while the writeback queue is busy risks the user
+    // shutting down before the cache ever gets another chance to flush.
+    // The UI turns this marker into a confirm dialog and retries with
+    // force=true.
+    if force != Some(true) {
+        if let Some((fs_name, _)) = eng
+            .mounts
+            .iter()
+            .find(|(_, e)| e.mount_point == mount_point)
+        {
+            let pending = engine::pending_uploads(eng.port, &eng.pass, fs_name);
+            if pending > 0 {
+                return Err(format!("UPLOADS_PENDING:{pending}"));
+            }
+        }
+    }
     rc_raw(
         eng.port,
         &eng.pass,
         "mount/unmount",
         &json!({ "mountPoint": mount_point }),
     )?;
-    eng.mounts.retain(|_, e| e.mount_point != mount_point);
+    eng.mounts.retain(|e_key, e| {
+        let _ = e_key;
+        e.mount_point != mount_point
+    });
     save_engine_file(&app, &eng);
     log_line(&app, &format!("unmounted {mount_point}"));
     Ok(())
@@ -835,7 +855,12 @@ mod tests {
             .env("RCLONE_CONFIG", &conf)
             .env("RCLONE_RC_USER", engine::RC_USER)
             .env("RCLONE_RC_PASS", &pass)
-            .env("BROWSER", "true") // never open a real browser in tests
+            // Never open a real browser from tests: no display, and a
+            // no-op $BROWSER for whatever ignores the missing display.
+            .env("BROWSER", "true")
+            .env_remove("DISPLAY")
+            .env_remove("WAYLAND_DISPLAY")
+            .env_remove("XDG_CURRENT_DESKTOP")
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
@@ -1047,6 +1072,19 @@ pub fn run() {
                 if keep && has_mounts {
                     eng.child = None; // drop the handle; the process lives on
                 } else {
+                    // Bounded drain: give the writeback queue up to 15s
+                    // before the daemon goes down. (The cache would survive
+                    // and resume on next mount, but only if there IS a next
+                    // mount — don't gamble when quitting for good.)
+                    for _ in 0..15 {
+                        let busy = eng.mounts.keys().any(|fs_name| {
+                            engine::pending_uploads(eng.port, &eng.pass, fs_name) > 0
+                        });
+                        if !busy {
+                            break;
+                        }
+                        thread::sleep(Duration::from_secs(1));
+                    }
                     stop_engine_locked(app, &mut eng);
                 }
             }

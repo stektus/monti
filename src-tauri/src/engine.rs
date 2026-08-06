@@ -551,6 +551,19 @@ pub fn stop_engine_locked(app: &AppHandle, eng: &mut Engine) {
     eng.mounts.clear();
 }
 
+/// How many files the VFS cache of `fs` still has to upload (in flight +
+/// queued writeback). 0 on any error — this gates warnings, not safety.
+pub fn pending_uploads(port: u16, pass: &str, fs: &str) -> u64 {
+    rc_raw_with_timeout(port, pass, "vfs/stats", &json!({ "fs": fs }), 5)
+        .ok()
+        .map(|v| {
+            let dc = &v["diskCache"];
+            dc["uploadsInProgress"].as_u64().unwrap_or(0)
+                + dc["uploadsQueued"].as_u64().unwrap_or(0)
+        })
+        .unwrap_or(0)
+}
+
 /// True when the path is (still) listed as a fuse.rclone mount — after a
 /// daemon death these turn into "Transport endpoint is not connected"
 /// zombies that must be lazily unmounted before mounting over them.
