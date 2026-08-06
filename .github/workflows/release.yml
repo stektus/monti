@@ -1,0 +1,51 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Tauri system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential \
+            libssl-dev librsvg2-dev libayatana-appindicator3-dev patchelf
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - run: npm ci
+
+      - name: Build bundles and create the GitHub release
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: "Monti ${{ github.ref_name }}"
+          releaseBody: |
+            Mount your clouds — download, install, click **Add cloud**.
+
+            | Package | For |
+            |---|---|
+            | `.AppImage` | any distro — `chmod +x` and run |
+            | `.deb` | Debian, Ubuntu, Mint, … |
+            | `.rpm` | Fedora, openSUSE, … |
+
+            FUSE3 is required at runtime (preinstalled on most desktop distros).
+          releaseDraft: false
+          prerelease: false

@@ -70,6 +70,18 @@ free GUI that does **mounting** first and does it well.
 - [ ] Flathub package
 - [ ] More providers (protondrive, …)
 
+## Install
+
+Download from the [latest release](https://github.com/stektus/monti/releases/latest):
+
+- **`.AppImage`** — any distro: `chmod +x Monti_*.AppImage && ./Monti_*.AppImage`
+- **`.deb`** — Debian / Ubuntu / Mint: `sudo apt install ./Monti_*.deb`
+- **`.rpm`** — Fedora / openSUSE: `sudo dnf install ./Monti_*.rpm`
+
+FUSE3 is required at runtime (preinstalled on most desktop distros).
+Arch/Manjaro users: AUR package `monti-bin` is on the way; the AppImage
+works meanwhile.
+
 ## Building from source
 
 Prerequisites: [Rust](https://rustup.rs), Node.js ≥ 20, and Tauri's Linux

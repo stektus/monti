@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Monti",
-  "version": "0.2.0",
-  "identifier": "app.monti.desktop",
+  "version": "0.3.0",
+  "identifier": "io.github.stektus.monti",
   "build": {
     "frontendDist": "../src"
   },

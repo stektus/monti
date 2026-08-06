@@ -2051,7 +2051,7 @@ dependencies = [
 
 [[package]]
 name = "monti"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "libc",
  "reqwest 0.12.28",
