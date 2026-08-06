@@ -190,14 +190,20 @@ async fn install_rclone(app: AppHandle) -> Result<String, String> {
     for i in 0..zip.len() {
         let mut entry = zip.by_index(i).map_err(|e| e.to_string())?;
         if entry.name().ends_with("/rclone") {
-            let mut out = fs::File::create(&target).map_err(|e| e.to_string())?;
+            // Unpack next to the target and rename into place so a crash or
+            // full disk never leaves a half-written binary at the final path.
+            let tmp = bin_dir.join("rclone.download");
+            let mut out = fs::File::create(&tmp).map_err(|e| e.to_string())?;
             std::io::copy(&mut entry, &mut out).map_err(|e| e.to_string())?;
+            out.sync_all().map_err(|e| e.to_string())?;
+            drop(out);
             #[cfg(unix)]
             {
                 use std::os::unix::fs::PermissionsExt;
-                fs::set_permissions(&target, fs::Permissions::from_mode(0o755))
+                fs::set_permissions(&tmp, fs::Permissions::from_mode(0o755))
                     .map_err(|e| e.to_string())?;
             }
+            fs::rename(&tmp, &target).map_err(|e| e.to_string())?;
             return Ok(target.display().to_string());
         }
     }

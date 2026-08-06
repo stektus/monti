@@ -435,6 +435,30 @@ async function initSettings() {
     }
   });
 
+  // Re-download the engine into the app folder (recovers from a corrupted
+  // or interrupted download; the running daemon keeps its old binary until
+  // the next engine restart).
+  $("reinstall-btn").addEventListener("click", async () => {
+    const btn = $("reinstall-btn");
+    const status = $("reinstall-status");
+    btn.disabled = true;
+    showError("");
+    status.textContent = "Downloading rclone… (10–40 MB)";
+    status.classList.remove("hidden");
+    try {
+      const path = await invoke("install_rclone");
+      status.textContent = `Done — installed to ${path}. Takes effect on the next engine restart.`;
+      const fresh = await invoke("app_info");
+      $("about-rclone").textContent = fresh.rcloneVersion || "not installed";
+      $("about-rclone-path").textContent = fresh.rclonePath || "—";
+    } catch (e) {
+      status.classList.add("hidden");
+      showError(String(e));
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
   // Autostart on login
   $("opt-autostart").checked = await invoke("get_autostart");
   $("opt-autostart").addEventListener("change", async (e) => {
