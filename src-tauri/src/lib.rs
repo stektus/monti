@@ -695,6 +695,16 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        // Must be the first plugin. A second launch (tray apps get started
+        // twice all the time) focuses the existing window instead of
+        // spawning a rival supervisor for the same engine.
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            if let Some(w) = app.get_webview_window("main") {
+                let _ = w.show();
+                let _ = w.unminimize();
+                let _ = w.set_focus();
+            }
+        }))
         .plugin(tauri_plugin_opener::init())
         .manage(EngineState(Mutex::new(Engine::default())))
         .manage(CreateState(Mutex::new(None)))
