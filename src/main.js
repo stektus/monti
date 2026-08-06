@@ -94,6 +94,54 @@ async function withAuth(statusEl, action) {
   }
 }
 
+// ---------- activity indicator ----------
+
+let ownMounts = new Map(); // remote name -> mount point, kept fresh by refreshRemotes
+let activityTimer = null;
+
+const fmtSpeed = (bps) =>
+  bps >= 1048576
+    ? `${(bps / 1048576).toFixed(1)} MB/s`
+    : bps >= 1024
+      ? `${Math.round(bps / 1024)} kB/s`
+      : `${Math.round(bps)} B/s`;
+
+async function pollActivity() {
+  if (document.hidden) return;
+  const pill = $("activity-pill");
+  try {
+    const stats = await rc("core/stats");
+    const transfers = stats.transferring || [];
+    if (transfers.length) {
+      const speed = transfers.reduce((s, t) => s + (t.speed || 0), 0);
+      $("activity-label").textContent = `${transfers.length} file${
+        transfers.length === 1 ? "" : "s"
+      } · ${fmtSpeed(speed)}`;
+      pill.classList.remove("hidden");
+    } else {
+      pill.classList.add("hidden");
+    }
+
+    // Per-drive "syncing" chip: the VFS cache knows about pending uploads
+    // even when no bytes are moving yet (queued writeback).
+    await Promise.all(
+      [...ownMounts.keys()].map(async (name) => {
+        const chip = document.querySelector(
+          `.remote-card[data-name="${CSS.escape(name)}"] .chip.sync`
+        );
+        if (!chip) return;
+        const vfs = await rc("vfs/stats", { fs: `${name}:` }).catch(() => null);
+        const dc = (vfs && vfs.diskCache) || {};
+        const busy =
+          (dc.uploadsInProgress || 0) + (dc.uploadsQueued || 0) > 0;
+        chip.classList.toggle("hidden", !busy);
+      })
+    );
+  } catch {
+    pill.classList.add("hidden"); // engine restarting — go quiet, retry next tick
+  }
+}
+
 // ---------- drives ----------
 
 async function fetchState() {
@@ -117,6 +165,7 @@ async function fetchState() {
 
 async function refreshRemotes() {
   const { dump, own, external } = await fetchState();
+  ownMounts = own;
   const names = Object.keys(dump).sort();
   const list = $("remotes-list");
   list.innerHTML = "";
@@ -130,6 +179,7 @@ async function refreshRemotes() {
 
     const card = document.createElement("div");
     card.className = "card remote-card";
+    card.dataset.name = name;
     card.innerHTML = `
       <div class="remote-head">
         <span class="remote-name"></span>
@@ -138,7 +188,8 @@ async function refreshRemotes() {
         <span class="spacer"></span>
         ${
           ownPoint
-            ? '<span class="chip state on">mounted</span>'
+            ? '<span class="chip state on">mounted</span>' +
+              '<span class="chip state sync hidden" title="Uploading changes to the cloud">⇅ syncing</span>'
             : extPoint
               ? '<span class="chip state ext" title="Mounted outside Monti (e.g. a systemd service).">mounted · system</span>'
               : '<span class="chip state">not mounted</span>'
@@ -322,6 +373,7 @@ async function boot() {
     $("remotes-section").classList.remove("hidden");
     await autoRemount();
     await refreshRemotes();
+    if (!activityTimer) activityTimer = setInterval(pollActivity, 2000);
   } catch (e) {
     setEngine("err", "engine failed");
     showError(String(e));

@@ -113,6 +113,15 @@ a:hover { text-decoration: underline; }
   background: var(--surface);
 }
 
+.pills { display: flex; align-items: center; gap: 8px; min-width: 0; }
+
+.engine-pill.activity {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 35%, transparent);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  font-variant-numeric: tabular-nums;
+}
+
 .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex: none; }
 .dot.ok { background: var(--ok); box-shadow: 0 0 6px color-mix(in srgb, var(--ok) 60%, transparent); }
 .dot.warn { background: var(--warn); }
@@ -186,6 +195,16 @@ a:hover { text-decoration: underline; }
   border-color: color-mix(in srgb, var(--ok) 35%, transparent);
   background: color-mix(in srgb, var(--ok) 12%, transparent);
 }
+.chip.state.sync {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 35%, transparent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  animation: sync-pulse 1.6s ease-in-out infinite;
+}
+@keyframes sync-pulse {
+  50% { opacity: 0.45; }
+}
+
 .chip.state.ext {
   color: var(--warn-text);
   border-color: color-mix(in srgb, var(--warn) 35%, transparent);

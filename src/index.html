@@ -39,9 +39,15 @@
         <button class="seg-btn" data-view="settings">Settings</button>
       </nav>
 
-      <div class="engine-pill" id="engine-pill" title="Engine status">
-        <span class="dot" id="engine-dot"></span>
-        <span id="engine-label">starting…</span>
+      <div class="pills">
+        <div class="engine-pill activity hidden" id="activity-pill" title="Transferring data to/from the cloud">
+          <span aria-hidden="true">⇅</span>
+          <span id="activity-label"></span>
+        </div>
+        <div class="engine-pill" id="engine-pill" title="Engine status">
+          <span class="dot" id="engine-dot"></span>
+          <span id="engine-label">starting…</span>
+        </div>
       </div>
     </header>
 
