@@ -340,11 +340,27 @@ pub fn save_engine_file(app: &AppHandle, eng: &Engine) {
         "boot_id": boot_id(),
         "mounts": eng.mounts,
     });
-    let _ = fs::write(&path, data.to_string());
+    // Write a 0600-from-birth temp file and rename over the target: no
+    // window where the RC password is world-readable or the file is
+    // half-written (the adoption path parses this on every start).
+    let tmp = path.with_extension("json.tmp");
+    let mut opts = fs::OpenOptions::new();
+    opts.write(true).create(true).truncate(true);
     #[cfg(unix)]
     {
-        use std::os::unix::fs::PermissionsExt;
-        let _ = fs::set_permissions(&path, fs::Permissions::from_mode(0o600));
+        use std::os::unix::fs::OpenOptionsExt;
+        opts.mode(0o600);
+    }
+    let ok = opts
+        .open(&tmp)
+        .and_then(|mut f| {
+            use std::io::Write;
+            f.write_all(data.to_string().as_bytes())?;
+            f.sync_all()
+        })
+        .and_then(|_| fs::rename(&tmp, &path));
+    if let Err(e) = ok {
+        log_line(app, &format!("failed to save engine.json: {e}"));
     }
 }
 
