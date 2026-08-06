@@ -322,11 +322,103 @@ fn rc(state: State<EngineState>, path: String, body: Value) -> Result<Value, Str
     rc_raw(port, &pass, &path, &body)
 }
 
+/// Run an rclone subcommand that ends in a browser OAuth wait (config
+/// create / config reconnect). The child is polled instead of blocked on,
+/// so the user can cancel and we time out instead of hanging forever.
+fn run_auth_child(rclone: &PathBuf, create: &CreateState, args: &[String]) -> Result<(), String> {
+    {
+        let mut guard = create.0.lock().unwrap();
+        if guard.is_some() {
+            return Err("another authorization is already in progress".into());
+        }
+        let mut cmd = Command::new(rclone);
+        cmd.args(args)
+            .arg("--auto-confirm") // never wait on an interactive y/n
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped());
+        die_with_parent(&mut cmd);
+        *guard = Some(cmd.spawn().map_err(|e| e.to_string())?);
+    }
+
+    const TIMEOUT: Duration = Duration::from_secs(300);
+    let started = std::time::Instant::now();
+    loop {
+        thread::sleep(Duration::from_millis(500));
+        let mut guard = create.0.lock().unwrap();
+        let Some(child) = guard.as_mut() else {
+            // Taken away by cancel_create_remote.
+            return Err("Authorization cancelled.".to_string());
+        };
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                let mut child = guard.take().unwrap();
+                let mut stderr = String::new();
+                if let Some(mut pipe) = child.stderr.take() {
+                    let _ = pipe.read_to_string(&mut stderr);
+                }
+                let _ = child.wait();
+                if status.success() {
+                    return Ok(());
+                }
+                let msg = stderr.trim();
+                return Err(if msg.is_empty() {
+                    "rclone exited with an error".to_string()
+                } else {
+                    msg.to_string()
+                });
+            }
+            Ok(None) => {
+                if started.elapsed() > TIMEOUT {
+                    let mut child = guard.take().unwrap();
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return Err("Authorization timed out after 5 minutes.".to_string());
+                }
+            }
+            Err(e) => {
+                if let Some(mut child) = guard.take() {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                }
+                return Err(e.to_string());
+            }
+        }
+    }
+}
+
+/// Restart the rcd daemon and remount everything that was mounted.
+/// Needed after CLI config changes the daemon can't see; users should
+/// never lose a mounted drive because they added or re-authorized one.
+fn restart_engine_preserving_mounts(app: &AppHandle, state: &EngineState) -> Result<(), String> {
+    let mut eng = state.0.lock().unwrap();
+    let mounts = rc_raw(eng.port, &eng.pass, "mount/listmounts", &json!({}))
+        .ok()
+        .and_then(|v| v.get("mountPoints").cloned());
+    stop_engine_locked(&mut eng);
+    start_engine_locked(app, &mut eng)?;
+    if let Some(Value::Array(list)) = mounts {
+        for m in list {
+            if let (Some(fs), Some(mp)) = (
+                m.get("Fs").and_then(Value::as_str),
+                m.get("MountPoint").and_then(Value::as_str),
+            ) {
+                let _ = rc_raw(
+                    eng.port,
+                    &eng.pass,
+                    "mount/mount",
+                    &json!({ "fs": fs, "mountPoint": mp, "vfsOpt": { "CacheMode": 3 } }),
+                );
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Create a remote via the rclone CLI: for OAuth providers it opens the
-/// system browser. We poll the child instead of blocking on it, so the
-/// user can cancel (browser closed, changed their mind) and we time out
-/// instead of hanging forever. The engine is restarted afterwards so the
-/// daemon picks up the new config.
+/// system browser. Optional client_id/client_secret let the user connect
+/// through their own API key instead of rclone's shared one (which is
+/// being retired in 2026).
 #[tauri::command]
 fn create_remote(
     app: AppHandle,
@@ -334,6 +426,8 @@ fn create_remote(
     create: State<CreateState>,
     name: String,
     provider: String,
+    client_id: Option<String>,
+    client_secret: Option<String>,
 ) -> Result<(), String> {
     let ok_name = !name.is_empty()
         && name
@@ -348,93 +442,59 @@ fn create_remote(
     }
     let rclone = find_rclone(&app).ok_or("rclone not found")?;
 
-    {
-        let mut guard = create.0.lock().unwrap();
-        if guard.is_some() {
-            return Err("another connection attempt is already in progress".into());
-        }
-        let mut cmd = Command::new(&rclone);
-        cmd.args(["config", "create", &name, &provider])
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::piped());
-        die_with_parent(&mut cmd);
-        *guard = Some(cmd.spawn().map_err(|e| e.to_string())?);
+    let mut args: Vec<String> = vec!["config".into(), "create".into(), name, provider];
+    if let Some(id) = client_id.filter(|s| !s.trim().is_empty()) {
+        args.push(format!("client_id={}", id.trim()));
+    }
+    if let Some(secret) = client_secret.filter(|s| !s.trim().is_empty()) {
+        args.push(format!("client_secret={}", secret.trim()));
     }
 
-    const TIMEOUT: Duration = Duration::from_secs(300);
-    let started = std::time::Instant::now();
-    let result = loop {
-        thread::sleep(Duration::from_millis(500));
-        let mut guard = create.0.lock().unwrap();
-        let Some(child) = guard.as_mut() else {
-            // Taken away by cancel_create_remote.
-            break Err("Authorization cancelled.".to_string());
-        };
-        match child.try_wait() {
-            Ok(Some(status)) => {
-                let mut child = guard.take().unwrap();
-                let mut stderr = String::new();
-                if let Some(mut pipe) = child.stderr.take() {
-                    let _ = pipe.read_to_string(&mut stderr);
-                }
-                let _ = child.wait();
-                if status.success() {
-                    break Ok(());
-                }
-                let msg = stderr.trim();
-                break Err(if msg.is_empty() {
-                    "rclone config create failed".to_string()
-                } else {
-                    msg.to_string()
-                });
-            }
-            Ok(None) => {
-                if started.elapsed() > TIMEOUT {
-                    let mut child = guard.take().unwrap();
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    break Err("Authorization timed out after 5 minutes.".to_string());
-                }
-            }
-            Err(e) => {
-                if let Some(mut child) = guard.take() {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                }
-                break Err(e.to_string());
-            }
-        }
-    };
+    run_auth_child(&rclone, &create, &args)?;
+    restart_engine_preserving_mounts(&app, &state)
+}
 
-    if result.is_ok() {
-        // The daemon reads the config at startup, so it must be restarted
-        // to see the remote the CLI just created. Preserve existing mounts
-        // across the restart — users should never lose a mounted drive
-        // because they added another one.
-        let mut eng = state.0.lock().unwrap();
-        let mounts = rc_raw(eng.port, &eng.pass, "mount/listmounts", &json!({}))
-            .ok()
-            .and_then(|v| v.get("mountPoints").cloned());
-        stop_engine_locked(&mut eng);
-        start_engine_locked(&app, &mut eng)?;
-        if let Some(Value::Array(list)) = mounts {
-            for m in list {
-                if let (Some(fs), Some(mp)) = (
-                    m.get("Fs").and_then(Value::as_str),
-                    m.get("MountPoint").and_then(Value::as_str),
-                ) {
-                    let _ = rc_raw(
-                        eng.port,
-                        &eng.pass,
-                        "mount/mount",
-                        &json!({ "fs": fs, "mountPoint": mp, "vfsOpt": { "CacheMode": 3 } }),
-                    );
-                }
-            }
-        }
-    }
-    result
+/// Re-run the browser authorization for an existing remote — after the
+/// user switches to their own API key, or when a token expires.
+#[tauri::command]
+fn reconnect_remote(
+    app: AppHandle,
+    state: State<EngineState>,
+    create: State<CreateState>,
+    name: String,
+) -> Result<(), String> {
+    let rclone = find_rclone(&app).ok_or("rclone not found")?;
+    let args: Vec<String> = vec![
+        "config".into(),
+        "reconnect".into(),
+        format!("{name}:"),
+    ];
+    run_auth_child(&rclone, &create, &args)?;
+    restart_engine_preserving_mounts(&app, &state)
+}
+
+/// Switch an existing remote to a different API key (client_id/secret) and
+/// re-authorize in one browser trip. Empty values reset the remote back to
+/// rclone's shared key.
+#[tauri::command]
+fn update_remote_key(
+    app: AppHandle,
+    state: State<EngineState>,
+    create: State<CreateState>,
+    name: String,
+    client_id: String,
+    client_secret: String,
+) -> Result<(), String> {
+    let rclone = find_rclone(&app).ok_or("rclone not found")?;
+    let args: Vec<String> = vec![
+        "config".into(),
+        "update".into(),
+        name,
+        format!("client_id={}", client_id.trim()),
+        format!("client_secret={}", client_secret.trim()),
+    ];
+    run_auth_child(&rclone, &create, &args)?;
+    restart_engine_preserving_mounts(&app, &state)
 }
 
 /// Abort an in-flight browser authorization (Cancel button).
@@ -716,6 +776,8 @@ pub fn run() {
             start_engine,
             rc,
             create_remote,
+            reconnect_remote,
+            update_remote_key,
             cancel_create_remote,
             delete_remote,
             mount_remote,

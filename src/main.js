@@ -1,5 +1,5 @@
 const { invoke } = window.__TAURI__.core;
-const { openPath } = window.__TAURI__.opener;
+const { openPath, openUrl } = window.__TAURI__.opener;
 
 const PROVIDER_LABELS = {
   drive: "Google Drive",
@@ -66,6 +66,34 @@ function makeBtn(label, extra, onClick, title = "") {
   return b;
 }
 
+// ---------- browser-authorization state (shared by both dialogs) ----------
+
+let authInProgress = false;
+let userCancelled = false;
+
+async function abortAuth() {
+  if (!authInProgress) return;
+  userCancelled = true;
+  await invoke("cancel_create_remote").catch(() => {});
+}
+
+// Run an action that ends in a browser OAuth wait, toggling a status line.
+async function withAuth(statusEl, action) {
+  authInProgress = true;
+  userCancelled = false;
+  statusEl.classList.remove("hidden");
+  try {
+    await action();
+    return true;
+  } catch (err) {
+    if (!userCancelled) showError(String(err));
+    return false;
+  } finally {
+    authInProgress = false;
+    statusEl.classList.add("hidden");
+  }
+}
+
 // ---------- drives ----------
 
 async function fetchState() {
@@ -98,6 +126,7 @@ async function refreshRemotes() {
     const type = dump[name].type || "?";
     const ownPoint = own.get(name);
     const extPoint = external.get(name);
+    const ownKey = !!(dump[name].client_id || "").trim();
 
     const card = document.createElement("div");
     card.className = "card remote-card";
@@ -105,6 +134,7 @@ async function refreshRemotes() {
       <div class="remote-head">
         <span class="remote-name"></span>
         <span class="chip provider"></span>
+        ${ownKey ? '<span class="chip key" title="Connected through your own API key">own key</span>' : ""}
         <span class="spacer"></span>
         ${
           ownPoint
@@ -196,13 +226,25 @@ async function autoRemount() {
 // ---------- drive settings dialog ----------
 
 let dialogRemote = null;
+let dialogKey = { id: "", secret: "" }; // key as stored in config when opened
 
-function openRemoteDialog(name) {
+async function openRemoteDialog(name) {
   dialogRemote = name;
   const pref = prefFor(name);
   $("remote-title").textContent = `${name} — settings`;
   $("remote-mountpoint").value = pref.mountPoint || "";
   $("remote-automount").checked = !!pref.automount;
+
+  const dump = await rc("config/dump");
+  const conf = dump[name] || {};
+  dialogKey = { id: conf.client_id || "", secret: conf.client_secret || "" };
+  $("remote-client-id").value = dialogKey.id;
+  $("remote-client-secret").value = dialogKey.secret;
+  $("remote-key-status").textContent = dialogKey.id
+    ? "Using your own API key."
+    : "Using rclone's shared key — it is being retired during 2026, " +
+      "switching to your own key is recommended.";
+
   $("remote-dialog").showModal();
 }
 
@@ -247,7 +289,8 @@ async function initSettings() {
   $("opt-tray").disabled = !info.trayAvailable;
   if (!info.trayAvailable) {
     $("tray-hint").textContent =
-      "Tray isn't available on this desktop — closing the window quits Monti.";
+      "Tray isn't available on this desktop — closing the window quits Monti. " +
+      "(On Arch/Manjaro: install libayatana-appindicator.)";
   }
   await invoke("set_close_to_tray", {
     enabled: trayOn && info.trayAvailable,
@@ -293,6 +336,14 @@ window.addEventListener("DOMContentLoaded", () => {
     b.addEventListener("click", () => switchView(b.dataset.view))
   );
 
+  // External links must open in the system browser, not inside the app.
+  document.addEventListener("click", (e) => {
+    const a = e.target.closest("a[href^='http']");
+    if (!a) return;
+    e.preventDefault();
+    openUrl(a.href).catch((err) => showError(String(err)));
+  });
+
   // --- install engine ---
   $("install-btn").addEventListener("click", async () => {
     const btn = $("install-btn");
@@ -311,18 +362,10 @@ window.addEventListener("DOMContentLoaded", () => {
   });
 
   // --- add cloud dialog ---
-  let authInProgress = false;
-  let userCancelled = false;
-
-  const abortAuth = async () => {
-    if (!authInProgress) return;
-    userCancelled = true;
-    await invoke("cancel_create_remote").catch(() => {});
-  };
-
   $("add-btn").addEventListener("click", () => {
     $("add-form").reset();
     $("add-status").classList.add("hidden");
+    $("add-advanced").open = false;
     $("add-dialog").showModal();
   });
   $("add-cancel").addEventListener("click", async () => {
@@ -331,41 +374,83 @@ window.addEventListener("DOMContentLoaded", () => {
   });
   $("add-dialog").addEventListener("cancel", () => abortAuth());
 
+  // The step-by-step key guide is written for Google Drive.
+  $("add-provider").addEventListener("change", () => {
+    const isDrive = $("add-provider").value === "drive";
+    $("key-help-drive").classList.toggle("hidden", !isDrive);
+  });
+
   $("add-form").addEventListener("submit", async (e) => {
     e.preventDefault();
     const name = $("add-name").value.trim();
     const provider = $("add-provider").value;
     $("add-submit").disabled = true;
-    $("add-status").classList.remove("hidden");
     showError("");
-    authInProgress = true;
-    userCancelled = false;
-    try {
-      await invoke("create_remote", { name, provider });
+    const ok = await withAuth($("add-status"), () =>
+      invoke("create_remote", {
+        name,
+        provider,
+        clientId: $("add-client-id").value.trim() || null,
+        clientSecret: $("add-client-secret").value.trim() || null,
+      })
+    );
+    $("add-submit").disabled = false;
+    if (ok) {
       // Sensible default: new drives mount automatically from now on.
       setPref(name, { automount: true });
       $("add-dialog").close();
       await refreshRemotes();
-    } catch (err) {
-      if (!userCancelled) showError(String(err));
-    } finally {
-      authInProgress = false;
-      $("add-submit").disabled = false;
-      $("add-status").classList.add("hidden");
     }
   });
 
   // --- drive settings dialog ---
-  $("remote-cancel").addEventListener("click", () => $("remote-dialog").close());
-  $("remote-form").addEventListener("submit", (e) => {
+  $("remote-cancel").addEventListener("click", async () => {
+    await abortAuth();
+    $("remote-dialog").close();
+  });
+  $("remote-dialog").addEventListener("cancel", () => abortAuth());
+
+  $("remote-reconnect").addEventListener("click", async () => {
+    if (!dialogRemote) return;
+    $("remote-save").disabled = true;
+    $("remote-reconnect").disabled = true;
+    const ok = await withAuth($("remote-status"), () =>
+      invoke("reconnect_remote", { name: dialogRemote })
+    );
+    $("remote-save").disabled = false;
+    $("remote-reconnect").disabled = false;
+    if (ok) {
+      $("remote-dialog").close();
+      await refreshRemotes();
+    }
+  });
+
+  $("remote-form").addEventListener("submit", async (e) => {
     e.preventDefault();
-    if (dialogRemote) {
-      setPref(dialogRemote, {
-        mountPoint: $("remote-mountpoint").value.trim() || null,
-        automount: $("remote-automount").checked,
-      });
+    if (!dialogRemote) return;
+    setPref(dialogRemote, {
+      mountPoint: $("remote-mountpoint").value.trim() || null,
+      automount: $("remote-automount").checked,
+    });
+
+    const newId = $("remote-client-id").value.trim();
+    const newSecret = $("remote-client-secret").value.trim();
+    const keyChanged = newId !== dialogKey.id || newSecret !== dialogKey.secret;
+
+    if (keyChanged) {
+      // Changing the key re-runs the browser authorization in one go.
+      $("remote-save").disabled = true;
+      const ok = await withAuth($("remote-status"), () =>
+        invoke("update_remote_key", {
+          name: dialogRemote,
+          clientId: newId,
+          clientSecret: newSecret,
+        })
+      );
+      $("remote-save").disabled = false;
+      if (!ok) return; // keep the dialog open so nothing is silently lost
     }
     $("remote-dialog").close();
-    refreshRemotes();
+    await refreshRemotes();
   });
 });

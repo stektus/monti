@@ -192,6 +192,18 @@ a:hover { text-decoration: underline; }
   background: color-mix(in srgb, var(--warn) 12%, transparent);
   cursor: help;
 }
+.chip.key {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 35%, transparent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  cursor: help;
+}
+.chip.rec {
+  color: var(--accent);
+  border-color: transparent;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  margin-left: 6px;
+}
 
 /* ---------- buttons ---------- */
 
@@ -344,8 +356,41 @@ dialog select:focus-visible {
 .dialog-actions {
   display: flex;
   justify-content: flex-end;
+  align-items: center;
   gap: 9px;
   margin-top: 18px;
 }
 
 .auth-wait { font-weight: 500; }
+
+/* ---------- own API key ---------- */
+
+details#add-advanced {
+  margin: 4px 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px 14px;
+  background: var(--surface-2);
+}
+details#add-advanced summary {
+  cursor: pointer;
+  font-size: 13.5px;
+  font-weight: 550;
+  list-style-position: inside;
+}
+details#add-advanced[open] summary { margin-bottom: 8px; }
+details#add-advanced label { margin-bottom: 10px; }
+
+.key-help { font-size: 12.5px; }
+.key-help p { margin: 4px 0 6px; }
+.key-help ol { margin: 0 0 10px; padding-left: 20px; }
+.key-help li { margin-bottom: 3px; }
+
+.key-section {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+.key-section .setting-name { margin-bottom: 2px; }
+.key-section label { margin-bottom: 10px; }
+dialog input.mono { font-size: 12px; }

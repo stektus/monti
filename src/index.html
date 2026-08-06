@@ -148,6 +148,31 @@
           Name <span class="muted">(the folder will be called this)</span>
           <input id="add-name" placeholder="e.g. gdrive" pattern="[A-Za-z0-9_-]+" required />
         </label>
+        <details id="add-advanced">
+          <summary>Use my own API key <span class="chip rec">recommended for Google Drive</span></summary>
+          <div class="key-help muted" id="key-help-drive">
+            <p>
+              Google is retiring the shared key all rclone apps use — your own
+              free key avoids that and removes speed limits. Takes ~5 minutes,
+              one time:
+            </p>
+            <ol>
+              <li><a href="https://console.cloud.google.com/projectcreate" class="ext">Create a project</a> in Google Cloud (any name).</li>
+              <li><a href="https://console.cloud.google.com/apis/library/drive.googleapis.com" class="ext">Enable the Google Drive API</a> for it.</li>
+              <li><a href="https://console.cloud.google.com/auth/branding" class="ext">Configure the consent screen</a>: External → add your own e-mail as a test user.</li>
+              <li><a href="https://console.cloud.google.com/apis/credentials" class="ext">Create credentials</a> → OAuth client ID → type “Desktop app”.</li>
+              <li>Copy the Client ID and Client secret below.</li>
+            </ol>
+          </div>
+          <label>
+            Client ID
+            <input id="add-client-id" class="mono" autocomplete="off" spellcheck="false" />
+          </label>
+          <label>
+            Client secret
+            <input id="add-client-secret" class="mono" autocomplete="off" spellcheck="false" />
+          </label>
+        </details>
         <p class="muted">
           Your browser will open — sign in and allow access. Monti never sees
           your password; the access token is stored locally by rclone.
@@ -175,9 +200,32 @@
           <input type="checkbox" id="remote-automount" />
           <span>Mount automatically when Monti starts</span>
         </label>
+
+        <div class="key-section">
+          <div class="setting-name">API key</div>
+          <p class="muted" id="remote-key-status">—</p>
+          <label>
+            Client ID
+            <input id="remote-client-id" class="mono" autocomplete="off" spellcheck="false" />
+          </label>
+          <label>
+            Client secret
+            <input id="remote-client-secret" class="mono" autocomplete="off" spellcheck="false" />
+          </label>
+          <p class="muted">
+            Changing the key re-opens the browser to authorize. How to get a
+            key: see “Use my own API key” in the Add cloud dialog.
+          </p>
+          <p class="muted auth-wait hidden" id="remote-status">
+            ⏳ Waiting for you to authorize in the browser…
+          </p>
+        </div>
+
         <div class="dialog-actions">
+          <button class="btn" type="button" id="remote-reconnect" title="Re-run the browser sign-in for this drive">Re-authorize</button>
+          <span class="spacer"></span>
           <button class="btn" type="button" id="remote-cancel">Cancel</button>
-          <button class="btn primary" type="submit">Save</button>
+          <button class="btn primary" type="submit" id="remote-save">Save</button>
         </div>
       </form>
     </dialog>
