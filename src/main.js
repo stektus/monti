@@ -238,8 +238,8 @@ async function pollActivity() {
 // ---------- drives ----------
 
 async function fetchState() {
-  const [dump, mounts, sysMounts] = await Promise.all([
-    rc("config/dump"),
+  const [remotes, mounts, sysMounts] = await Promise.all([
+    invoke("list_remotes"),
     rc("mount/listmounts"),
     invoke("list_system_mounts"),
   ]);
@@ -253,22 +253,19 @@ async function fetchState() {
       external.set(m.remote, m.mountPoint);
     }
   }
-  return { dump, own, external };
+  return { remotes, own, external };
 }
 
 async function refreshRemotes() {
-  const { dump, own, external } = await fetchState();
+  const { remotes, own, external } = await fetchState();
   ownMounts = own;
-  const names = Object.keys(dump).sort();
   const list = $("remotes-list");
   list.innerHTML = "";
-  $("empty-hint").classList.toggle("hidden", names.length > 0);
+  $("empty-hint").classList.toggle("hidden", remotes.length > 0);
 
-  for (const name of names) {
-    const type = dump[name].type || "?";
+  for (const { name, type, hasOwnKey: ownKey } of remotes) {
     const ownPoint = own.get(name);
     const extPoint = external.get(name);
-    const ownKey = !!(dump[name].client_id || "").trim();
 
     const card = document.createElement("div");
     card.className = "card remote-card";
@@ -367,9 +364,10 @@ async function autoRemount() {
   const prefs = loadPrefs();
   const wanted = Object.keys(prefs).filter((n) => prefs[n].automount);
   if (!wanted.length) return;
-  const { dump, own, external } = await fetchState();
+  const { remotes, own, external } = await fetchState();
+  const existing = new Set(remotes.map((r) => r.name));
   for (const name of wanted) {
-    if (!(name in dump) || own.has(name) || external.has(name)) continue;
+    if (!existing.has(name) || own.has(name) || external.has(name)) continue;
     try {
       await invoke("mount_remote", {
         name,
@@ -385,7 +383,9 @@ async function autoRemount() {
 // ---------- drive settings dialog ----------
 
 let dialogRemote = null;
-let dialogKey = { id: "", secret: "" }; // key as stored in config when opened
+// Public half of the key as stored in config when the dialog opened; the
+// secret itself never reaches the webview (list_remotes is sanitized).
+let dialogKey = { id: "" };
 
 async function openRemoteDialog(name) {
   dialogRemote = name;
@@ -399,11 +399,14 @@ async function openRemoteDialog(name) {
   $("remote-cache-size").value = vfs.maxSize || "";
   $("remote-cache-age").value = vfs.maxAge || "";
 
-  const dump = await rc("config/dump");
-  const conf = dump[name] || {};
-  dialogKey = { id: conf.client_id || "", secret: conf.client_secret || "" };
+  const remotes = await invoke("list_remotes");
+  const info = remotes.find((r) => r.name === name) || {};
+  dialogKey = { id: info.clientId || "" };
   $("remote-client-id").value = dialogKey.id;
-  $("remote-client-secret").value = dialogKey.secret;
+  $("remote-client-secret").value = "";
+  $("remote-client-secret").placeholder = info.hasOwnKey
+    ? "unchanged — enter a new one to replace"
+    : "";
   $("remote-key-status").textContent = dialogKey.id
     ? "Using your own API key."
     : "Using rclone's shared key — it is being retired during 2026, " +
@@ -730,9 +733,20 @@ window.addEventListener("DOMContentLoaded", () => {
 
     const newId = $("remote-client-id").value.trim();
     const newSecret = $("remote-client-secret").value.trim();
-    const keyChanged = newId !== dialogKey.id || newSecret !== dialogKey.secret;
+    // An empty secret field means "keep the stored secret" — the stored
+    // value is never shown here. A key update happens when the ID changes
+    // or a new secret was typed.
+    const keyChanged = newId !== dialogKey.id || newSecret !== "";
 
     if (keyChanged) {
+      if (newId && newId !== dialogKey.id && !newSecret) {
+        showError("Enter the Client secret that pairs with the new Client ID.");
+        return;
+      }
+      if (!newId && newSecret) {
+        showError("Enter the Client ID that pairs with this Client secret.");
+        return;
+      }
       // Changing the key re-runs the browser authorization in one go.
       $("remote-save").disabled = true;
       const ok = await withAuth($("remote-status"), () =>

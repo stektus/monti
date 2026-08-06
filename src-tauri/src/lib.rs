@@ -257,7 +257,7 @@ async fn restart_engine(app: AppHandle, state: State<'_, EngineState>) -> Result
 /// anything with side effects goes through a dedicated command above.
 #[tauri::command]
 async fn rc(state: State<'_, EngineState>, path: String, body: Value) -> Result<Value, String> {
-    const ALLOWED: &[&str] = &["config/dump", "mount/listmounts", "core/stats", "vfs/stats"];
+    const ALLOWED: &[&str] = &["mount/listmounts", "core/stats", "vfs/stats"];
     if !ALLOWED.contains(&path.as_str()) {
         return Err(format!("rc path not allowed: {path}"));
     }
@@ -266,6 +266,55 @@ async fn rc(state: State<'_, EngineState>, path: String, body: Value) -> Result<
         (eng.port, eng.pass.clone())
     };
     rc_raw(port, &pass, &path, &body)
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RemoteInfo {
+    name: String,
+    #[serde(rename = "type")]
+    typ: String,
+    has_own_key: bool,
+    client_id: String,
+}
+
+/// Sanitized view of the config for the UI: names, types and the public
+/// half of the API key. Secrets (client_secret, tokens, passwords) never
+/// reach the webview — the full config/dump stays on the Rust side.
+#[tauri::command]
+async fn list_remotes(state: State<'_, EngineState>) -> Result<Vec<RemoteInfo>, String> {
+    let (port, pass) = {
+        let eng = state.0.lock().unwrap();
+        (eng.port, eng.pass.clone())
+    };
+    let dump = rc_raw(port, &pass, "config/dump", &json!({}))?;
+    let mut out: Vec<RemoteInfo> = dump
+        .as_object()
+        .map(|obj| {
+            obj.iter()
+                .map(|(name, conf)| {
+                    let client_id = conf
+                        .get("client_id")
+                        .and_then(Value::as_str)
+                        .unwrap_or("")
+                        .trim()
+                        .to_string();
+                    RemoteInfo {
+                        name: name.clone(),
+                        typ: conf
+                            .get("type")
+                            .and_then(Value::as_str)
+                            .unwrap_or("?")
+                            .to_string(),
+                        has_own_key: !client_id.is_empty(),
+                        client_id,
+                    }
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    out.sort_by(|a, b| a.name.cmp(&b.name));
+    Ok(out)
 }
 
 /// Drive rclone's interactive config state machine over the RC API
@@ -1040,6 +1089,7 @@ pub fn run() {
             install_rclone,
             start_engine,
             rc,
+            list_remotes,
             create_remote,
             reconnect_remote,
             update_remote_key,
