@@ -128,6 +128,41 @@ fn die_with_parent(cmd: &mut Command) {
 #[cfg(not(target_os = "linux"))]
 fn die_with_parent(_cmd: &mut Command) {}
 
+/// True if the rclone config already has a remote with this name.
+fn remote_exists(rclone: &PathBuf, name: &str) -> bool {
+    Command::new(rclone)
+        .arg("listremotes")
+        .output()
+        .ok()
+        .and_then(|o| String::from_utf8(o.stdout).ok())
+        .is_some_and(|s| s.lines().any(|l| l.trim().trim_end_matches(':') == name))
+}
+
+/// PDEATHSIG is best-effort (it has not proven reliable across AppImage
+/// runs), so the rcd pid is also written to a pidfile and any stale
+/// daemon from a previous crashed/killed run is reaped on next start.
+fn rcd_pidfile(app: &AppHandle) -> Option<PathBuf> {
+    app.path().app_data_dir().ok().map(|d| d.join("rcd.pid"))
+}
+
+fn reap_stale_rcd(app: &AppHandle) {
+    let Some(pidfile) = rcd_pidfile(app) else {
+        return;
+    };
+    if let Ok(s) = fs::read_to_string(&pidfile) {
+        if let Ok(pid) = s.trim().parse::<i32>() {
+            let cmdline =
+                fs::read_to_string(format!("/proc/{pid}/cmdline")).unwrap_or_default();
+            if cmdline.contains("rclone") && cmdline.contains("rcd") {
+                unsafe {
+                    libc::kill(pid, libc::SIGTERM);
+                }
+            }
+        }
+        let _ = fs::remove_file(&pidfile);
+    }
+}
+
 fn free_port() -> Result<u16, String> {
     let listener = TcpListener::bind("127.0.0.1:0").map_err(|e| e.to_string())?;
     let port = listener.local_addr().map_err(|e| e.to_string())?.port();
@@ -171,6 +206,7 @@ fn start_engine_locked(app: &AppHandle, eng: &mut Engine) -> Result<(), String> 
         }
         eng.child = None;
     }
+    reap_stale_rcd(app);
     let rclone = find_rclone(app).ok_or("rclone not found")?;
     let port = free_port()?;
     let pass = rand_hex(16)?;
@@ -187,6 +223,13 @@ fn start_engine_locked(app: &AppHandle, eng: &mut Engine) -> Result<(), String> 
     let child = cmd
         .spawn()
         .map_err(|e| format!("failed to start rclone: {e}"))?;
+
+    if let Some(pidfile) = rcd_pidfile(app) {
+        if let Some(dir) = pidfile.parent() {
+            let _ = fs::create_dir_all(dir);
+        }
+        let _ = fs::write(&pidfile, child.id().to_string());
+    }
 
     // Wait until the RC API answers.
     for _ in 0..50 {
@@ -270,7 +313,7 @@ struct EngineStatus {
 }
 
 #[tauri::command]
-fn engine_status(app: AppHandle, state: State<EngineState>) -> EngineStatus {
+async fn engine_status(app: AppHandle, state: State<'_, EngineState>) -> Result<EngineStatus, String> {
     let rclone = find_rclone(&app);
     let version = rclone.as_ref().and_then(|p| {
         Command::new(p)
@@ -285,18 +328,18 @@ fn engine_status(app: AppHandle, state: State<EngineState>) -> EngineStatus {
         .child
         .as_mut()
         .is_some_and(|c| matches!(c.try_wait(), Ok(None)));
-    EngineStatus {
+    Ok(EngineStatus {
         rclone_found: rclone.is_some(),
         rclone_path: rclone.map(|p| p.display().to_string()),
         version,
         engine_running: running,
-    }
+    })
 }
 
 /// Download the latest rclone build into the app data dir — this is what
 /// makes Monti "just install and click" on distros without rclone.
 #[tauri::command]
-fn install_rclone(app: AppHandle) -> Result<String, String> {
+async fn install_rclone(app: AppHandle) -> Result<String, String> {
     let arch = match std::env::consts::ARCH {
         "x86_64" => "amd64",
         "aarch64" => "arm64",
@@ -369,7 +412,7 @@ fn install_rclone(app: AppHandle) -> Result<String, String> {
 }
 
 #[tauri::command]
-fn start_engine(app: AppHandle, state: State<EngineState>) -> Result<(), String> {
+async fn start_engine(app: AppHandle, state: State<'_, EngineState>) -> Result<(), String> {
     let mut eng = state.0.lock().unwrap();
     start_engine_locked(&app, &mut eng)
 }
@@ -378,7 +421,7 @@ fn start_engine(app: AppHandle, state: State<EngineState>) -> Result<(), String>
 /// side, and only the endpoints the UI actually needs are reachable —
 /// anything with side effects goes through a dedicated command above.
 #[tauri::command]
-fn rc(state: State<EngineState>, path: String, body: Value) -> Result<Value, String> {
+async fn rc(state: State<'_, EngineState>, path: String, body: Value) -> Result<Value, String> {
     const ALLOWED: &[&str] = &["config/dump", "mount/listmounts", "core/stats", "vfs/stats"];
     if !ALLOWED.contains(&path.as_str()) {
         return Err(format!("rc path not allowed: {path}"));
@@ -507,10 +550,10 @@ fn restart_engine_preserving_mounts(app: &AppHandle, state: &EngineState) -> Res
 /// through their own API key instead of rclone's shared one (which is
 /// being retired in 2026).
 #[tauri::command]
-fn create_remote(
+async fn create_remote(
     app: AppHandle,
-    state: State<EngineState>,
-    create: State<CreateState>,
+    state: State<'_, EngineState>,
+    create: State<'_, CreateState>,
     name: String,
     provider: String,
     client_id: Option<String>,
@@ -532,15 +575,25 @@ fn create_remote(
     let allowed_params: &[&str] = match provider.as_str() {
         p if OAUTH.contains(&p) => {
             let rclone = find_rclone(&app).ok_or("rclone not found")?;
+            let existed = remote_exists(&rclone, &name);
             let mut args: Vec<String> =
-                vec!["config".into(), "create".into(), name, provider.clone()];
+                vec!["config".into(), "create".into(), name.clone(), provider.clone()];
             if let Some(id) = client_id.filter(|s| !s.trim().is_empty()) {
                 args.push(format!("client_id={}", id.trim()));
             }
             if let Some(secret) = client_secret.filter(|s| !s.trim().is_empty()) {
                 args.push(format!("client_secret={}", secret.trim()));
             }
-            run_auth_child(&rclone, &create, &args)?;
+            if let Err(e) = run_auth_child(&rclone, &create, &args) {
+                // `config create` writes the remote before OAuth finishes;
+                // an aborted flow must not leave a broken token-less remote.
+                if !existed {
+                    let _ = Command::new(&rclone)
+                        .args(["config", "delete", &name])
+                        .status();
+                }
+                return Err(e);
+            }
             return restart_engine_preserving_mounts(&app, &state);
         }
         "webdav" => &["url", "vendor", "user", "pass"],
@@ -590,10 +643,10 @@ fn create_remote(
 /// Re-run the browser authorization for an existing remote — after the
 /// user switches to their own API key, or when a token expires.
 #[tauri::command]
-fn reconnect_remote(
+async fn reconnect_remote(
     app: AppHandle,
-    state: State<EngineState>,
-    create: State<CreateState>,
+    state: State<'_, EngineState>,
+    create: State<'_, CreateState>,
     name: String,
 ) -> Result<(), String> {
     let rclone = find_rclone(&app).ok_or("rclone not found")?;
@@ -610,10 +663,10 @@ fn reconnect_remote(
 /// re-authorize in one browser trip. Empty values reset the remote back to
 /// rclone's shared key.
 #[tauri::command]
-fn update_remote_key(
+async fn update_remote_key(
     app: AppHandle,
-    state: State<EngineState>,
-    create: State<CreateState>,
+    state: State<'_, EngineState>,
+    create: State<'_, CreateState>,
     name: String,
     client_id: String,
     client_secret: String,
@@ -643,7 +696,7 @@ fn cancel_create_remote(create: State<CreateState>) {
 /// updates both the daemon's memory and the config file — no engine
 /// restart, so other mounted drives are untouched.
 #[tauri::command]
-fn delete_remote(state: State<EngineState>, name: String) -> Result<(), String> {
+async fn delete_remote(state: State<'_, EngineState>, name: String) -> Result<(), String> {
     // Deleting the config of a mounted remote would strand the mount
     // (and a systemd-managed one would break on its next restart).
     if let Some(m) = read_proc_mounts().into_iter().find(|m| m.remote == name) {
@@ -663,9 +716,9 @@ fn delete_remote(state: State<EngineState>, name: String) -> Result<(), String> 
 }
 
 #[tauri::command]
-fn mount_remote(
+async fn mount_remote(
     app: AppHandle,
-    state: State<EngineState>,
+    state: State<'_, EngineState>,
     name: String,
     mount_point: Option<String>,
     vfs: Option<Value>,
@@ -722,7 +775,7 @@ fn mount_remote(
 }
 
 #[tauri::command]
-fn unmount_remote(state: State<EngineState>, mount_point: String) -> Result<(), String> {
+async fn unmount_remote(state: State<'_, EngineState>, mount_point: String) -> Result<(), String> {
     let eng = state.0.lock().unwrap();
     rc_raw(
         eng.port,
@@ -737,7 +790,7 @@ fn unmount_remote(state: State<EngineState>, mount_point: String) -> Result<(), 
 /// manual `rclone mount`). Validated against /proc/mounts so this can
 /// never be pointed at an arbitrary path.
 #[tauri::command]
-fn unmount_external(mount_point: String) -> Result<(), String> {
+async fn unmount_external(mount_point: String) -> Result<(), String> {
     if !read_proc_mounts()
         .iter()
         .any(|m| m.mount_point == mount_point)
@@ -816,7 +869,7 @@ struct AppInfo {
 }
 
 #[tauri::command]
-fn app_info(app: AppHandle, flags: State<Flags>) -> AppInfo {
+async fn app_info(app: AppHandle, flags: State<'_, Flags>) -> Result<AppInfo, String> {
     let rclone = find_rclone(&app);
     let rclone_version = rclone.as_ref().and_then(|p| {
         Command::new(p)
@@ -835,13 +888,13 @@ fn app_info(app: AppHandle, flags: State<Flags>) -> AppInfo {
             .and_then(|o| String::from_utf8(o.stdout).ok())
             .and_then(|s| s.lines().last().map(str::to_string))
     });
-    AppInfo {
+    Ok(AppInfo {
         app_version: app.package_info().version.to_string(),
         rclone_version,
         rclone_path: rclone.map(|p| p.display().to_string()),
         config_path,
         tray_available: flags.tray_ok.load(Ordering::Relaxed),
-    }
+    })
 }
 
 // ---------- tray ----------

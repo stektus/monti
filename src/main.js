@@ -84,6 +84,31 @@ async function abortAuth() {
   await invoke("cancel_create_remote").catch(() => {});
 }
 
+// Translate raw rclone/OAuth errors into something a person can act on.
+function friendlyAuthError(err) {
+  const s = String(err);
+  if (s.includes("access_denied"))
+    return (
+      "Google refused the sign-in (403 access_denied): the Google account " +
+      "you signed in with is not on your app's test-user list.\n\n" +
+      "Fix: open console.cloud.google.com/auth/audience → Test users → " +
+      "Add users → add your own e-mail → Save, then try again."
+    );
+  if (s.includes("invalid_client"))
+    return (
+      "Google rejected the API key (invalid_client): the Client ID or " +
+      "Client secret has a typo. Copy both values again from " +
+      "console.cloud.google.com/apis/credentials."
+    );
+  if (s.includes("address already in use"))
+    return (
+      "Another authorization is still waiting in some browser tab " +
+      "(port 53682 is busy). Close old rclone/Google tabs, wait a few " +
+      "seconds and try again."
+    );
+  return s;
+}
+
 // Run an action that ends in a browser OAuth wait, toggling a status line.
 async function withAuth(statusEl, action) {
   authInProgress = true;
@@ -93,7 +118,7 @@ async function withAuth(statusEl, action) {
     await action();
     return true;
   } catch (err) {
-    if (!userCancelled) showError(String(err));
+    if (!userCancelled) showError(friendlyAuthError(err));
     return false;
   } finally {
     authInProgress = false;
