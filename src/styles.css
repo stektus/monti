@@ -365,6 +365,17 @@ dialog select {
   border: 1px solid var(--border);
   border-radius: 10px;
 }
+/* WebKitGTK paints selects with a native (light) background that ignores
+   our colors — turn the native look off and draw our own chevron. */
+dialog select {
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%2398989d' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 13px center;
+  padding-right: 34px;
+}
+
 dialog input:focus-visible,
 dialog select:focus-visible {
   outline: 2px solid color-mix(in srgb, var(--accent) 60%, transparent);
