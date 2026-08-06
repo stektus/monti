@@ -18,13 +18,19 @@ jobs:
             libssl-dev librsvg2-dev libayatana-appindicator3-dev
 
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
 
-      - name: cargo check
+      - name: cargo fmt
         working-directory: src-tauri
-        run: cargo check --locked
+        run: cargo fmt -- --check
+
+      - name: cargo clippy
+        working-directory: src-tauri
+        run: cargo clippy --locked --all-targets -- -D warnings
 
       - name: JS syntax check
         run: node --check src/main.js

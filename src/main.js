@@ -155,7 +155,9 @@ function vfsOptFor(name) {
   return Object.keys(opt).length ? opt : null;
 }
 
-const SIZE_RE = /^\d+(\.\d+)?\s*(b|k|ki|m|mi|g|gi|t|ti|p|pi)?$/i;
+// The unit is mandatory: rclone reads a bare "500" as 500 KiB, which is
+// never what someone typing a cache size means.
+const SIZE_RE = /^\d+(\.\d+)?\s*(b|k|ki|m|mi|g|gi|t|ti|p|pi)$/i;
 const AGE_RE = /^(\d+(\.\d+)?(ms|s|m|h|d|w|y))+$/i;
 
 // ---------- engine health ----------

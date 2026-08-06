@@ -103,11 +103,16 @@ fn utc_stamp() -> String {
 /// Append one line to monti.log (plain text diary of engine/mount/auth
 /// events — never secrets). Rotates to .old at 512 KiB.
 pub fn log_line(app: &AppHandle, msg: &str) {
-    let Some(path) = monti_log_path(app) else { return };
+    let Some(path) = monti_log_path(app) else {
+        return;
+    };
     if let Some(dir) = path.parent() {
         let _ = fs::create_dir_all(dir);
     }
-    if fs::metadata(&path).map(|m| m.len() > 512 * 1024).unwrap_or(false) {
+    if fs::metadata(&path)
+        .map(|m| m.len() > 512 * 1024)
+        .unwrap_or(false)
+    {
         let _ = fs::rename(&path, path.with_extension("log.old"));
     }
     if let Ok(mut f) = fs::OpenOptions::new().create(true).append(true).open(&path) {
@@ -149,17 +154,25 @@ pub fn app_bin_dir(app: &AppHandle) -> Result<PathBuf, String> {
 
 /// rclone bundled into app data takes priority over the system one,
 /// so "Install engine" works even on distros where rclone is absent.
+fn is_executable(p: &std::path::Path) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    p.is_file()
+        && fs::metadata(p)
+            .map(|m| m.permissions().mode() & 0o111 != 0)
+            .unwrap_or(false)
+}
+
 pub fn find_rclone(app: &AppHandle) -> Option<PathBuf> {
     if let Ok(dir) = app_bin_dir(app) {
         let bundled = dir.join("rclone");
-        if bundled.is_file() {
+        if is_executable(&bundled) {
             return Some(bundled);
         }
     }
     let path = std::env::var("PATH").ok()?;
     std::env::split_paths(&path)
         .map(|d| d.join("rclone"))
-        .find(|c| c.is_file())
+        .find(|c| is_executable(c))
 }
 
 pub fn rand_hex(n_bytes: usize) -> Result<String, String> {
@@ -219,7 +232,10 @@ pub fn clean_appimage_env(cmd: &mut Command) {
 /// app data. The next session adopts a live daemon instead of spawning a
 /// second one; an unreachable leftover is killed.
 pub fn engine_file(app: &AppHandle) -> Option<PathBuf> {
-    app.path().app_data_dir().ok().map(|d| d.join("engine.json"))
+    app.path()
+        .app_data_dir()
+        .ok()
+        .map(|d| d.join("engine.json"))
 }
 
 pub fn is_rcd_pid(pid: u32) -> bool {
@@ -244,9 +260,7 @@ fn boot_id() -> String {
 /// Same pid + same start time + rcd-looking cmdline = the exact process
 /// we spawned. Any mismatch means the pid was recycled — hands off.
 fn is_our_daemon(pid: u32, saved_starttime: u64) -> bool {
-    saved_starttime != 0
-        && proc_starttime(pid) == Some(saved_starttime)
-        && is_rcd_pid(pid)
+    saved_starttime != 0 && proc_starttime(pid) == Some(saved_starttime) && is_rcd_pid(pid)
 }
 
 /// Does <pid> hold the LISTEN socket for 127.0.0.1:<port>? Looked up via
@@ -280,39 +294,6 @@ fn pid_owns_port(pid: u32, port: u16) -> bool {
     fds.filter_map(|e| e.ok())
         .filter_map(|e| fs::read_link(e.path()).ok())
         .any(|l| l.to_string_lossy() == target)
-}
-
-#[cfg(test)]
-mod port_tests {
-    /// A live rcd must be recognized as the owner of its own RC port —
-    /// a parser regression here once made adoption kill healthy daemons.
-    #[test]
-    fn pid_owns_its_rc_port() {
-        use std::process::{Command, Stdio};
-        let port = super::free_port().unwrap();
-        let Ok(mut child) = Command::new("rclone")
-            .args(["rcd", "--rc-no-auth", &format!("--rc-addr=127.0.0.1:{port}")])
-            .env_remove("DISPLAY")
-            .env_remove("WAYLAND_DISPLAY")
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()
-        else {
-            return; // no rclone on this machine — skip
-        };
-        let mut owned = false;
-        for _ in 0..50 {
-            if super::pid_owns_port(child.id(), port) {
-                owned = true;
-                break;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(100));
-        }
-        let _ = child.kill();
-        let _ = child.wait();
-        assert!(owned, "live daemon not recognized as owner of its port");
-    }
 }
 
 /// SIGTERM the daemon — but only after re-checking it is still the exact
@@ -445,11 +426,17 @@ pub fn try_adopt_engine(app: &AppHandle, eng: &mut Engine) -> bool {
             }
         }
         save_engine_file(app, eng); // upgrade legacy files to v2
-        log_line(app, &format!("adopted running engine (pid {pid}, port {port})"));
+        log_line(
+            app,
+            &format!("adopted running engine (pid {pid}, port {port})"),
+        );
         return true;
     }
     // Unreachable or imposter — reap only what is provably ours.
-    log_line(app, &format!("engine leftover unusable (pid {pid}), cleaning up"));
+    log_line(
+        app,
+        &format!("engine leftover unusable (pid {pid}), cleaning up"),
+    );
     safe_kill(app, pid, starttime);
     cleanup()
 }
@@ -576,7 +563,10 @@ pub fn start_engine_locked(app: &AppHandle, eng: &mut Engine) -> Result<(), Stri
             eng.port = port;
             eng.pass = pass;
             save_engine_file(app, eng);
-            log_line(app, &format!("engine started (pid {}, port {port})", eng.pid));
+            log_line(
+                app,
+                &format!("engine started (pid {}, port {port})", eng.pid),
+            );
             return Ok(());
         }
         thread::sleep(Duration::from_millis(100));
@@ -589,7 +579,10 @@ pub fn start_engine_locked(app: &AppHandle, eng: &mut Engine) -> Result<(), Stri
 
 pub fn stop_engine_locked(app: &AppHandle, eng: &mut Engine) {
     if eng.port != 0 {
-        log_line(app, &format!("stopping engine (pid {}, port {})", eng.pid, eng.port));
+        log_line(
+            app,
+            &format!("stopping engine (pid {}, port {})", eng.pid, eng.port),
+        );
         // Unmount everything first so FUSE mounts don't go stale.
         let _ = rc_raw(eng.port, &eng.pass, "mount/unmountall", &json!({}));
         let _ = rc_raw(eng.port, &eng.pass, "core/quit", &json!({}));
@@ -677,7 +670,10 @@ pub fn remount_saved(app: &AppHandle, eng: &Engine) {
             }),
         );
         match result {
-            Ok(_) => log_line(app, &format!("remounted {fs_name} at {}", entry.mount_point)),
+            Ok(_) => log_line(
+                app,
+                &format!("remounted {fs_name} at {}", entry.mount_point),
+            ),
             Err(e) => log_line(app, &format!("remount of {fs_name} failed: {e}")),
         }
     }
@@ -686,7 +682,10 @@ pub fn remount_saved(app: &AppHandle, eng: &Engine) {
 /// Restart the rcd daemon and remount everything that was mounted.
 /// Needed after CLI config changes the daemon can't see; users should
 /// never lose a mounted drive because they added or re-authorized one.
-pub fn restart_engine_preserving_mounts(app: &AppHandle, state: &EngineState) -> Result<(), String> {
+pub fn restart_engine_preserving_mounts(
+    app: &AppHandle,
+    state: &EngineState,
+) -> Result<(), String> {
     let mut eng = state.0.lock().unwrap();
     let saved_mounts = eng.mounts.clone();
     stop_engine_locked(app, &mut eng);
@@ -695,4 +694,41 @@ pub fn restart_engine_preserving_mounts(app: &AppHandle, state: &EngineState) ->
     remount_saved(app, &eng);
     save_engine_file(app, &eng);
     Ok(())
+}
+
+#[cfg(test)]
+mod port_tests {
+    /// A live rcd must be recognized as the owner of its own RC port —
+    /// a parser regression here once made adoption kill healthy daemons.
+    #[test]
+    fn pid_owns_its_rc_port() {
+        use std::process::{Command, Stdio};
+        let port = super::free_port().unwrap();
+        let Ok(mut child) = Command::new("rclone")
+            .args([
+                "rcd",
+                "--rc-no-auth",
+                &format!("--rc-addr=127.0.0.1:{port}"),
+            ])
+            .env_remove("DISPLAY")
+            .env_remove("WAYLAND_DISPLAY")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+        else {
+            return; // no rclone on this machine — skip
+        };
+        let mut owned = false;
+        for _ in 0..50 {
+            if super::pid_owns_port(child.id(), port) {
+                owned = true;
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+        let _ = child.kill();
+        let _ = child.wait();
+        assert!(owned, "live daemon not recognized as owner of its port");
+    }
 }

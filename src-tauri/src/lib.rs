@@ -155,7 +155,9 @@ async fn install_rclone(app: AppHandle) -> Result<String, String> {
         .ok_or("unexpected version.txt format")?;
     let file_name = format!("rclone-{version}-linux-{arch}.zip");
     let resp = agent
-        .get(&format!("https://downloads.rclone.org/{version}/{file_name}"))
+        .get(&format!(
+            "https://downloads.rclone.org/{version}/{file_name}"
+        ))
         .call()
         .map_err(|e| format!("download failed: {e}"))?;
     let total = resp
@@ -194,7 +196,9 @@ async fn install_rclone(app: AppHandle) -> Result<String, String> {
         }
     }
 
-    let sums = fetch_text(&format!("https://downloads.rclone.org/{version}/SHA256SUMS"))?;
+    let sums = fetch_text(&format!(
+        "https://downloads.rclone.org/{version}/SHA256SUMS"
+    ))?;
     let expected = sums
         .lines()
         .filter_map(|l| {
@@ -258,8 +262,7 @@ async fn engine_health(state: State<'_, EngineState>) -> Result<bool, String> {
     if port == 0 {
         return Ok(false);
     }
-    let alive =
-        engine::rc_raw_with_timeout(port, &pass, "rc/noop", &json!({}), 3).is_ok();
+    let alive = engine::rc_raw_with_timeout(port, &pass, "rc/noop", &json!({}), 3).is_ok();
     if !alive {
         // Reap the child handle so a later start doesn't think it's alive.
         let mut eng = state.0.lock().unwrap();
@@ -358,6 +361,7 @@ async fn list_remotes(state: State<'_, EngineState>) -> Result<Vec<RemoteInfo>, 
 /// Protocol notes (verified against rclone v1.74): every continue call
 /// must repeat name/type/parameters; answers use Option.DefaultStr,
 /// except config_is_local which we force to "true".
+#[allow(clippy::too_many_arguments)]
 fn config_state_machine(
     app: &AppHandle,
     port: u16,
@@ -481,6 +485,7 @@ fn drive_state_machine(
 /// own API key instead of rclone's shared one (retired during 2026).
 /// No engine restart, no secrets in argv, single writer of the config.
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 async fn create_remote(
     app: AppHandle,
     state: State<'_, EngineState>,
@@ -675,7 +680,12 @@ async fn delete_remote(
         ));
     }
     let eng = state.0.lock().unwrap();
-    rc_raw(eng.port, &eng.pass, "config/delete", &json!({ "name": name }))?;
+    rc_raw(
+        eng.port,
+        &eng.pass,
+        "config/delete",
+        &json!({ "name": name }),
+    )?;
     log_line(&app, &format!("deleted remote {name}"));
     Ok(())
 }
@@ -690,11 +700,16 @@ fn vfs_cache_dirs(app: &AppHandle, name: &str) -> Result<Vec<PathBuf>, String> {
     }
     let cache = app.path().cache_dir().map_err(|e| e.to_string())?; // ~/.cache
     let root = cache.join("rclone");
-    Ok(vec![root.join("vfs").join(name), root.join("vfsMeta").join(name)])
+    Ok(vec![
+        root.join("vfs").join(name),
+        root.join("vfsMeta").join(name),
+    ])
 }
 
 fn dir_size(path: &std::path::Path) -> u64 {
-    let Ok(entries) = fs::read_dir(path) else { return 0 };
+    let Ok(entries) = fs::read_dir(path) else {
+        return 0;
+    };
     entries
         .flatten()
         .map(|e| match e.metadata() {
@@ -708,7 +723,10 @@ fn dir_size(path: &std::path::Path) -> u64 {
 /// Bytes of cached file copies a remote keeps under ~/.cache/rclone.
 #[tauri::command]
 fn vfs_cache_size(app: AppHandle, name: String) -> Result<u64, String> {
-    Ok(vfs_cache_dirs(&app, &name)?.iter().map(|d| dir_size(d)).sum())
+    Ok(vfs_cache_dirs(&app, &name)?
+        .iter()
+        .map(|d| dir_size(d))
+        .sum())
 }
 
 /// Delete a remote's local VFS cache (offered by the UI after the remote
@@ -758,10 +776,19 @@ async fn mount_remote(
         }
         None => home.join("CloudDrives").join(&name),
     };
+    let created_dir = !mount_point.exists();
     fs::create_dir_all(&mount_point).map_err(|e| e.to_string())?;
+    // If anything below fails, don't leave behind an empty folder we
+    // created ourselves.
+    let cleanup = |err: String| {
+        if created_dir {
+            let _ = fs::remove_dir(&mount_point);
+        }
+        err
+    };
     // FUSE needs an empty directory to mount over.
     if fs::read_dir(&mount_point)
-        .map_err(|e| e.to_string())?
+        .map_err(|e| cleanup(e.to_string()))?
         .next()
         .is_some()
     {
@@ -781,7 +808,8 @@ async fn mount_remote(
             "mountPoint": mount_point,
             "vfsOpt": vfs_opt,
         }),
-    )?;
+    )
+    .map_err(&cleanup)?;
     eng.mounts.insert(
         format!("{name}:"),
         MountEntry {
@@ -790,7 +818,10 @@ async fn mount_remote(
         },
     );
     save_engine_file(&app, &eng);
-    log_line(&app, &format!("mounted {name}: at {}", mount_point.display()));
+    log_line(
+        &app,
+        &format!("mounted {name}: at {}", mount_point.display()),
+    );
     Ok(mount_point.display().to_string())
 }
 
@@ -954,122 +985,6 @@ async fn app_info(app: AppHandle, flags: State<'_, Flags>) -> Result<AppInfo, St
     })
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::process::{Child, Command, Stdio};
-
-    struct TestDaemon {
-        child: Child,
-        port: u16,
-        pass: String,
-        _conf: tempdir::TempDirGuard,
-    }
-
-    mod tempdir {
-        pub struct TempDirGuard(pub std::path::PathBuf);
-        impl Drop for TempDirGuard {
-            fn drop(&mut self) {
-                let _ = std::fs::remove_dir_all(&self.0);
-            }
-        }
-    }
-
-    fn spawn_test_rcd() -> Option<TestDaemon> {
-        // Tests need a real rclone; skip silently where it's absent (CI
-        // without rclone) — the protocol was verified there separately.
-        let dir = std::env::temp_dir().join(format!("monti-test-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).ok()?;
-        let conf = dir.join("rclone.conf");
-        std::fs::write(&conf, "").ok()?;
-        let port = engine::free_port().ok()?;
-        let pass = "testpass".to_string();
-        let child = Command::new("rclone")
-            .args(["rcd", &format!("--rc-addr=127.0.0.1:{port}")])
-            .env("RCLONE_CONFIG", &conf)
-            .env("RCLONE_RC_USER", engine::RC_USER)
-            .env("RCLONE_RC_PASS", &pass)
-            // Never open a real browser from tests: no display, and a
-            // no-op $BROWSER for whatever ignores the missing display.
-            .env("BROWSER", "true")
-            .env_remove("DISPLAY")
-            .env_remove("WAYLAND_DISPLAY")
-            .env_remove("XDG_CURRENT_DESKTOP")
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()
-            .ok()?;
-        for _ in 0..50 {
-            if rc_raw(port, &pass, "rc/noop", &json!({})).is_ok() {
-                return Some(TestDaemon {
-                    child,
-                    port,
-                    pass,
-                    _conf: tempdir::TempDirGuard(dir),
-                });
-            }
-            thread::sleep(Duration::from_millis(100));
-        }
-        None
-    }
-
-    impl Drop for TestDaemon {
-        fn drop(&mut self) {
-            let _ = rc_raw(self.port, &self.pass, "core/quit", &json!({}));
-            thread::sleep(Duration::from_millis(200));
-            let _ = self.child.kill();
-            let _ = self.child.wait();
-        }
-    }
-
-    #[test]
-    fn state_machine_completes_for_questionless_backend() {
-        let Some(d) = spawn_test_rcd() else { return };
-        let auth = AuthState(Mutex::new(Some(0)));
-        let r = drive_state_machine(
-            d.port,
-            &d.pass,
-            &auth,
-            "config/create",
-            "tlocal",
-            Some("local"),
-            &json!({}),
-        );
-        assert_eq!(r, Ok(()));
-        let dump = rc_raw(d.port, &d.pass, "config/dump", &json!({})).unwrap();
-        assert!(dump.get("tlocal").is_some(), "remote not created: {dump}");
-    }
-
-    #[test]
-    fn state_machine_cancel_unblocks_oauth_wait() {
-        let Some(d) = spawn_test_rcd() else { return };
-        let auth = std::sync::Arc::new(AuthState(Mutex::new(Some(0))));
-        let (port, pass) = (d.port, d.pass.clone());
-        let auth2 = std::sync::Arc::clone(&auth);
-        let flow = thread::spawn(move || {
-            drive_state_machine(
-                port,
-                &pass,
-                &auth2,
-                "config/create",
-                "tdrive",
-                Some("drive"),
-                &json!({}),
-            )
-        });
-        // Give the machine time to reach the browser-wait step, then cancel.
-        thread::sleep(Duration::from_secs(4));
-        auth.0.lock().unwrap().take();
-        let r = flow.join().unwrap();
-        assert_eq!(r, Err("Authorization cancelled.".to_string()));
-        // Clean the half-written section like create_remote's error path does.
-        let _ = rc_raw(d.port, &d.pass, "config/delete", &json!({ "name": "tdrive" }));
-        let dump = rc_raw(d.port, &d.pass, "config/dump", &json!({})).unwrap();
-        assert!(dump.get("tdrive").is_none());
-    }
-}
-
 // ---------- tray ----------
 
 fn build_tray(app: &AppHandle) -> tauri::Result<()> {
@@ -1078,11 +993,7 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
     let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&show, &sep, &quit])?;
     TrayIconBuilder::with_id("monti-tray")
-        .icon(
-            app.default_window_icon()
-                .expect("bundle has icons")
-                .clone(),
-        )
+        .icon(app.default_window_icon().expect("bundle has icons").clone())
         .tooltip("Monti — cloud drives")
         .menu(&menu)
         .on_menu_event(|app, event| match event.id.as_ref() {
@@ -1226,4 +1137,125 @@ pub fn run() {
                 }
             }
         });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::process::{Child, Command, Stdio};
+
+    struct TestDaemon {
+        child: Child,
+        port: u16,
+        pass: String,
+        _conf: tempdir::TempDirGuard,
+    }
+
+    mod tempdir {
+        pub struct TempDirGuard(pub std::path::PathBuf);
+        impl Drop for TempDirGuard {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+    }
+
+    fn spawn_test_rcd() -> Option<TestDaemon> {
+        // Tests need a real rclone; skip silently where it's absent (CI
+        // without rclone) — the protocol was verified there separately.
+        let dir = std::env::temp_dir().join(format!("monti-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).ok()?;
+        let conf = dir.join("rclone.conf");
+        std::fs::write(&conf, "").ok()?;
+        let port = engine::free_port().ok()?;
+        let pass = "testpass".to_string();
+        let child = Command::new("rclone")
+            .args(["rcd", &format!("--rc-addr=127.0.0.1:{port}")])
+            .env("RCLONE_CONFIG", &conf)
+            .env("RCLONE_RC_USER", engine::RC_USER)
+            .env("RCLONE_RC_PASS", &pass)
+            // Never open a real browser from tests: no display, and a
+            // no-op $BROWSER for whatever ignores the missing display.
+            .env("BROWSER", "true")
+            .env_remove("DISPLAY")
+            .env_remove("WAYLAND_DISPLAY")
+            .env_remove("XDG_CURRENT_DESKTOP")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .ok()?;
+        for _ in 0..50 {
+            if rc_raw(port, &pass, "rc/noop", &json!({})).is_ok() {
+                return Some(TestDaemon {
+                    child,
+                    port,
+                    pass,
+                    _conf: tempdir::TempDirGuard(dir),
+                });
+            }
+            thread::sleep(Duration::from_millis(100));
+        }
+        None
+    }
+
+    impl Drop for TestDaemon {
+        fn drop(&mut self) {
+            let _ = rc_raw(self.port, &self.pass, "core/quit", &json!({}));
+            thread::sleep(Duration::from_millis(200));
+            let _ = self.child.kill();
+            let _ = self.child.wait();
+        }
+    }
+
+    #[test]
+    fn state_machine_completes_for_questionless_backend() {
+        let Some(d) = spawn_test_rcd() else { return };
+        let auth = AuthState(Mutex::new(Some(0)));
+        let r = drive_state_machine(
+            d.port,
+            &d.pass,
+            &auth,
+            "config/create",
+            "tlocal",
+            Some("local"),
+            &json!({}),
+        );
+        assert_eq!(r, Ok(()));
+        let dump = rc_raw(d.port, &d.pass, "config/dump", &json!({})).unwrap();
+        assert!(dump.get("tlocal").is_some(), "remote not created: {dump}");
+    }
+
+    #[test]
+    fn state_machine_cancel_unblocks_oauth_wait() {
+        let Some(d) = spawn_test_rcd() else { return };
+        let auth = std::sync::Arc::new(AuthState(Mutex::new(Some(0))));
+        let (port, pass) = (d.port, d.pass.clone());
+        let auth2 = std::sync::Arc::clone(&auth);
+        let flow = thread::spawn(move || {
+            drive_state_machine(
+                port,
+                &pass,
+                &auth2,
+                "config/create",
+                "tdrive",
+                Some("drive"),
+                &json!({}),
+            )
+        });
+        // Give the machine time to reach the browser-wait step, then cancel.
+        thread::sleep(Duration::from_secs(4));
+        auth.0.lock().unwrap().take();
+        let r = flow.join().unwrap();
+        assert_eq!(r, Err("Authorization cancelled.".to_string()));
+        // Clean the half-written section like create_remote's error path does.
+        let _ = rc_raw(
+            d.port,
+            &d.pass,
+            "config/delete",
+            &json!({ "name": "tdrive" }),
+        );
+        let dump = rc_raw(d.port, &d.pass, "config/dump", &json!({})).unwrap();
+        assert!(dump.get("tdrive").is_none());
+    }
 }

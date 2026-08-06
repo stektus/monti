@@ -79,7 +79,10 @@ have curl || die "curl is required."
 if have fusermount3; then
   say "FUSE: ok"
 else
-  say "FUSE3 is missing — installing (your password may be asked)…"
+  say "FUSE3 is missing — Monti needs it to mount drives."
+  if ! ask "Install fuse3 with your package manager (uses sudo)?"; then
+    die "FUSE3 is required. Install the fuse3 package yourself, then re-run."
+  fi
   if have pacman; then
     sudo pacman -S --needed --noconfirm fuse3
   elif have apt-get; then

@@ -13,6 +13,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Tag must match the app version
+        run: |
+          v=$(python3 -c "import json;print(json.load(open('src-tauri/tauri.conf.json'))['version'])")
+          if [ "v$v" != "${{ github.ref_name }}" ]; then
+            echo "::error::tag ${{ github.ref_name }} does not match tauri.conf.json version $v"
+            exit 1
+          fi
+
       - name: Install Tauri system dependencies
         run: |
           sudo apt-get update
