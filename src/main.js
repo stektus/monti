@@ -273,9 +273,14 @@ async function refreshRemotes() {
   list.innerHTML = "";
   $("empty-hint").classList.toggle("hidden", remotes.length > 0);
 
-  for (const { name, type, hasOwnKey: ownKey } of remotes) {
+  for (const { name, type, hasOwnKey: ownKey, mountedReadOnly } of remotes) {
     const ownPoint = own.get(name);
     const extPoint = external.get(name);
+    // For a live Monti mount show the real state; otherwise what the next
+    // mount will do (the pref).
+    const readOnly = ownPoint != null && mountedReadOnly != null
+      ? mountedReadOnly
+      : !!prefFor(name).vfs?.readOnly;
 
     const card = document.createElement("div");
     card.className = "card remote-card";
@@ -285,7 +290,7 @@ async function refreshRemotes() {
         <span class="remote-name"></span>
         <span class="chip provider"></span>
         ${ownKey ? '<span class="chip key" title="Connected through your own API key">own key</span>' : ""}
-        ${prefFor(name).vfs?.readOnly ? '<span class="chip" title="Mounted read-only: files cannot be changed">read-only</span>' : ""}
+        ${readOnly ? '<span class="chip" title="Read-only: files cannot be changed">read-only</span>' : ""}
         <span class="spacer"></span>
         ${
           ownPoint
@@ -333,8 +338,10 @@ async function refreshRemotes() {
         makeBtn("Unmount", "", async () => {
           const ok = confirm(
             `"${name}" is mounted by something outside Monti (a systemd service ` +
-              `or a manual rclone mount).\n\nUnmount it anyway? If a service ` +
-              `manages it, it may remount it or need to be disabled separately.`
+              `or a manual rclone mount).\n\nUnmount it anyway? Close any apps ` +
+              `using files there first — unsaved changes in open files would be ` +
+              `lost. If a service manages the mount, it may remount it or need ` +
+              `to be disabled separately.`
           );
           if (!ok) return;
           await invoke("unmount_external", { mountPoint: extPoint });

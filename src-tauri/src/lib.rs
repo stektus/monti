@@ -309,6 +309,9 @@ struct RemoteInfo {
     typ: String,
     has_own_key: bool,
     client_id: String,
+    /// For drives mounted by Monti: whether the LIVE mount is read-only
+    /// (the pref may have changed since it was mounted).
+    mounted_read_only: Option<bool>,
 }
 
 /// Sanitized view of the config for the UI: names, types and the public
@@ -316,9 +319,9 @@ struct RemoteInfo {
 /// reach the webview — the full config/dump stays on the Rust side.
 #[tauri::command]
 async fn list_remotes(state: State<'_, EngineState>) -> Result<Vec<RemoteInfo>, String> {
-    let (port, pass) = {
+    let (port, pass, live_mounts) = {
         let eng = state.0.lock().unwrap();
-        (eng.port, eng.pass.clone())
+        (eng.port, eng.pass.clone(), eng.mounts.clone())
     };
     let dump = rc_raw(port, &pass, "config/dump", &json!({}))?;
     let mut out: Vec<RemoteInfo> = dump
@@ -341,6 +344,12 @@ async fn list_remotes(state: State<'_, EngineState>) -> Result<Vec<RemoteInfo>, 
                             .to_string(),
                         has_own_key: !client_id.is_empty(),
                         client_id,
+                        mounted_read_only: live_mounts.get(&format!("{name}:")).map(|m| {
+                            m.vfs_opt
+                                .get("ReadOnly")
+                                .and_then(Value::as_bool)
+                                .unwrap_or(false)
+                        }),
                     }
                 })
                 .collect()
