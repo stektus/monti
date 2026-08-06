@@ -387,6 +387,16 @@ async function initSettings() {
     }
   });
 
+  // Keep drives mounted after quit (default: on)
+  const keepPref = localStorage.getItem("monti.keepMounts");
+  const keepOn = keepPref === null ? true : keepPref === "1";
+  $("opt-keep-mounts").checked = keepOn;
+  await invoke("set_keep_mounts", { enabled: keepOn });
+  $("opt-keep-mounts").addEventListener("change", async (e) => {
+    localStorage.setItem("monti.keepMounts", e.target.checked ? "1" : "0");
+    await invoke("set_keep_mounts", { enabled: e.target.checked });
+  });
+
   // Close to tray
   const trayPref = localStorage.getItem("monti.closeToTray");
   const trayOn = trayPref === null ? true : trayPref === "1";

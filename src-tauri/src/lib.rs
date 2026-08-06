@@ -37,11 +37,17 @@ struct Flags {
     /// Whether the system tray icon was created successfully. On Linux this
     /// needs a StatusNotifier host (present on KDE/GNOME with extension).
     tray_ok: AtomicBool,
+    /// Quitting leaves mounted drives (and the engine) running; the next
+    /// Monti session re-adopts the engine via the state file.
+    keep_mounts: AtomicBool,
 }
 
 #[derive(Default)]
 struct Engine {
+    /// Present when this session spawned the daemon; None when a daemon
+    /// from a previous session was adopted (see `try_adopt_engine`).
     child: Option<Child>,
+    pid: u32,
     port: u16,
     pass: String,
     /// vfsOpt used for each mounted fs ("name:"), so an engine restart can
@@ -126,6 +132,21 @@ fn die_with_parent(cmd: &mut Command) {
     clean_appimage_env(cmd);
 }
 
+/// For the rcd daemon: new session (detached from our lifetime and any
+/// terminal) and a clean environment — but NO parent-death signal, so it
+/// can keep drives mounted after Monti quits.
+#[cfg(target_os = "linux")]
+fn detach_child(cmd: &mut Command) {
+    use std::os::unix::process::CommandExt;
+    unsafe {
+        cmd.pre_exec(|| {
+            libc::setsid();
+            Ok(())
+        });
+    }
+    clean_appimage_env(cmd);
+}
+
 /// Strip AppImage-injected paths from a child's environment. The AppRun
 /// wrapper points LD_LIBRARY_PATH & co. at libraries bundled for the
 /// build distro; a browser launched down the chain (rclone → xdg-open)
@@ -168,29 +189,62 @@ fn remote_exists(rclone: &PathBuf, name: &str) -> bool {
         .is_some_and(|s| s.lines().any(|l| l.trim().trim_end_matches(':') == name))
 }
 
-/// PDEATHSIG is best-effort (it has not proven reliable across AppImage
-/// runs), so the rcd pid is also written to a pidfile and any stale
-/// daemon from a previous crashed/killed run is reaped on next start.
-fn rcd_pidfile(app: &AppHandle) -> Option<PathBuf> {
-    app.path().app_data_dir().ok().map(|d| d.join("rcd.pid"))
+/// The engine deliberately survives Monti when "keep mounts on quit" is
+/// on, so its coordinates (port, password, pid) are persisted 0600 in
+/// app data. The next session adopts a live daemon instead of spawning a
+/// second one; an unreachable leftover is killed.
+fn engine_file(app: &AppHandle) -> Option<PathBuf> {
+    app.path().app_data_dir().ok().map(|d| d.join("engine.json"))
 }
 
-fn reap_stale_rcd(app: &AppHandle) {
-    let Some(pidfile) = rcd_pidfile(app) else {
-        return;
-    };
-    if let Ok(s) = fs::read_to_string(&pidfile) {
-        if let Ok(pid) = s.trim().parse::<i32>() {
-            let cmdline =
-                fs::read_to_string(format!("/proc/{pid}/cmdline")).unwrap_or_default();
-            if cmdline.contains("rclone") && cmdline.contains("rcd") {
-                unsafe {
-                    libc::kill(pid, libc::SIGTERM);
-                }
-            }
-        }
-        let _ = fs::remove_file(&pidfile);
+fn is_rcd_pid(pid: u32) -> bool {
+    let cmdline = fs::read_to_string(format!("/proc/{pid}/cmdline")).unwrap_or_default();
+    cmdline.contains("rclone") && cmdline.contains("rcd")
+}
+
+fn save_engine_file(app: &AppHandle, eng: &Engine) {
+    let Some(path) = engine_file(app) else { return };
+    if let Some(dir) = path.parent() {
+        let _ = fs::create_dir_all(dir);
     }
+    let data = json!({ "port": eng.port, "pass": eng.pass, "pid": eng.pid });
+    let _ = fs::write(&path, data.to_string());
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = fs::set_permissions(&path, fs::Permissions::from_mode(0o600));
+    }
+}
+
+/// Try to reconnect to an engine left by a previous session. Returns true
+/// on success; kills an unreachable stale daemon as a side effect.
+fn try_adopt_engine(app: &AppHandle, eng: &mut Engine) -> bool {
+    let Some(path) = engine_file(app) else {
+        return false;
+    };
+    let Ok(saved) = fs::read_to_string(&path) else {
+        return false;
+    };
+    let saved: Value = serde_json::from_str(&saved).unwrap_or_default();
+    let port = saved["port"].as_u64().unwrap_or(0) as u16;
+    let pass = saved["pass"].as_str().unwrap_or("").to_string();
+    let pid = saved["pid"].as_u64().unwrap_or(0) as u32;
+    if port != 0 && !pass.is_empty() && rc_raw(port, &pass, "rc/noop", &json!({})).is_ok() {
+        eng.child = None;
+        eng.pid = pid;
+        eng.port = port;
+        eng.pass = pass;
+        return true;
+    }
+    // Unreachable — if the pid is still an rcd, put it down before
+    // spawning a fresh daemon.
+    if pid != 0 && is_rcd_pid(pid) {
+        unsafe {
+            libc::kill(pid as i32, libc::SIGTERM);
+        }
+    }
+    let _ = fs::remove_file(&path);
+    false
 }
 
 fn free_port() -> Result<u16, String> {
@@ -200,87 +254,98 @@ fn free_port() -> Result<u16, String> {
     Ok(port)
 }
 
+// ureq instead of reqwest on purpose: commands run on tokio worker
+// threads, and dropping reqwest's blocking client there panics the
+// runtime ("Cannot drop a runtime in a context where blocking is not
+// allowed"). ureq is plain blocking I/O with no runtime inside.
 fn rc_raw(port: u16, pass: &str, path: &str, body: &Value) -> Result<Value, String> {
     if port == 0 {
         return Err("engine is not running".into());
     }
-    let client = reqwest::blocking::Client::builder()
+    use base64::Engine as _;
+    let auth = format!(
+        "Basic {}",
+        base64::engine::general_purpose::STANDARD.encode(format!("{RC_USER}:{pass}"))
+    );
+    let agent = ureq::AgentBuilder::new()
         .timeout(Duration::from_secs(120))
-        .build()
-        .map_err(|e| e.to_string())?;
-    let resp = client
-        .post(format!("http://127.0.0.1:{port}/{path}"))
-        .basic_auth(RC_USER, Some(pass))
-        .json(body)
-        .send()
-        .map_err(|e| e.to_string())?;
-    let status = resp.status();
-    let value: Value = resp
-        .json()
-        .unwrap_or_else(|e| json!({ "error": e.to_string() }));
-    if status.is_success() {
-        Ok(value)
-    } else {
-        Err(value["error"]
-            .as_str()
-            .unwrap_or("rclone rc call failed")
-            .to_string())
+        .build();
+    match agent
+        .post(&format!("http://127.0.0.1:{port}/{path}"))
+        .set("Authorization", &auth)
+        .send_json(body)
+    {
+        Ok(resp) => resp.into_json().map_err(|e| e.to_string()),
+        Err(ureq::Error::Status(_, resp)) => {
+            let value: Value = resp.into_json().unwrap_or(json!({}));
+            Err(value["error"]
+                .as_str()
+                .unwrap_or("rclone rc call failed")
+                .to_string())
+        }
+        Err(e) => Err(e.to_string()),
     }
 }
 
-fn start_engine_locked(app: &AppHandle, eng: &mut Engine) -> Result<(), String> {
-    // Already running?
+fn engine_alive(eng: &mut Engine) -> bool {
     if let Some(child) = &mut eng.child {
-        if matches!(child.try_wait(), Ok(None)) {
-            return Ok(());
-        }
-        eng.child = None;
+        return matches!(child.try_wait(), Ok(None));
     }
-    reap_stale_rcd(app);
+    // Adopted daemon: no process handle, probe the API instead.
+    eng.port != 0 && rc_raw(eng.port, &eng.pass, "rc/noop", &json!({})).is_ok()
+}
+
+fn start_engine_locked(app: &AppHandle, eng: &mut Engine) -> Result<(), String> {
+    if engine_alive(eng) {
+        return Ok(());
+    }
+    eng.child = None;
+    if try_adopt_engine(app, eng) {
+        return Ok(());
+    }
     let rclone = find_rclone(app).ok_or("rclone not found")?;
     let port = free_port()?;
     let pass = rand_hex(16)?;
     let mut cmd = Command::new(&rclone);
     // Credentials go through the environment: /proc/<pid>/cmdline is
-    // world-readable, /proc/<pid>/environ is not.
+    // world-readable, /proc/<pid>/environ is not. No PDEATHSIG here:
+    // the daemon must be able to outlive the app to keep drives mounted.
     cmd.args(["rcd", &format!("--rc-addr=127.0.0.1:{port}")])
         .env("RCLONE_RC_USER", RC_USER)
         .env("RCLONE_RC_PASS", &pass)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
-    die_with_parent(&mut cmd);
+    detach_child(&mut cmd);
     let child = cmd
         .spawn()
         .map_err(|e| format!("failed to start rclone: {e}"))?;
 
-    if let Some(pidfile) = rcd_pidfile(app) {
-        if let Some(dir) = pidfile.parent() {
-            let _ = fs::create_dir_all(dir);
-        }
-        let _ = fs::write(&pidfile, child.id().to_string());
-    }
-
     // Wait until the RC API answers.
     for _ in 0..50 {
         if rc_raw(port, &pass, "rc/noop", &json!({})).is_ok() {
+            eng.pid = child.id();
             eng.child = Some(child);
             eng.port = port;
             eng.pass = pass;
+            save_engine_file(app, eng);
             return Ok(());
         }
         thread::sleep(Duration::from_millis(100));
     }
+    let _ = { child }.kill();
     Err("rclone engine did not become ready in 5s".into())
 }
 
-fn stop_engine_locked(eng: &mut Engine) {
-    if let Some(mut child) = eng.child.take() {
+fn stop_engine_locked(app: &AppHandle, eng: &mut Engine) {
+    if eng.port != 0 {
         // Unmount everything first so FUSE mounts don't go stale.
         let _ = rc_raw(eng.port, &eng.pass, "mount/unmountall", &json!({}));
         let _ = rc_raw(eng.port, &eng.pass, "core/quit", &json!({}));
-        // Give the daemon a moment to exit on its own; killing it mid-write
-        // is what the VFS cache protects against, but no need to test that.
+    }
+    // Give the daemon a moment to exit on its own; killing it mid-write
+    // is what the VFS cache protects against, but no need to test that.
+    if let Some(mut child) = eng.child.take() {
         for _ in 0..20 {
             if matches!(child.try_wait(), Ok(Some(_))) {
                 break;
@@ -289,7 +354,24 @@ fn stop_engine_locked(eng: &mut Engine) {
         }
         let _ = child.kill();
         let _ = child.wait();
+    } else if eng.pid != 0 {
+        // Adopted daemon: no Child handle, watch /proc and then SIGTERM.
+        for _ in 0..20 {
+            if !is_rcd_pid(eng.pid) {
+                break;
+            }
+            thread::sleep(Duration::from_millis(100));
+        }
+        if is_rcd_pid(eng.pid) {
+            unsafe {
+                libc::kill(eng.pid as i32, libc::SIGTERM);
+            }
+        }
     }
+    if let Some(path) = engine_file(app) {
+        let _ = fs::remove_file(path);
+    }
+    eng.pid = 0;
     eng.port = 0;
     eng.pass.clear();
 }
@@ -354,10 +436,7 @@ async fn engine_status(app: AppHandle, state: State<'_, EngineState>) -> Result<
             .and_then(|s| s.lines().next().map(str::to_string))
     });
     let mut eng = state.0.lock().unwrap();
-    let running = eng
-        .child
-        .as_mut()
-        .is_some_and(|c| matches!(c.try_wait(), Ok(None)));
+    let running = engine_alive(&mut eng);
     Ok(EngineStatus {
         rclone_found: rclone.is_some(),
         rclone_path: rclone.map(|p| p.display().to_string()),
@@ -375,33 +454,34 @@ async fn install_rclone(app: AppHandle) -> Result<String, String> {
         "aarch64" => "arm64",
         other => return Err(format!("unsupported architecture: {other}")),
     };
-    let client = reqwest::blocking::Client::builder()
+    let agent = ureq::AgentBuilder::new()
         .timeout(Duration::from_secs(600))
-        .build()
-        .map_err(|e| e.to_string())?;
-    let fetch = |url: &str| -> Result<reqwest::blocking::Response, String> {
-        client
+        .build();
+    let fetch_text = |url: &str| -> Result<String, String> {
+        agent
             .get(url)
-            .send()
+            .call()
             .map_err(|e| format!("download failed: {e}"))?
-            .error_for_status()
-            .map_err(|e| format!("download failed: {e}"))
+            .into_string()
+            .map_err(|e| e.to_string())
     };
 
     // Resolve the concrete version so the archive can be verified against
     // its published SHA256SUMS — "current" has no stable checksum entry.
-    let version = fetch("https://downloads.rclone.org/version.txt")?
-        .text()
-        .map_err(|e| e.to_string())?;
+    let version = fetch_text("https://downloads.rclone.org/version.txt")?;
     let version = version.trim().strip_prefix("rclone ").map(str::to_string).ok_or("unexpected version.txt format")?;
     let file_name = format!("rclone-{version}-linux-{arch}.zip");
-    let bytes = fetch(&format!("https://downloads.rclone.org/{version}/{file_name}"))?
-        .bytes()
+    let mut bytes = Vec::new();
+    agent
+        .get(&format!("https://downloads.rclone.org/{version}/{file_name}"))
+        .call()
+        .map_err(|e| format!("download failed: {e}"))?
+        .into_reader()
+        .take(200 * 1024 * 1024)
+        .read_to_end(&mut bytes)
         .map_err(|e| e.to_string())?;
 
-    let sums = fetch(&format!("https://downloads.rclone.org/{version}/SHA256SUMS"))?
-        .text()
-        .map_err(|e| e.to_string())?;
+    let sums = fetch_text(&format!("https://downloads.rclone.org/{version}/SHA256SUMS"))?;
     let expected = sums
         .lines()
         .filter_map(|l| {
@@ -550,7 +630,7 @@ fn restart_engine_preserving_mounts(app: &AppHandle, state: &EngineState) -> Res
     let mounts = rc_raw(eng.port, &eng.pass, "mount/listmounts", &json!({}))
         .ok()
         .and_then(|v| v.get("mountPoints").cloned());
-    stop_engine_locked(&mut eng);
+    stop_engine_locked(app, &mut eng);
     start_engine_locked(app, &mut eng)?;
     if let Some(Value::Array(list)) = mounts {
         for m in list {
@@ -888,6 +968,11 @@ fn set_close_to_tray(flags: State<Flags>, enabled: bool) {
     flags.close_to_tray.store(enabled, Ordering::Relaxed);
 }
 
+#[tauri::command]
+fn set_keep_mounts(flags: State<Flags>, enabled: bool) {
+    flags.keep_mounts.store(enabled, Ordering::Relaxed);
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct AppInfo {
@@ -932,7 +1017,7 @@ async fn app_info(app: AppHandle, flags: State<'_, Flags>) -> Result<AppInfo, St
 fn build_tray(app: &AppHandle) -> tauri::Result<()> {
     let show = MenuItem::with_id(app, "show", "Open Monti", true, None::<&str>)?;
     let sep = PredefinedMenuItem::separator(app)?;
-    let quit = MenuItem::with_id(app, "quit", "Quit (unmounts drives)", true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&show, &sep, &quit])?;
     TrayIconBuilder::with_id("monti-tray")
         .icon(
@@ -968,6 +1053,7 @@ pub fn run() {
         .manage(Flags {
             close_to_tray: AtomicBool::new(true),
             tray_ok: AtomicBool::new(false),
+            keep_mounts: AtomicBool::new(true),
         })
         .setup(|app| {
             // libappindicator-sys PANICS (not errors) when the appindicator
@@ -1019,6 +1105,7 @@ pub fn run() {
             get_autostart,
             set_autostart,
             set_close_to_tray,
+            set_keep_mounts,
             app_info,
         ])
         .build(tauri::generate_context!())
@@ -1032,7 +1119,25 @@ pub fn run() {
                 }
                 let state: State<EngineState> = app.state();
                 let mut eng = state.0.lock().unwrap();
-                stop_engine_locked(&mut eng);
+                // "Keep drives mounted": if anything is mounted and the
+                // user asked for it, leave the daemon running — the next
+                // session re-adopts it via the engine file.
+                let keep = app
+                    .state::<Flags>()
+                    .keep_mounts
+                    .load(Ordering::Relaxed);
+                let has_mounts = eng.port != 0
+                    && rc_raw(eng.port, &eng.pass, "mount/listmounts", &json!({}))
+                        .ok()
+                        .and_then(|v| {
+                            v.get("mountPoints").and_then(Value::as_array).map(|a| !a.is_empty())
+                        })
+                        .unwrap_or(false);
+                if keep && has_mounts {
+                    eng.child = None; // drop the handle; the process lives on
+                } else {
+                    stop_engine_locked(app, &mut eng);
+                }
             }
         });
 }
