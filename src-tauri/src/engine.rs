@@ -257,13 +257,16 @@ fn pid_owns_port(pid: u32, port: u16) -> bool {
     let Ok(tcp) = fs::read_to_string("/proc/net/tcp") else {
         return false;
     };
+    // /proc/net/tcp columns: sl local rem st tx:rx tr:when retrnsmt uid
+    // timeout inode … — after taking `local` (idx 1) and `st` (idx 3),
+    // the inode is 5 fields further on.
     let needle = format!("0100007F:{port:04X}");
     let Some(inode) = tcp.lines().skip(1).find_map(|line| {
         let mut f = line.split_whitespace();
         let local = f.nth(1)?;
         let state = f.nth(1)?;
         if local == needle && state == "0A" {
-            f.nth(4).map(str::to_string) // inode column
+            f.nth(5).map(str::to_string)
         } else {
             None
         }
@@ -277,6 +280,39 @@ fn pid_owns_port(pid: u32, port: u16) -> bool {
     fds.filter_map(|e| e.ok())
         .filter_map(|e| fs::read_link(e.path()).ok())
         .any(|l| l.to_string_lossy() == target)
+}
+
+#[cfg(test)]
+mod port_tests {
+    /// A live rcd must be recognized as the owner of its own RC port —
+    /// a parser regression here once made adoption kill healthy daemons.
+    #[test]
+    fn pid_owns_its_rc_port() {
+        use std::process::{Command, Stdio};
+        let port = super::free_port().unwrap();
+        let Ok(mut child) = Command::new("rclone")
+            .args(["rcd", "--rc-no-auth", &format!("--rc-addr=127.0.0.1:{port}")])
+            .env_remove("DISPLAY")
+            .env_remove("WAYLAND_DISPLAY")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+        else {
+            return; // no rclone on this machine — skip
+        };
+        let mut owned = false;
+        for _ in 0..50 {
+            if super::pid_owns_port(child.id(), port) {
+                owned = true;
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+        let _ = child.kill();
+        let _ = child.wait();
+        assert!(owned, "live daemon not recognized as owner of its port");
+    }
 }
 
 /// SIGTERM the daemon — but only after re-checking it is still the exact
