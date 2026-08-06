@@ -370,6 +370,28 @@ pub fn try_adopt_engine(app: &AppHandle, eng: &mut Engine) -> bool {
             .get("mounts")
             .and_then(|m| serde_json::from_value(m.clone()).ok())
             .unwrap_or_default();
+        // Legacy files (or lost records): reconcile with what the daemon
+        // actually has mounted, so recovery knows about every drive.
+        if eng.mounts.is_empty() {
+            if let Ok(v) = rc_raw(port, &eng.pass, "mount/listmounts", &json!({})) {
+                if let Some(list) = v.get("mountPoints").and_then(Value::as_array) {
+                    for m in list {
+                        if let (Some(fs_name), Some(mp)) = (
+                            m.get("Fs").and_then(Value::as_str),
+                            m.get("MountPoint").and_then(Value::as_str),
+                        ) {
+                            eng.mounts.insert(
+                                fs_name.to_string(),
+                                MountEntry {
+                                    mount_point: mp.to_string(),
+                                    vfs_opt: json!({ "CacheMode": 3 }),
+                                },
+                            );
+                        }
+                    }
+                }
+            }
+        }
         save_engine_file(app, eng); // upgrade legacy files to v2
         log_line(app, &format!("adopted running engine (pid {pid}, port {port})"));
         return true;
