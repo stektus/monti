@@ -30,8 +30,8 @@ use tauri::{
 
 use engine::{
     app_bin_dir, build_vfs_opt, die_with_parent, engine_alive, find_rclone, log_line, rc_raw,
-    remote_exists, restart_engine_preserving_mounts, start_engine_locked, stop_engine_locked,
-    Engine, EngineState,
+    remote_exists, restart_engine_preserving_mounts, save_engine_file, start_engine_locked,
+    stop_engine_locked, Engine, EngineState, MountEntry,
 };
 
 /// Runtime toggles shared between the window-event handler and commands.
@@ -533,7 +533,14 @@ async fn mount_remote(
             "vfsOpt": vfs_opt,
         }),
     )?;
-    eng.vfs_opts.insert(format!("{name}:"), vfs_opt);
+    eng.mounts.insert(
+        format!("{name}:"),
+        MountEntry {
+            mount_point: mount_point.display().to_string(),
+            vfs_opt,
+        },
+    );
+    save_engine_file(&app, &eng);
     log_line(&app, &format!("mounted {name}: at {}", mount_point.display()));
     Ok(mount_point.display().to_string())
 }
@@ -544,13 +551,15 @@ async fn unmount_remote(
     state: State<'_, EngineState>,
     mount_point: String,
 ) -> Result<(), String> {
-    let eng = state.0.lock().unwrap();
+    let mut eng = state.0.lock().unwrap();
     rc_raw(
         eng.port,
         &eng.pass,
         "mount/unmount",
         &json!({ "mountPoint": mount_point }),
     )?;
+    eng.mounts.retain(|_, e| e.mount_point != mount_point);
+    save_engine_file(&app, &eng);
     log_line(&app, &format!("unmounted {mount_point}"));
     Ok(())
 }

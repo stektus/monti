@@ -14,10 +14,20 @@ use std::{
     time::Duration,
 };
 
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tauri::{AppHandle, Manager};
 
 pub const RC_USER: &str = "monti";
+
+/// One mounted drive as the engine layer knows it: where it is mounted
+/// and with which vfs options. Persisted in engine.json so an adopted or
+/// restarted daemon can restore exactly what the user had.
+#[derive(Clone, Serialize, Deserialize)]
+pub struct MountEntry {
+    pub mount_point: String,
+    pub vfs_opt: Value,
+}
 
 #[derive(Default)]
 pub struct Engine {
@@ -30,9 +40,8 @@ pub struct Engine {
     pub starttime: u64,
     pub port: u16,
     pub pass: String,
-    /// vfsOpt used for each mounted fs ("name:"), so an engine restart can
-    /// remount drives with the same options the user chose.
-    pub vfs_opts: HashMap<String, Value>,
+    /// Mounts made through Monti, keyed by fs ("name:").
+    pub mounts: HashMap<String, MountEntry>,
 }
 
 pub struct EngineState(pub Mutex<Engine>);
@@ -320,6 +329,7 @@ pub fn save_engine_file(app: &AppHandle, eng: &Engine) {
         "pid": eng.pid,
         "starttime": eng.starttime,
         "boot_id": boot_id(),
+        "mounts": eng.mounts,
     });
     let _ = fs::write(&path, data.to_string());
     #[cfg(unix)]
@@ -383,6 +393,10 @@ pub fn try_adopt_engine(app: &AppHandle, eng: &mut Engine) -> bool {
         };
         eng.port = port;
         eng.pass = pass;
+        eng.mounts = saved
+            .get("mounts")
+            .and_then(|m| serde_json::from_value(m.clone()).ok())
+            .unwrap_or_default();
         save_engine_file(app, eng); // upgrade legacy files to v2
         log_line(app, &format!("adopted running engine (pid {pid}, port {port})"));
         return true;
@@ -551,6 +565,52 @@ pub fn stop_engine_locked(app: &AppHandle, eng: &mut Engine) {
     eng.starttime = 0;
     eng.port = 0;
     eng.pass.clear();
+    eng.mounts.clear();
+}
+
+/// True when the path is (still) listed as a fuse.rclone mount — after a
+/// daemon death these turn into "Transport endpoint is not connected"
+/// zombies that must be lazily unmounted before mounting over them.
+fn is_fuse_mounted(mount_point: &str) -> bool {
+    fs::read_to_string("/proc/mounts")
+        .map(|data| {
+            data.lines().any(|line| {
+                let mut f = line.split_whitespace();
+                let _src = f.next();
+                let mp = f.next().unwrap_or("");
+                let ty = f.next().unwrap_or("");
+                ty == "fuse.rclone"
+                    && mp.replace("\\040", " ").replace("\\011", "\t") == mount_point
+            })
+        })
+        .unwrap_or(false)
+}
+
+/// Mount everything recorded in eng.mounts with the exact options the
+/// user chose — used after an engine restart or recovery. Stale FUSE
+/// leftovers of a dead daemon are lazily unmounted first.
+pub fn remount_saved(app: &AppHandle, eng: &Engine) {
+    for (fs_name, entry) in &eng.mounts {
+        if is_fuse_mounted(&entry.mount_point) {
+            let _ = Command::new("fusermount3")
+                .args(["-uz", &entry.mount_point])
+                .output();
+        }
+        let result = rc_raw(
+            eng.port,
+            &eng.pass,
+            "mount/mount",
+            &json!({
+                "fs": fs_name,
+                "mountPoint": entry.mount_point,
+                "vfsOpt": entry.vfs_opt,
+            }),
+        );
+        match result {
+            Ok(_) => log_line(app, &format!("remounted {fs_name} at {}", entry.mount_point)),
+            Err(e) => log_line(app, &format!("remount of {fs_name} failed: {e}")),
+        }
+    }
 }
 
 /// Restart the rcd daemon and remount everything that was mounted.
@@ -558,30 +618,11 @@ pub fn stop_engine_locked(app: &AppHandle, eng: &mut Engine) {
 /// never lose a mounted drive because they added or re-authorized one.
 pub fn restart_engine_preserving_mounts(app: &AppHandle, state: &EngineState) -> Result<(), String> {
     let mut eng = state.0.lock().unwrap();
-    let mounts = rc_raw(eng.port, &eng.pass, "mount/listmounts", &json!({}))
-        .ok()
-        .and_then(|v| v.get("mountPoints").cloned());
+    let saved_mounts = eng.mounts.clone();
     stop_engine_locked(app, &mut eng);
+    eng.mounts = saved_mounts;
     start_engine_locked(app, &mut eng)?;
-    if let Some(Value::Array(list)) = mounts {
-        for m in list {
-            if let (Some(fs), Some(mp)) = (
-                m.get("Fs").and_then(Value::as_str),
-                m.get("MountPoint").and_then(Value::as_str),
-            ) {
-                let vfs_opt = eng
-                    .vfs_opts
-                    .get(fs)
-                    .cloned()
-                    .unwrap_or_else(|| json!({ "CacheMode": 3 }));
-                let _ = rc_raw(
-                    eng.port,
-                    &eng.pass,
-                    "mount/mount",
-                    &json!({ "fs": fs, "mountPoint": mp, "vfsOpt": vfs_opt }),
-                );
-            }
-        }
-    }
+    remount_saved(app, &eng);
+    save_engine_file(app, &eng);
     Ok(())
 }
