@@ -25,7 +25,7 @@ use serde_json::{json, Value};
 use tauri::{
     menu::{Menu, MenuItem, PredefinedMenuItem},
     tray::TrayIconBuilder,
-    AppHandle, Manager, RunEvent, State, WindowEvent,
+    AppHandle, Emitter, Manager, RunEvent, State, WindowEvent,
 };
 
 use engine::{
@@ -154,15 +154,45 @@ async fn install_rclone(app: AppHandle) -> Result<String, String> {
         .map(str::to_string)
         .ok_or("unexpected version.txt format")?;
     let file_name = format!("rclone-{version}-linux-{arch}.zip");
-    let mut bytes = Vec::new();
-    agent
+    let resp = agent
         .get(&format!("https://downloads.rclone.org/{version}/{file_name}"))
         .call()
-        .map_err(|e| format!("download failed: {e}"))?
-        .into_reader()
-        .take(200 * 1024 * 1024)
-        .read_to_end(&mut bytes)
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| format!("download failed: {e}"))?;
+    let total = resp
+        .header("Content-Length")
+        .and_then(|s| s.parse::<u64>().ok());
+    // Stream in chunks so the UI can show progress instead of freezing on
+    // a 20 MB read.
+    let mut reader = resp.into_reader().take(200 * 1024 * 1024);
+    let mut bytes = Vec::new();
+    let mut buf = [0u8; 128 * 1024];
+    let mut last_percent = -1i64;
+    let mut last_bytes = 0usize;
+    loop {
+        let n = std::io::Read::read(&mut reader, &mut buf).map_err(|e| e.to_string())?;
+        if n == 0 {
+            break;
+        }
+        bytes.extend_from_slice(&buf[..n]);
+        // Emit on every whole percent, or every megabyte when the server
+        // didn't send a length.
+        let due = match total {
+            Some(t) if t > 0 => {
+                let percent = (bytes.len() as u64 * 100 / t) as i64;
+                let due = percent != last_percent;
+                last_percent = percent;
+                due
+            }
+            _ => bytes.len() - last_bytes >= 1024 * 1024,
+        };
+        if due {
+            last_bytes = bytes.len();
+            let _ = app.emit(
+                "engine-download",
+                json!({ "downloaded": bytes.len(), "total": total }),
+            );
+        }
+    }
 
     let sums = fetch_text(&format!("https://downloads.rclone.org/{version}/SHA256SUMS"))?;
     let expected = sums

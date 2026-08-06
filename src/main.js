@@ -1,5 +1,6 @@
 const { invoke } = window.__TAURI__.core;
 const { openPath, openUrl } = window.__TAURI__.opener;
+const { listen } = window.__TAURI__.event;
 
 const PROVIDER_LABELS = {
   drive: "Google Drive",
@@ -553,6 +554,20 @@ async function boot() {
 window.addEventListener("DOMContentLoaded", () => {
   boot();
   initSettings().catch((e) => showError(String(e)));
+
+  // Live progress for the engine download (first install and reinstall).
+  listen("engine-download", (e) => {
+    const { downloaded, total } = e.payload;
+    const text = total
+      ? `Downloading rclone… ${Math.round((downloaded / total) * 100)}% of ${fmtBytes(total)}`
+      : `Downloading rclone… ${fmtBytes(downloaded)}`;
+    for (const id of ["install-status", "reinstall-status"]) {
+      const el = $(id);
+      if (el && !el.classList.contains("hidden") && el.textContent.startsWith("Downloading")) {
+        el.textContent = text;
+      }
+    }
+  });
 
   document.querySelectorAll(".seg-btn").forEach((b) =>
     b.addEventListener("click", () => switchView(b.dataset.view))
