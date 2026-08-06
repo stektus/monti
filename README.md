@@ -100,9 +100,14 @@ Arch/Manjaro users: the AppImage works fine; an AUR package is planned.
 ## Building from source
 
 Prerequisites: [Rust](https://rustup.rs), Node.js ≥ 20, and Tauri's Linux
-system deps (Arch/Manjaro: `webkit2gtk-4.1 base-devel`; Debian/Ubuntu:
-`libwebkit2gtk-4.1-dev build-essential libssl-dev`). FUSE3 is required at
-runtime (preinstalled on most desktop distros).
+system deps:
+
+- Arch/Manjaro: `sudo pacman -S --needed base-devel webkit2gtk-4.1 libayatana-appindicator`
+- Debian/Ubuntu: `sudo apt install build-essential libwebkit2gtk-4.1-dev libssl-dev librsvg2-dev libayatana-appindicator3-dev patchelf`
+
+`npm run tauri dev` works without the appindicator library (the tray is
+simply off), but `npm run tauri build` needs it to bundle. FUSE3 is
+required at runtime (preinstalled on most desktop distros).
 
 ```bash
 git clone https://github.com/stektus/monti.git
