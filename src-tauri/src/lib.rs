@@ -123,6 +123,36 @@ fn die_with_parent(cmd: &mut Command) {
             Ok(())
         });
     }
+    clean_appimage_env(cmd);
+}
+
+/// Strip AppImage-injected paths from a child's environment. The AppRun
+/// wrapper points LD_LIBRARY_PATH & co. at libraries bundled for the
+/// build distro; a browser launched down the chain (rclone → xdg-open)
+/// loads them and crashes silently — the OAuth window never appears.
+#[cfg(target_os = "linux")]
+fn clean_appimage_env(cmd: &mut Command) {
+    let Ok(appdir) = std::env::var("APPDIR") else {
+        return;
+    };
+    if appdir.is_empty() {
+        return;
+    }
+    for (key, value) in std::env::vars() {
+        if !value.contains(&appdir) {
+            continue;
+        }
+        // Path lists keep their system components; single-path vars go.
+        let kept: Vec<&str> = value
+            .split(':')
+            .filter(|part| !part.is_empty() && !part.contains(&appdir))
+            .collect();
+        if kept.is_empty() {
+            cmd.env_remove(&key);
+        } else {
+            cmd.env(&key, kept.join(":"));
+        }
+    }
 }
 
 #[cfg(not(target_os = "linux"))]
