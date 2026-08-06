@@ -363,6 +363,19 @@ async fn create_remote(
     if !ok_name {
         return Err("remote name may contain only letters, digits, '-' and '_'".into());
     }
+    // `config create` silently OVERWRITES an existing remote of the same
+    // name — before OAuth even starts. Refuse: the user almost certainly
+    // wants a second account, not to destroy the first one.
+    {
+        let eng = state.0.lock().unwrap();
+        let dump = rc_raw(eng.port, &eng.pass, "config/dump", &json!({}))?;
+        if dump.get(&name).is_some() {
+            return Err(format!(
+                "A drive named \"{name}\" already exists — pick another name, \
+                 or remove the existing one first."
+            ));
+        }
+    }
     // OAuth providers need the CLI (it opens the browser); everything else
     // is created through the RC API so passwords travel in a localhost
     // request body — never on a world-readable command line — and the
