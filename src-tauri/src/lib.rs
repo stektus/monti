@@ -29,7 +29,7 @@ use tauri::{
 };
 
 use engine::{
-    app_bin_dir, build_vfs_opt, die_with_parent, engine_alive, find_rclone, rc_raw,
+    app_bin_dir, build_vfs_opt, die_with_parent, engine_alive, find_rclone, log_line, rc_raw,
     remote_exists, restart_engine_preserving_mounts, start_engine_locked, stop_engine_locked,
     Engine, EngineState,
 };
@@ -456,7 +456,11 @@ fn cancel_create_remote(create: State<CreateState>) {
 /// updates both the daemon's memory and the config file — no engine
 /// restart, so other mounted drives are untouched.
 #[tauri::command]
-async fn delete_remote(state: State<'_, EngineState>, name: String) -> Result<(), String> {
+async fn delete_remote(
+    app: AppHandle,
+    state: State<'_, EngineState>,
+    name: String,
+) -> Result<(), String> {
     // Deleting the config of a mounted remote would strand the mount
     // (and a systemd-managed one would break on its next restart).
     if let Some(m) = read_proc_mounts().into_iter().find(|m| m.remote == name) {
@@ -467,6 +471,7 @@ async fn delete_remote(state: State<'_, EngineState>, name: String) -> Result<()
     }
     let eng = state.0.lock().unwrap();
     rc_raw(eng.port, &eng.pass, "config/delete", &json!({ "name": name }))?;
+    log_line(&app, &format!("deleted remote {name}"));
     Ok(())
 }
 
@@ -529,11 +534,16 @@ async fn mount_remote(
         }),
     )?;
     eng.vfs_opts.insert(format!("{name}:"), vfs_opt);
+    log_line(&app, &format!("mounted {name}: at {}", mount_point.display()));
     Ok(mount_point.display().to_string())
 }
 
 #[tauri::command]
-async fn unmount_remote(state: State<'_, EngineState>, mount_point: String) -> Result<(), String> {
+async fn unmount_remote(
+    app: AppHandle,
+    state: State<'_, EngineState>,
+    mount_point: String,
+) -> Result<(), String> {
     let eng = state.0.lock().unwrap();
     rc_raw(
         eng.port,
@@ -541,6 +551,7 @@ async fn unmount_remote(state: State<'_, EngineState>, mount_point: String) -> R
         "mount/unmount",
         &json!({ "mountPoint": mount_point }),
     )?;
+    log_line(&app, &format!("unmounted {mount_point}"));
     Ok(())
 }
 

@@ -56,6 +56,76 @@ pub fn build_vfs_opt(user: Option<&Value>) -> Value {
     opt
 }
 
+/// stderr of the current rcd, truncated on each spawn — the only place
+/// rclone startup errors (encrypted config, bad binary, busy port) exist.
+pub fn engine_log_path(app: &AppHandle) -> Option<PathBuf> {
+    app.path().app_data_dir().ok().map(|d| d.join("engine.log"))
+}
+
+fn monti_log_path(app: &AppHandle) -> Option<PathBuf> {
+    app.path().app_data_dir().ok().map(|d| d.join("monti.log"))
+}
+
+/// Epoch seconds → "YYYY-MM-DD HH:MM:SS" (UTC), no chrono dependency.
+fn utc_stamp() -> String {
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let (days, rem) = (secs / 86400, secs % 86400);
+    let (h, m, s) = (rem / 3600, (rem % 3600) / 60, rem % 60);
+    // Howard Hinnant's civil_from_days
+    let z = days as i64 + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z.rem_euclid(146_097);
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146_096) / 365;
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let mo = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = if mo <= 2 { y + 1 } else { y };
+    format!("{y:04}-{mo:02}-{d:02} {h:02}:{m:02}:{s:02}")
+}
+
+/// Append one line to monti.log (plain text diary of engine/mount/auth
+/// events — never secrets). Rotates to .old at 512 KiB.
+pub fn log_line(app: &AppHandle, msg: &str) {
+    let Some(path) = monti_log_path(app) else { return };
+    if let Some(dir) = path.parent() {
+        let _ = fs::create_dir_all(dir);
+    }
+    if fs::metadata(&path).map(|m| m.len() > 512 * 1024).unwrap_or(false) {
+        let _ = fs::rename(&path, path.with_extension("log.old"));
+    }
+    if let Ok(mut f) = fs::OpenOptions::new().create(true).append(true).open(&path) {
+        use std::io::Write;
+        let _ = writeln!(f, "{} {}", utc_stamp(), msg);
+    }
+}
+
+/// Turn the engine.log tail into something a person can act on.
+fn friendly_engine_error(app: &AppHandle) -> String {
+    let tail = engine_log_path(app)
+        .and_then(|p| fs::read_to_string(p).ok())
+        .map(|s| {
+            let n = s.len().saturating_sub(2048);
+            s[n..].trim().to_string()
+        })
+        .unwrap_or_default();
+    if tail.contains("unable to decrypt") || tail.contains("couldn't decrypt") {
+        return "Your rclone config file is password-protected — Monti cannot unlock it. \
+                Run `rclone config` in a terminal and remove the configuration password \
+                (Set configuration password → Remove), then try again."
+            .into();
+    }
+    if tail.is_empty() {
+        "rclone engine did not start (no error output captured)".into()
+    } else {
+        format!("rclone engine failed to start:\n{tail}")
+    }
+}
+
 pub fn app_bin_dir(app: &AppHandle) -> Result<PathBuf, String> {
     let dir = app
         .path()
@@ -204,11 +274,13 @@ pub fn try_adopt_engine(app: &AppHandle, eng: &mut Engine) -> bool {
         eng.pid = pid;
         eng.port = port;
         eng.pass = pass;
+        log_line(app, &format!("adopted running engine (pid {pid}, port {port})"));
         return true;
     }
     // Unreachable — if the pid is still an rcd, put it down before
     // spawning a fresh daemon.
     if pid != 0 && is_rcd_pid(pid) {
+        log_line(app, &format!("reaping unreachable engine leftover (pid {pid})"));
         unsafe {
             libc::kill(pid as i32, libc::SIGTERM);
         }
@@ -276,39 +348,72 @@ pub fn start_engine_locked(app: &AppHandle, eng: &mut Engine) -> Result<(), Stri
     let rclone = find_rclone(app).ok_or("rclone not found")?;
     let port = free_port()?;
     let pass = rand_hex(16)?;
+
+    // Startup errors (encrypted config, busy port, broken binary) only
+    // ever appear on the daemon's stderr — keep them.
+    let stderr: Stdio = engine_log_path(app)
+        .and_then(|p| {
+            if let Some(dir) = p.parent() {
+                let _ = fs::create_dir_all(dir);
+            }
+            let mut opts = fs::OpenOptions::new();
+            opts.create(true).write(true).truncate(true);
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::OpenOptionsExt;
+                opts.mode(0o600);
+            }
+            opts.open(&p).ok()
+        })
+        .map(Into::into)
+        .unwrap_or_else(Stdio::null);
+
     let mut cmd = Command::new(&rclone);
     // Credentials go through the environment: /proc/<pid>/cmdline is
     // world-readable, /proc/<pid>/environ is not. No PDEATHSIG here:
     // the daemon must be able to outlive the app to keep drives mounted.
+    // ASK_PASSWORD=false: an encrypted config must fail loudly instead of
+    // waiting forever on a /dev/null stdin.
     cmd.args(["rcd", &format!("--rc-addr=127.0.0.1:{port}")])
         .env("RCLONE_RC_USER", RC_USER)
         .env("RCLONE_RC_PASS", &pass)
+        .env("RCLONE_ASK_PASSWORD", "false")
         .stdin(Stdio::null())
         .stdout(Stdio::null())
-        .stderr(Stdio::null());
+        .stderr(stderr);
     detach_child(&mut cmd);
-    let child = cmd
+    let mut child = cmd
         .spawn()
         .map_err(|e| format!("failed to start rclone: {e}"))?;
 
     // Wait until the RC API answers.
     for _ in 0..50 {
+        if matches!(child.try_wait(), Ok(Some(_))) {
+            // Died during startup — the log has the reason.
+            let err = friendly_engine_error(app);
+            log_line(app, &format!("engine failed to start: {err}"));
+            return Err(err);
+        }
         if rc_raw(port, &pass, "rc/noop", &json!({})).is_ok() {
             eng.pid = child.id();
             eng.child = Some(child);
             eng.port = port;
             eng.pass = pass;
             save_engine_file(app, eng);
+            log_line(app, &format!("engine started (pid {}, port {port})", eng.pid));
             return Ok(());
         }
         thread::sleep(Duration::from_millis(100));
     }
-    let _ = { child }.kill();
-    Err("rclone engine did not become ready in 5s".into())
+    let _ = child.kill();
+    let _ = child.wait();
+    log_line(app, "engine did not become ready in 5s");
+    Err(friendly_engine_error(app))
 }
 
 pub fn stop_engine_locked(app: &AppHandle, eng: &mut Engine) {
     if eng.port != 0 {
+        log_line(app, &format!("stopping engine (pid {}, port {})", eng.pid, eng.port));
         // Unmount everything first so FUSE mounts don't go stale.
         let _ = rc_raw(eng.port, &eng.pass, "mount/unmountall", &json!({}));
         let _ = rc_raw(eng.port, &eng.pass, "core/quit", &json!({}));
