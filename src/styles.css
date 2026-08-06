@@ -106,14 +106,22 @@ a:hover { text-decoration: underline; }
   border-radius: 999px;
   font-size: 12px;
   color: var(--muted);
-  max-width: 30%;
+  max-width: 100%;
+  min-width: 0;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
   background: var(--surface);
 }
 
-.pills { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.pills {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  max-width: 34%;
+  flex: none;
+}
 
 .engine-pill.activity {
   color: var(--accent);
@@ -362,6 +370,12 @@ dialog select:focus-visible {
   outline: 2px solid color-mix(in srgb, var(--accent) 60%, transparent);
   outline-offset: 0;
   border-color: var(--accent);
+}
+
+.two-col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
 }
 
 .check-row {

@@ -94,6 +94,22 @@ async function withAuth(statusEl, action) {
   }
 }
 
+// ---------- VFS mount options ----------
+
+// Build the vfsOpt object for a drive from saved prefs; the backend forces
+// CacheMode=full on top of whatever we send.
+function vfsOptFor(name) {
+  const v = prefFor(name).vfs || {};
+  const opt = {};
+  if (v.readOnly) opt.ReadOnly = true;
+  if (v.maxSize) opt.CacheMaxSize = v.maxSize;
+  if (v.maxAge) opt.CacheMaxAge = v.maxAge;
+  return Object.keys(opt).length ? opt : null;
+}
+
+const SIZE_RE = /^\d+(\.\d+)?\s*(b|k|ki|m|mi|g|gi|t|ti|p|pi)?$/i;
+const AGE_RE = /^(\d+(\.\d+)?(ms|s|m|h|d|w|y))+$/i;
+
 // ---------- activity indicator ----------
 
 let ownMounts = new Map(); // remote name -> mount point, kept fresh by refreshRemotes
@@ -185,6 +201,7 @@ async function refreshRemotes() {
         <span class="remote-name"></span>
         <span class="chip provider"></span>
         ${ownKey ? '<span class="chip key" title="Connected through your own API key">own key</span>' : ""}
+        ${prefFor(name).vfs?.readOnly ? '<span class="chip" title="Mounted read-only: files cannot be changed">read-only</span>' : ""}
         <span class="spacer"></span>
         ${
           ownPoint
@@ -232,7 +249,7 @@ async function refreshRemotes() {
       actions.append(
         makeBtn("Mount", "primary", async () => {
           const mp = prefFor(name).mountPoint || null;
-          await invoke("mount_remote", { name, mountPoint: mp });
+          await invoke("mount_remote", { name, mountPoint: mp, vfs: vfsOptFor(name) });
           await refreshRemotes();
         }),
         makeBtn("⚙", "icon", () => openRemoteDialog(name), "Drive settings"),
@@ -267,6 +284,7 @@ async function autoRemount() {
       await invoke("mount_remote", {
         name,
         mountPoint: prefs[name].mountPoint || null,
+        vfs: vfsOptFor(name),
       });
     } catch (e) {
       showError(`Auto-mount of "${name}" failed: ${e}`);
@@ -285,6 +303,10 @@ async function openRemoteDialog(name) {
   $("remote-title").textContent = `${name} — settings`;
   $("remote-mountpoint").value = pref.mountPoint || "";
   $("remote-automount").checked = !!pref.automount;
+  const vfs = pref.vfs || {};
+  $("remote-readonly").checked = !!vfs.readOnly;
+  $("remote-cache-size").value = vfs.maxSize || "";
+  $("remote-cache-age").value = vfs.maxAge || "";
 
   const dump = await rc("config/dump");
   const conf = dump[name] || {};
@@ -480,9 +502,24 @@ window.addEventListener("DOMContentLoaded", () => {
   $("remote-form").addEventListener("submit", async (e) => {
     e.preventDefault();
     if (!dialogRemote) return;
+    const maxSize = $("remote-cache-size").value.trim();
+    const maxAge = $("remote-cache-age").value.trim();
+    if (maxSize && !SIZE_RE.test(maxSize)) {
+      showError(`"${maxSize}" is not a size — try something like 500M or 10G.`);
+      return;
+    }
+    if (maxAge && !AGE_RE.test(maxAge)) {
+      showError(`"${maxAge}" is not a duration — try something like 30m, 24h or 7d.`);
+      return;
+    }
     setPref(dialogRemote, {
       mountPoint: $("remote-mountpoint").value.trim() || null,
       automount: $("remote-automount").checked,
+      vfs: {
+        readOnly: $("remote-readonly").checked,
+        maxSize: maxSize || null,
+        maxAge: maxAge || null,
+      },
     });
 
     const newId = $("remote-client-id").value.trim();

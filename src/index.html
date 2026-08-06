@@ -206,6 +206,25 @@
           <input type="checkbox" id="remote-automount" />
           <span>Mount automatically when Monti starts</span>
         </label>
+        <label class="check-row">
+          <input type="checkbox" id="remote-readonly" />
+          <span>Read-only <span class="muted">(protect files from changes)</span></span>
+        </label>
+
+        <div class="two-col">
+          <label>
+            Cache size limit
+            <input id="remote-cache-size" placeholder="unlimited · e.g. 10G" />
+          </label>
+          <label>
+            Keep cache for
+            <input id="remote-cache-age" placeholder="1h · e.g. 24h" />
+          </label>
+        </div>
+        <p class="muted">
+          Downloaded files are cached on disk for fast access. Applies on
+          next mount.
+        </p>
 
         <div class="key-section">
           <div class="setting-name">API key</div>

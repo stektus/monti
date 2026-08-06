@@ -5,6 +5,7 @@
 // directly and never sees the RC credentials.
 
 use std::{
+    collections::HashMap,
     fs,
     io::Read,
     net::TcpListener,
@@ -43,6 +44,31 @@ struct Engine {
     child: Option<Child>,
     port: u16,
     pass: String,
+    /// vfsOpt used for each mounted fs ("name:"), so an engine restart can
+    /// remount drives with the same options the user chose.
+    vfs_opts: HashMap<String, Value>,
+}
+
+/// Build the vfsOpt for a mount: CacheMode "full" is always forced (apps
+/// like KeePassXC corrupt saves without it), the rest is a whitelist of
+/// user-tunable options. Values are validated by rclone at mount time.
+fn build_vfs_opt(user: Option<&Value>) -> Value {
+    let mut opt = json!({ "CacheMode": 3 });
+    if let Some(Value::Object(map)) = user {
+        for (key, value) in map {
+            let ok = match key.as_str() {
+                "ReadOnly" => value.is_boolean(),
+                "CacheMaxSize" | "CacheMaxAge" => {
+                    value.as_str().is_some_and(|s| !s.trim().is_empty())
+                }
+                _ => false,
+            };
+            if ok {
+                opt[key] = value.clone();
+            }
+        }
+    }
+    opt
 }
 
 struct EngineState(Mutex<Engine>);
@@ -403,11 +429,16 @@ fn restart_engine_preserving_mounts(app: &AppHandle, state: &EngineState) -> Res
                 m.get("Fs").and_then(Value::as_str),
                 m.get("MountPoint").and_then(Value::as_str),
             ) {
+                let vfs_opt = eng
+                    .vfs_opts
+                    .get(fs)
+                    .cloned()
+                    .unwrap_or_else(|| json!({ "CacheMode": 3 }));
                 let _ = rc_raw(
                     eng.port,
                     &eng.pass,
                     "mount/mount",
-                    &json!({ "fs": fs, "mountPoint": mp, "vfsOpt": { "CacheMode": 3 } }),
+                    &json!({ "fs": fs, "mountPoint": mp, "vfsOpt": vfs_opt }),
                 );
             }
         }
@@ -527,6 +558,7 @@ fn mount_remote(
     state: State<EngineState>,
     name: String,
     mount_point: Option<String>,
+    vfs: Option<Value>,
 ) -> Result<String, String> {
     // Refuse to mount a remote that is already mounted anywhere on the
     // system: two VFS caches over one remote can corrupt files.
@@ -556,7 +588,8 @@ fn mount_remote(
             mount_point.display()
         ));
     }
-    let eng = state.0.lock().unwrap();
+    let vfs_opt = build_vfs_opt(vfs.as_ref());
+    let mut eng = state.0.lock().unwrap();
     rc_raw(
         eng.port,
         &eng.pass,
@@ -564,11 +597,10 @@ fn mount_remote(
         &json!({
             "fs": format!("{name}:"),
             "mountPoint": mount_point,
-            // CacheMode 3 = "full": required so apps like KeePassXC can
-            // save files in place (atomic rename over FUSE).
-            "vfsOpt": { "CacheMode": 3 },
+            "vfsOpt": vfs_opt,
         }),
     )?;
+    eng.vfs_opts.insert(format!("{name}:"), vfs_opt);
     Ok(mount_point.display().to_string())
 }
 
