@@ -72,7 +72,20 @@ free GUI that does **mounting** first and does it well.
 
 ## Install
 
-Download from the [latest release](https://github.com/stektus/monti/releases/latest):
+One command, any distro:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/stektus/monti/main/install.sh | bash
+```
+
+It checks FUSE (installs it via your package manager if missing), downloads
+the latest release and adds Monti to your application menu. Everything goes
+to your home directory — no root files touched. The same script from a
+clone: `./install.sh`. Uninstall: `./install.sh --uninstall` (or add
+`-s -- --uninstall` to the curl command above).
+
+Prefer packages? Grab them from the
+[latest release](https://github.com/stektus/monti/releases/latest):
 
 - **`.AppImage`** — any distro: `chmod +x Monti_*.AppImage && ./Monti_*.AppImage`
 - **`.deb`** — Debian / Ubuntu / Mint: `sudo apt install ./Monti_*.deb`
