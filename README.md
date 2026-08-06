@@ -63,12 +63,15 @@ free GUI that does **mounting** first and does it well.
 ## Roadmap
 
 - [x] Own OAuth client id wizard (rclone's shared client id is being retired in 2026)
-- [x] Per-drive VFS/cache options in the UI
+- [x] Per-drive VFS/cache options in the UI (read-only, cache limits)
 - [x] Transfer/cache activity indicator
 - [x] WebDAV, S3-compatible and SFTP support
-- [ ] Two-way sync (bisync) with a conflict-resolution UI
+- [x] One-command install script for any distro
+- [ ] AUR package
 - [ ] Flathub package
-- [ ] More providers (protondrive, …)
+- [ ] Two-way sync (bisync) with a conflict-resolution UI
+- [ ] Translations (Ukrainian, Russian, …)
+- [ ] More providers (Proton Drive, Mega, …)
 
 ## Install
 
