@@ -55,7 +55,7 @@ free GUI that does **mounting** first and does it well.
 
 ## Roadmap
 
-- [ ] Own OAuth client id wizard (rclone's shared client id is being retired in 2026)
+- [x] Own OAuth client id wizard (rclone's shared client id is being retired in 2026)
 - [ ] Per-drive VFS/cache options in the UI
 - [ ] Transfer/cache activity indicator
 - [ ] Two-way sync (bisync) with a conflict-resolution UI
@@ -70,6 +70,8 @@ system deps (Arch/Manjaro: `webkit2gtk-4.1 base-devel`; Debian/Ubuntu:
 runtime (preinstalled on most desktop distros).
 
 ```bash
+git clone https://github.com/stektus/monti.git
+cd monti
 npm install
 npm run tauri dev      # run in development
 npm run tauri build    # produce .AppImage / .deb / .rpm in src-tauri/target/release/bundle/
