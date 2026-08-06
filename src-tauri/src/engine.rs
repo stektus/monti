@@ -419,6 +419,16 @@ pub fn free_port() -> Result<u16, String> {
 // runtime ("Cannot drop a runtime in a context where blocking is not
 // allowed"). ureq is plain blocking I/O with no runtime inside.
 pub fn rc_raw(port: u16, pass: &str, path: &str, body: &Value) -> Result<Value, String> {
+    rc_raw_with_timeout(port, pass, path, body, 120)
+}
+
+pub fn rc_raw_with_timeout(
+    port: u16,
+    pass: &str,
+    path: &str,
+    body: &Value,
+    timeout_secs: u64,
+) -> Result<Value, String> {
     if port == 0 {
         return Err("engine is not running".into());
     }
@@ -428,7 +438,7 @@ pub fn rc_raw(port: u16, pass: &str, path: &str, body: &Value) -> Result<Value, 
         base64::engine::general_purpose::STANDARD.encode(format!("{RC_USER}:{pass}"))
     );
     let agent = ureq::AgentBuilder::new()
-        .timeout(Duration::from_secs(120))
+        .timeout(Duration::from_secs(timeout_secs))
         .build();
     match agent
         .post(&format!("http://127.0.0.1:{port}/{path}"))

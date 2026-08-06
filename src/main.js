@@ -142,6 +142,36 @@ function vfsOptFor(name) {
 const SIZE_RE = /^\d+(\.\d+)?\s*(b|k|ki|m|mi|g|gi|t|ti|p|pi)?$/i;
 const AGE_RE = /^(\d+(\.\d+)?(ms|s|m|h|d|w|y))+$/i;
 
+// ---------- engine health ----------
+
+let healthTimer = null;
+let engineDown = false;
+
+async function healthTick() {
+  if (document.hidden) return;
+  let alive;
+  try {
+    alive = await invoke("engine_health");
+  } catch {
+    return; // IPC hiccup — decide on the next tick
+  }
+  if (!alive && !engineDown) {
+    engineDown = true;
+    setEngine("err", "engine stopped");
+    $("engine-restart").classList.remove("hidden");
+    showError(
+      "The rclone engine stopped unexpectedly — your drives are disconnected. " +
+        "Press “Restart engine” to bring them back."
+    );
+  } else if (alive && engineDown) {
+    engineDown = false;
+    $("engine-restart").classList.add("hidden");
+    setEngine("ok", "engine running");
+    showError("");
+    await refreshRemotes().catch(() => {});
+  }
+}
+
 // ---------- activity indicator ----------
 
 let ownMounts = new Map(); // remote name -> mount point, kept fresh by refreshRemotes
@@ -438,6 +468,7 @@ async function boot() {
     await autoRemount();
     await refreshRemotes();
     if (!activityTimer) activityTimer = setInterval(pollActivity, 2000);
+    if (!healthTimer) healthTimer = setInterval(healthTick, 5000);
   } catch (e) {
     setEngine("err", "engine failed");
     showError(String(e));
@@ -451,6 +482,26 @@ window.addEventListener("DOMContentLoaded", () => {
   document.querySelectorAll(".seg-btn").forEach((b) =>
     b.addEventListener("click", () => switchView(b.dataset.view))
   );
+
+  // --- engine recovery ---
+  $("engine-restart").addEventListener("click", async () => {
+    const btn = $("engine-restart");
+    btn.disabled = true;
+    setEngine("warn", "restarting…");
+    try {
+      await invoke("restart_engine");
+      engineDown = false;
+      btn.classList.add("hidden");
+      setEngine("ok", "engine running");
+      showError("");
+      await refreshRemotes();
+    } catch (e) {
+      setEngine("err", "engine stopped");
+      showError(String(e));
+    } finally {
+      btn.disabled = false;
+    }
+  });
 
   // External links must open in the system browser, not inside the app.
   document.addEventListener("click", (e) => {

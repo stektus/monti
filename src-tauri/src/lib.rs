@@ -210,6 +210,42 @@ async fn start_engine(app: AppHandle, state: State<'_, EngineState>) -> Result<(
     start_engine_locked(&app, &mut eng)
 }
 
+/// Cheap liveness probe for the UI's health poller. The RC call runs
+/// WITHOUT holding the engine lock (a dead socket would otherwise queue
+/// every other command behind its timeout) and with a short timeout.
+#[tauri::command]
+async fn engine_health(state: State<'_, EngineState>) -> Result<bool, String> {
+    let (port, pass) = {
+        let eng = state.0.lock().unwrap();
+        (eng.port, eng.pass.clone())
+    };
+    if port == 0 {
+        return Ok(false);
+    }
+    let alive =
+        engine::rc_raw_with_timeout(port, &pass, "rc/noop", &json!({}), 3).is_ok();
+    if !alive {
+        // Reap the child handle so a later start doesn't think it's alive.
+        let mut eng = state.0.lock().unwrap();
+        if let Some(child) = &mut eng.child {
+            if !matches!(child.try_wait(), Ok(None)) {
+                eng.child = None;
+            }
+        }
+    }
+    Ok(alive)
+}
+
+/// Bring a dead engine back and remount everything the user had, with
+/// the exact vfs options recorded in engine.json. Deliberately manual
+/// (a button, not an auto-loop): a broken config would otherwise cause
+/// an endless restart cycle behind the user's back.
+#[tauri::command]
+async fn restart_engine(app: AppHandle, state: State<'_, EngineState>) -> Result<(), String> {
+    log_line(&app, "manual engine restart requested");
+    restart_engine_preserving_mounts(&app, &state)
+}
+
 /// Read-only proxy to rclone's RC API: credentials never leave the Rust
 /// side, and only the endpoints the UI actually needs are reachable —
 /// anything with side effects goes through a dedicated command above.
@@ -768,6 +804,8 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             engine_status,
+            engine_health,
+            restart_engine,
             install_rclone,
             start_engine,
             rc,
