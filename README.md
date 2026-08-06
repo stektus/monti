@@ -51,16 +51,19 @@ free GUI that does **mounting** first and does it well.
   shows them, can unmount them, and refuses to double-mount a remote —
   two VFS caches over one remote can corrupt files
 - Auto-download of the rclone engine if missing (no root)
+- Transfer activity indicator; per-drive read-only mode and cache limits
 - Google Drive, Dropbox, Box, pCloud, Yandex Disk (OneDrive experimental)
+- Self-hosted friendly: WebDAV / Nextcloud, S3-compatible storage, SFTP
 
 ## Roadmap
 
 - [x] Own OAuth client id wizard (rclone's shared client id is being retired in 2026)
-- [ ] Per-drive VFS/cache options in the UI
-- [ ] Transfer/cache activity indicator
+- [x] Per-drive VFS/cache options in the UI
+- [x] Transfer/cache activity indicator
+- [x] WebDAV, S3-compatible and SFTP support
 - [ ] Two-way sync (bisync) with a conflict-resolution UI
 - [ ] Flathub package
-- [ ] More providers (WebDAV, S3, SFTP, protondrive, …)
+- [ ] More providers (protondrive, …)
 
 ## Building from source
 

@@ -8,7 +8,14 @@ const PROVIDER_LABELS = {
   box: "Box",
   pcloud: "pCloud",
   yandex: "Yandex Disk",
+  webdav: "WebDAV",
+  s3: "S3",
+  sftp: "SFTP",
 };
+
+// Providers that authorize through the browser; the rest are configured
+// entirely from form fields.
+const OAUTH_PROVIDERS = new Set(["drive", "dropbox", "onedrive", "box", "pcloud", "yandex"]);
 
 const $ = (id) => document.getElementById(id);
 
@@ -440,6 +447,7 @@ window.addEventListener("DOMContentLoaded", () => {
     $("add-form").reset();
     $("add-status").classList.add("hidden");
     $("add-advanced").open = false;
+    updateAddForm();
     $("add-dialog").showModal();
   });
   $("add-cancel").addEventListener("click", async () => {
@@ -448,16 +456,73 @@ window.addEventListener("DOMContentLoaded", () => {
   });
   $("add-dialog").addEventListener("cancel", () => abortAuth());
 
-  // The step-by-step key guide is written for Google Drive.
-  $("add-provider").addEventListener("change", () => {
-    const isDrive = $("add-provider").value === "drive";
-    $("key-help-drive").classList.toggle("hidden", !isDrive);
-  });
+  // Show the fields that match the chosen provider: OAuth clouds get the
+  // API-key section and browser hint, servers get their own form.
+  const updateAddForm = () => {
+    const p = $("add-provider").value;
+    const oauth = OAUTH_PROVIDERS.has(p);
+    $("add-advanced").classList.toggle("hidden", !oauth);
+    $("add-oauth-hint").classList.toggle("hidden", !oauth);
+    // The step-by-step key guide is written for Google Drive.
+    $("key-help-drive").classList.toggle("hidden", p !== "drive");
+    document
+      .querySelectorAll(".params")
+      .forEach((d) => d.classList.toggle("hidden", d.id !== `params-${p}`));
+    $("add-status").textContent = oauth
+      ? "⏳ Waiting for you to authorize in the browser… Press Cancel to abort."
+      : "⏳ Connecting…";
+  };
+  $("add-provider").addEventListener("change", updateAddForm);
+
+  // Non-OAuth providers: collect their form fields and check the required
+  // ones (native `required` can't be used — the fields are often hidden).
+  const collectParams = (p) => {
+    const v = (id) => $(id).value.trim();
+    if (p === "webdav") {
+      if (!v("webdav-url")) return "Server URL is required.";
+      return {
+        url: v("webdav-url"),
+        vendor: $("webdav-vendor").value,
+        user: v("webdav-user"),
+        pass: $("webdav-pass").value,
+      };
+    }
+    if (p === "s3") {
+      if (!v("s3-access") || !$("s3-secret").value)
+        return "Access key ID and Secret access key are required.";
+      if ($("s3-provider").value !== "AWS" && !v("s3-endpoint"))
+        return "Endpoint is required for non-Amazon S3 services.";
+      return {
+        provider: $("s3-provider").value,
+        access_key_id: v("s3-access"),
+        secret_access_key: $("s3-secret").value,
+        endpoint: v("s3-endpoint"),
+        region: v("s3-region"),
+      };
+    }
+    if (p === "sftp") {
+      if (!v("sftp-host") || !v("sftp-user"))
+        return "Host and Username are required.";
+      return {
+        host: v("sftp-host"),
+        port: v("sftp-port"),
+        user: v("sftp-user"),
+        pass: $("sftp-pass").value,
+        key_file: v("sftp-key"),
+      };
+    }
+    return null;
+  };
 
   $("add-form").addEventListener("submit", async (e) => {
     e.preventDefault();
     const name = $("add-name").value.trim();
     const provider = $("add-provider").value;
+    const params = collectParams(provider);
+    if (typeof params === "string") {
+      showError(params);
+      return;
+    }
     $("add-submit").disabled = true;
     showError("");
     const ok = await withAuth($("add-status"), () =>
@@ -466,6 +531,7 @@ window.addEventListener("DOMContentLoaded", () => {
         provider,
         clientId: $("add-client-id").value.trim() || null,
         clientSecret: $("add-client-secret").value.trim() || null,
+        params,
       })
     );
     $("add-submit").disabled = false;

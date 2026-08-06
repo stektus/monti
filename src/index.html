@@ -142,18 +142,79 @@
         <label>
           Provider
           <select id="add-provider">
-            <option value="drive">Google Drive</option>
-            <option value="dropbox">Dropbox</option>
-            <option value="onedrive">OneDrive (experimental)</option>
-            <option value="box">Box</option>
-            <option value="pcloud">pCloud</option>
-            <option value="yandex">Yandex Disk</option>
+            <optgroup label="Clouds">
+              <option value="drive">Google Drive</option>
+              <option value="dropbox">Dropbox</option>
+              <option value="onedrive">OneDrive (experimental)</option>
+              <option value="box">Box</option>
+              <option value="pcloud">pCloud</option>
+              <option value="yandex">Yandex Disk</option>
+            </optgroup>
+            <optgroup label="Servers">
+              <option value="webdav">WebDAV / Nextcloud</option>
+              <option value="s3">S3-compatible storage</option>
+              <option value="sftp">SFTP</option>
+            </optgroup>
           </select>
         </label>
         <label>
           Name <span class="muted">(the folder will be called this)</span>
           <input id="add-name" placeholder="e.g. gdrive" pattern="[A-Za-z0-9_-]+" required />
         </label>
+        <div id="params-webdav" class="params hidden">
+          <label>
+            Server URL
+            <input id="webdav-url" placeholder="https://cloud.example.com/remote.php/webdav/" />
+          </label>
+          <label>
+            Server type
+            <select id="webdav-vendor">
+              <option value="nextcloud">Nextcloud</option>
+              <option value="owncloud">ownCloud</option>
+              <option value="other">Other WebDAV server</option>
+            </select>
+          </label>
+          <div class="two-col">
+            <label>Username <input id="webdav-user" autocomplete="off" /></label>
+            <label>Password <input id="webdav-pass" type="password" autocomplete="new-password" /></label>
+          </div>
+        </div>
+
+        <div id="params-s3" class="params hidden">
+          <label>
+            Service
+            <select id="s3-provider">
+              <option value="AWS">Amazon S3</option>
+              <option value="Cloudflare">Cloudflare R2</option>
+              <option value="Minio">MinIO</option>
+              <option value="Other">Other S3-compatible</option>
+            </select>
+          </label>
+          <label>Access key ID <input id="s3-access" class="mono" autocomplete="off" spellcheck="false" /></label>
+          <label>Secret access key <input id="s3-secret" class="mono" type="password" autocomplete="new-password" /></label>
+          <label>
+            Endpoint <span class="muted">(not needed for Amazon)</span>
+            <input id="s3-endpoint" placeholder="https://…" spellcheck="false" />
+          </label>
+          <label>
+            Region <span class="muted">(optional)</span>
+            <input id="s3-region" placeholder="e.g. eu-central-1" spellcheck="false" />
+          </label>
+        </div>
+
+        <div id="params-sftp" class="params hidden">
+          <label>Host <input id="sftp-host" placeholder="server.example.com" spellcheck="false" /></label>
+          <div class="two-col">
+            <label>Username <input id="sftp-user" autocomplete="off" /></label>
+            <label>Port <input id="sftp-port" placeholder="22" /></label>
+          </div>
+          <label>Password <input id="sftp-pass" type="password" autocomplete="new-password" /></label>
+          <label>
+            SSH key file <span class="muted">(instead of password)</span>
+            <input id="sftp-key" class="mono" placeholder="~/.ssh/id_ed25519" spellcheck="false" />
+          </label>
+        </div>
+
         <details id="add-advanced">
           <summary>Use my own API key <span class="chip rec">recommended for Google Drive</span></summary>
           <div class="key-help muted" id="key-help-drive">
@@ -179,7 +240,7 @@
             <input id="add-client-secret" class="mono" autocomplete="off" spellcheck="false" />
           </label>
         </details>
-        <p class="muted">
+        <p class="muted" id="add-oauth-hint">
           Your browser will open — sign in and allow access. Monti never sees
           your password; the access token is stored locally by rclone.
         </p>

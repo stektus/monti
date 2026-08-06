@@ -459,6 +459,7 @@ fn create_remote(
     provider: String,
     client_id: Option<String>,
     client_secret: Option<String>,
+    params: Option<HashMap<String, String>>,
 ) -> Result<(), String> {
     let ok_name = !name.is_empty()
         && name
@@ -467,18 +468,44 @@ fn create_remote(
     if !ok_name {
         return Err("remote name may contain only letters, digits, '-' and '_'".into());
     }
-    const ALLOWED: &[&str] = &["drive", "dropbox", "onedrive", "box", "pcloud", "yandex"];
-    if !ALLOWED.contains(&provider.as_str()) {
-        return Err(format!("unsupported provider: {provider}"));
-    }
+    // OAuth providers open the browser; the rest are configured entirely
+    // from form fields (whitelisted below — nothing else reaches the CLI).
+    const OAUTH: &[&str] = &["drive", "dropbox", "onedrive", "box", "pcloud", "yandex"];
+    let allowed_params: &[&str] = match provider.as_str() {
+        p if OAUTH.contains(&p) => &[],
+        "webdav" => &["url", "vendor", "user", "pass"],
+        "s3" => &[
+            "provider",
+            "access_key_id",
+            "secret_access_key",
+            "endpoint",
+            "region",
+        ],
+        "sftp" => &["host", "port", "user", "pass", "key_file"],
+        _ => return Err(format!("unsupported provider: {provider}")),
+    };
     let rclone = find_rclone(&app).ok_or("rclone not found")?;
 
-    let mut args: Vec<String> = vec!["config".into(), "create".into(), name, provider];
+    let mut args: Vec<String> = vec!["config".into(), "create".into(), name, provider.clone()];
     if let Some(id) = client_id.filter(|s| !s.trim().is_empty()) {
         args.push(format!("client_id={}", id.trim()));
     }
     if let Some(secret) = client_secret.filter(|s| !s.trim().is_empty()) {
         args.push(format!("client_secret={}", secret.trim()));
+    }
+    for (key, value) in params.unwrap_or_default() {
+        let value = value.trim();
+        if value.is_empty() {
+            continue;
+        }
+        if !allowed_params.contains(&key.as_str()) {
+            return Err(format!("unexpected option: {key}"));
+        }
+        args.push(format!("{key}={value}"));
+    }
+    if provider == "s3" {
+        // Keys come from the form, never from env vars / IAM profiles.
+        args.push("env_auth=false".into());
     }
 
     run_auth_child(&rclone, &create, &args)?;
