@@ -79,8 +79,7 @@ Download from the [latest release](https://github.com/stektus/monti/releases/lat
 - **`.rpm`** — Fedora / openSUSE: `sudo dnf install ./Monti_*.rpm`
 
 FUSE3 is required at runtime (preinstalled on most desktop distros).
-Arch/Manjaro users: AUR package `monti-bin` is on the way; the AppImage
-works meanwhile.
+Arch/Manjaro users: the AppImage works fine; an AUR package is planned.
 
 ## Building from source
 
