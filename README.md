@@ -17,6 +17,8 @@ come down to earth.
 
 > Status: **early beta**. Linux only, by design.
 
+![Monti — your clouds as drive cards](docs/screenshot-main.png)
+
 ## Why
 
 There is no official Google Drive client for Linux. The community's workhorse,
