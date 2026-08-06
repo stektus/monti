@@ -11,7 +11,7 @@ use std::{
     fs,
     io::Read,
     path::PathBuf,
-    process::{Child, Command, Stdio},
+    process::Command,
     sync::{
         atomic::{AtomicBool, Ordering},
         Mutex,
@@ -29,9 +29,9 @@ use tauri::{
 };
 
 use engine::{
-    app_bin_dir, build_vfs_opt, die_with_parent, engine_alive, find_rclone, log_line, rc_raw,
-    remote_exists, restart_engine_preserving_mounts, save_engine_file, start_engine_locked,
-    stop_engine_locked, Engine, EngineState, MountEntry,
+    app_bin_dir, build_vfs_opt, engine_alive, find_rclone, log_line, rc_raw,
+    restart_engine_preserving_mounts, save_engine_file, start_engine_locked, stop_engine_locked,
+    Engine, EngineState, MountEntry,
 };
 
 /// Runtime toggles shared between the window-event handler and commands.
@@ -47,10 +47,10 @@ struct Flags {
     keep_mounts: AtomicBool,
 }
 
-/// The in-flight `rclone config create` process (browser OAuth), if any.
-/// Kept separately so the Cancel button can kill it while `create_remote`
-/// is still polling.
-struct CreateState(Mutex<Option<Child>>);
+/// The jobid of the in-flight authorization step on the daemon, if any.
+/// Kept separately so the Cancel button can stop it while the config
+/// state machine is still polling. None inside = no flow running.
+struct AuthState(Mutex<Option<u64>>);
 
 // ---------- system mounts ----------
 
@@ -262,94 +262,144 @@ async fn rc(state: State<'_, EngineState>, path: String, body: Value) -> Result<
     rc_raw(port, &pass, &path, &body)
 }
 
-/// Run an rclone subcommand that ends in a browser OAuth wait (config
-/// create / config reconnect). The child is polled instead of blocked on,
-/// so the user can cancel and we time out instead of hanging forever.
-fn run_auth_child(rclone: &PathBuf, create: &CreateState, args: &[String]) -> Result<(), String> {
-    // Drain stderr on a thread: a child that fills the pipe buffer while
-    // nobody reads would block forever and we'd "time out" a healthy run.
-    let stderr_buf = std::sync::Arc::new(Mutex::new(String::new()));
-    let mut reader = None;
+/// Drive rclone's interactive config state machine over the RC API
+/// (config/create / config/update with opt.nonInteractive). Each step is
+/// submitted `_async` so Cancel (job/stop) and a hard 5-minute deadline
+/// work; for OAuth backends the daemon itself opens the browser and runs
+/// the localhost callback server. Compared to the old CLI spawn this
+/// needs no engine restart, keeps secrets out of argv and leaves the
+/// config file with a single writer — the daemon.
+///
+/// Protocol notes (verified against rclone v1.74): every continue call
+/// must repeat name/type/parameters; answers use Option.DefaultStr,
+/// except config_is_local which we force to "true".
+fn config_state_machine(
+    app: &AppHandle,
+    port: u16,
+    pass: &str,
+    auth: &AuthState,
+    endpoint: &str,
+    name: &str,
+    typ: Option<&str>,
+    parameters: &Value,
+) -> Result<(), String> {
     {
-        let mut guard = create.0.lock().unwrap();
-        if guard.is_some() {
+        let mut slot = auth.0.lock().unwrap();
+        if slot.is_some() {
             return Err("another authorization is already in progress".into());
         }
-        let mut cmd = Command::new(rclone);
-        cmd.args(args)
-            .arg("--auto-confirm") // never wait on an interactive y/n
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::piped());
-        die_with_parent(&mut cmd);
-        let mut child = cmd.spawn().map_err(|e| e.to_string())?;
-        if let Some(mut pipe) = child.stderr.take() {
-            let buf = std::sync::Arc::clone(&stderr_buf);
-            reader = Some(thread::spawn(move || {
-                let mut s = String::new();
-                let _ = pipe.read_to_string(&mut s);
-                *buf.lock().unwrap() = s;
-            }));
-        }
-        *guard = Some(child);
+        *slot = Some(0); // claimed, no job yet
     }
-
-    const TIMEOUT: Duration = Duration::from_secs(300);
-    let started = std::time::Instant::now();
-    loop {
-        thread::sleep(Duration::from_millis(500));
-        let mut guard = create.0.lock().unwrap();
-        let Some(child) = guard.as_mut() else {
-            // Taken away by cancel_create_remote.
-            return Err("Authorization cancelled.".to_string());
-        };
-        match child.try_wait() {
-            Ok(Some(status)) => {
-                let mut child = guard.take().unwrap();
-                let _ = child.wait();
-                drop(guard);
-                if let Some(handle) = reader.take() {
-                    let _ = handle.join(); // stderr hits EOF once the child died
-                }
-                if status.success() {
-                    return Ok(());
-                }
-                let stderr = stderr_buf.lock().unwrap();
-                let msg = stderr.trim();
-                return Err(if msg.is_empty() {
-                    "rclone exited with an error".to_string()
-                } else {
-                    msg.to_string()
-                });
-            }
-            Ok(None) => {
-                if started.elapsed() > TIMEOUT {
-                    let mut child = guard.take().unwrap();
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    return Err("Authorization timed out after 5 minutes.".to_string());
-                }
-            }
-            Err(e) => {
-                if let Some(mut child) = guard.take() {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                }
-                return Err(e.to_string());
-            }
-        }
+    log_line(app, &format!("auth flow started ({endpoint} {name})"));
+    let result = drive_state_machine(port, pass, auth, endpoint, name, typ, parameters);
+    *auth.0.lock().unwrap() = None;
+    match &result {
+        Ok(()) => log_line(app, &format!("auth flow finished ({name})")),
+        Err(e) => log_line(app, &format!("auth flow failed ({name}): {e}")),
     }
+    result
 }
 
-/// Create a remote via the rclone CLI: for OAuth providers it opens the
-/// system browser. Optional client_id/client_secret let the user connect
-/// through their own API key instead of rclone's shared one (which is
-/// being retired in 2026).
+fn drive_state_machine(
+    port: u16,
+    pass: &str,
+    auth: &AuthState,
+    endpoint: &str,
+    name: &str,
+    typ: Option<&str>,
+    parameters: &Value,
+) -> Result<(), String> {
+    let deadline = std::time::Instant::now() + Duration::from_secs(300);
+    let stop_job = |jobid: u64| {
+        let _ = rc_raw(port, pass, "job/stop", &json!({ "jobid": jobid }));
+    };
+    let mut opt = json!({ "nonInteractive": true, "obscure": true });
+
+    for _ in 0..20 {
+        let mut body = json!({
+            "name": name,
+            "parameters": parameters,
+            "opt": opt,
+            "_async": true,
+        });
+        if let Some(t) = typ {
+            body["type"] = t.into();
+        }
+        let jobid = rc_raw(port, pass, endpoint, &body)?["jobid"]
+            .as_u64()
+            .ok_or("daemon did not return a job id")?;
+        {
+            let mut slot = auth.0.lock().unwrap();
+            if slot.is_none() {
+                stop_job(jobid);
+                return Err("Authorization cancelled.".into());
+            }
+            *slot = Some(jobid);
+        }
+
+        // Poll this step; the OAuth step blocks here until the user
+        // finishes in the browser.
+        let output = loop {
+            thread::sleep(Duration::from_millis(500));
+            if auth.0.lock().unwrap().is_none() {
+                stop_job(jobid);
+                return Err("Authorization cancelled.".into());
+            }
+            if std::time::Instant::now() > deadline {
+                stop_job(jobid);
+                return Err("Authorization timed out after 5 minutes.".into());
+            }
+            let status = rc_raw(port, pass, "job/status", &json!({ "jobid": jobid }))?;
+            if status["finished"].as_bool() == Some(true) {
+                if status["success"].as_bool() != Some(true) {
+                    let e = status["error"].as_str().unwrap_or("authorization failed");
+                    return Err(e.to_string());
+                }
+                break status["output"].clone();
+            }
+        };
+
+        let step_err = output["Error"].as_str().unwrap_or("");
+        if !step_err.is_empty() {
+            return Err(step_err.to_string());
+        }
+        let state = output["State"].as_str().unwrap_or("");
+        if state.is_empty() {
+            return Ok(()); // machine done — token stored by the daemon
+        }
+        let option = &output["Option"];
+        let answer = if option["Name"].as_str() == Some("config_is_local") {
+            "true".to_string() // we are the machine with the browser
+        } else if let Some(s) = option["DefaultStr"].as_str() {
+            s.to_string()
+        } else {
+            match &option["Default"] {
+                Value::String(s) => s.clone(),
+                Value::Null => String::new(),
+                v => v.to_string(),
+            }
+        };
+        opt = json!({
+            "nonInteractive": true,
+            "obscure": true,
+            "continue": true,
+            "state": state,
+            "result": answer,
+        });
+    }
+    Err("authorization did not finish (too many configuration steps)".into())
+}
+
+/// Create a remote through the daemon's RC config API. For OAuth
+/// providers the daemon opens the browser and runs the callback server;
+/// optional client_id/client_secret let the user connect through their
+/// own API key instead of rclone's shared one (retired during 2026).
+/// No engine restart, no secrets in argv, single writer of the config.
 #[tauri::command]
 async fn create_remote(
     app: AppHandle,
     state: State<'_, EngineState>,
-    create: State<'_, CreateState>,
+    auth: State<'_, AuthState>,
     name: String,
     provider: String,
     client_id: Option<String>,
@@ -376,38 +426,37 @@ async fn create_remote(
             ));
         }
     }
-    // OAuth providers need the CLI (it opens the browser); everything else
-    // is created through the RC API so passwords travel in a localhost
-    // request body — never on a world-readable command line — and the
-    // daemon sees the change without a restart.
     const OAUTH: &[&str] = &["drive", "dropbox", "onedrive", "box", "pcloud", "yandex"];
     let allowed_params: &[&str] = match provider.as_str() {
         p if OAUTH.contains(&p) => {
-            let rclone = find_rclone(&app).ok_or("rclone not found")?;
-            let existed = remote_exists(&rclone, &name);
-            let mut args: Vec<String> = vec![
-                "config".into(),
-                "create".into(),
-                name.clone(),
-                provider.clone(),
-            ];
+            let (port, pass) = {
+                let eng = state.0.lock().unwrap();
+                (eng.port, eng.pass.clone())
+            };
+            let mut parameters = serde_json::Map::new();
             if let Some(id) = client_id.filter(|s| !s.trim().is_empty()) {
-                args.push(format!("client_id={}", id.trim()));
+                parameters.insert("client_id".into(), Value::String(id.trim().into()));
             }
             if let Some(secret) = client_secret.filter(|s| !s.trim().is_empty()) {
-                args.push(format!("client_secret={}", secret.trim()));
+                parameters.insert("client_secret".into(), Value::String(secret.trim().into()));
             }
-            if let Err(e) = run_auth_child(&rclone, &create, &args) {
-                // `config create` writes the remote before OAuth finishes;
-                // an aborted flow must not leave a broken token-less remote.
-                if !existed {
-                    let _ = Command::new(&rclone)
-                        .args(["config", "delete", &name])
-                        .status();
-                }
+            if let Err(e) = config_state_machine(
+                &app,
+                port,
+                &pass,
+                &auth,
+                "config/create",
+                &name,
+                Some(&provider),
+                &Value::Object(parameters),
+            ) {
+                // The section is written before OAuth finishes; an aborted
+                // flow must not leave a broken token-less remote. The
+                // duplicate-name guard above proved it did not exist.
+                let _ = rc_raw(port, &pass, "config/delete", &json!({ "name": name }));
                 return Err(e);
             }
-            return restart_engine_preserving_mounts(&app, &state);
+            return Ok(());
         }
         "webdav" => &["url", "vendor", "user", "pass"],
         "s3" => &[
@@ -459,13 +508,23 @@ async fn create_remote(
 async fn reconnect_remote(
     app: AppHandle,
     state: State<'_, EngineState>,
-    create: State<'_, CreateState>,
+    auth: State<'_, AuthState>,
     name: String,
 ) -> Result<(), String> {
-    let rclone = find_rclone(&app).ok_or("rclone not found")?;
-    let args: Vec<String> = vec!["config".into(), "reconnect".into(), format!("{name}:")];
-    run_auth_child(&rclone, &create, &args)?;
-    restart_engine_preserving_mounts(&app, &state)
+    let (port, pass) = {
+        let eng = state.0.lock().unwrap();
+        (eng.port, eng.pass.clone())
+    };
+    config_state_machine(
+        &app,
+        port,
+        &pass,
+        &auth,
+        "config/update",
+        &name,
+        None,
+        &json!({}),
+    )
 }
 
 /// Switch an existing remote to a different API key (client_id/secret) and
@@ -475,29 +534,41 @@ async fn reconnect_remote(
 async fn update_remote_key(
     app: AppHandle,
     state: State<'_, EngineState>,
-    create: State<'_, CreateState>,
+    auth: State<'_, AuthState>,
     name: String,
     client_id: String,
     client_secret: String,
 ) -> Result<(), String> {
-    let rclone = find_rclone(&app).ok_or("rclone not found")?;
-    let args: Vec<String> = vec![
-        "config".into(),
-        "update".into(),
-        name,
-        format!("client_id={}", client_id.trim()),
-        format!("client_secret={}", client_secret.trim()),
-    ];
-    run_auth_child(&rclone, &create, &args)?;
-    restart_engine_preserving_mounts(&app, &state)
+    let (port, pass) = {
+        let eng = state.0.lock().unwrap();
+        (eng.port, eng.pass.clone())
+    };
+    config_state_machine(
+        &app,
+        port,
+        &pass,
+        &auth,
+        "config/update",
+        &name,
+        None,
+        &json!({
+            "client_id": client_id.trim(),
+            "client_secret": client_secret.trim(),
+        }),
+    )
 }
 
-/// Abort an in-flight browser authorization (Cancel button).
+/// Abort an in-flight browser authorization (Cancel button): empty the
+/// slot — the polling loop notices and stops the daemon-side job.
 #[tauri::command]
-fn cancel_create_remote(create: State<CreateState>) {
-    if let Some(mut child) = create.0.lock().unwrap().take() {
-        let _ = child.kill();
-        let _ = child.wait();
+fn cancel_create_remote(state: State<EngineState>, auth: State<AuthState>) {
+    let jobid = auth.0.lock().unwrap().take();
+    if let Some(jobid) = jobid.filter(|&j| j > 0) {
+        let (port, pass) = {
+            let eng = state.0.lock().unwrap();
+            (eng.port, eng.pass.clone())
+        };
+        let _ = rc_raw(port, &pass, "job/stop", &json!({ "jobid": jobid }));
     }
 }
 
@@ -729,6 +800,117 @@ async fn app_info(app: AppHandle, flags: State<'_, Flags>) -> Result<AppInfo, St
     })
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::process::{Child, Command, Stdio};
+
+    struct TestDaemon {
+        child: Child,
+        port: u16,
+        pass: String,
+        _conf: tempdir::TempDirGuard,
+    }
+
+    mod tempdir {
+        pub struct TempDirGuard(pub std::path::PathBuf);
+        impl Drop for TempDirGuard {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+    }
+
+    fn spawn_test_rcd() -> Option<TestDaemon> {
+        // Tests need a real rclone; skip silently where it's absent (CI
+        // without rclone) — the protocol was verified there separately.
+        let dir = std::env::temp_dir().join(format!("monti-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).ok()?;
+        let conf = dir.join("rclone.conf");
+        std::fs::write(&conf, "").ok()?;
+        let port = engine::free_port().ok()?;
+        let pass = "testpass".to_string();
+        let child = Command::new("rclone")
+            .args(["rcd", &format!("--rc-addr=127.0.0.1:{port}")])
+            .env("RCLONE_CONFIG", &conf)
+            .env("RCLONE_RC_USER", engine::RC_USER)
+            .env("RCLONE_RC_PASS", &pass)
+            .env("BROWSER", "true") // never open a real browser in tests
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .ok()?;
+        for _ in 0..50 {
+            if rc_raw(port, &pass, "rc/noop", &json!({})).is_ok() {
+                return Some(TestDaemon {
+                    child,
+                    port,
+                    pass,
+                    _conf: tempdir::TempDirGuard(dir),
+                });
+            }
+            thread::sleep(Duration::from_millis(100));
+        }
+        None
+    }
+
+    impl Drop for TestDaemon {
+        fn drop(&mut self) {
+            let _ = rc_raw(self.port, &self.pass, "core/quit", &json!({}));
+            thread::sleep(Duration::from_millis(200));
+            let _ = self.child.kill();
+            let _ = self.child.wait();
+        }
+    }
+
+    #[test]
+    fn state_machine_completes_for_questionless_backend() {
+        let Some(d) = spawn_test_rcd() else { return };
+        let auth = AuthState(Mutex::new(Some(0)));
+        let r = drive_state_machine(
+            d.port,
+            &d.pass,
+            &auth,
+            "config/create",
+            "tlocal",
+            Some("local"),
+            &json!({}),
+        );
+        assert_eq!(r, Ok(()));
+        let dump = rc_raw(d.port, &d.pass, "config/dump", &json!({})).unwrap();
+        assert!(dump.get("tlocal").is_some(), "remote not created: {dump}");
+    }
+
+    #[test]
+    fn state_machine_cancel_unblocks_oauth_wait() {
+        let Some(d) = spawn_test_rcd() else { return };
+        let auth = std::sync::Arc::new(AuthState(Mutex::new(Some(0))));
+        let (port, pass) = (d.port, d.pass.clone());
+        let auth2 = std::sync::Arc::clone(&auth);
+        let flow = thread::spawn(move || {
+            drive_state_machine(
+                port,
+                &pass,
+                &auth2,
+                "config/create",
+                "tdrive",
+                Some("drive"),
+                &json!({}),
+            )
+        });
+        // Give the machine time to reach the browser-wait step, then cancel.
+        thread::sleep(Duration::from_secs(4));
+        auth.0.lock().unwrap().take();
+        let r = flow.join().unwrap();
+        assert_eq!(r, Err("Authorization cancelled.".to_string()));
+        // Clean the half-written section like create_remote's error path does.
+        let _ = rc_raw(d.port, &d.pass, "config/delete", &json!({ "name": "tdrive" }));
+        let dump = rc_raw(d.port, &d.pass, "config/dump", &json!({})).unwrap();
+        assert!(dump.get("tdrive").is_none());
+    }
+}
+
 // ---------- tray ----------
 
 fn build_tray(app: &AppHandle) -> tauri::Result<()> {
@@ -776,7 +958,7 @@ pub fn run() {
         }))
         .plugin(tauri_plugin_opener::init())
         .manage(EngineState(Mutex::new(Engine::default())))
-        .manage(CreateState(Mutex::new(None)))
+        .manage(AuthState(Mutex::new(None)))
         .manage(Flags {
             close_to_tray: AtomicBool::new(true),
             tray_ok: AtomicBool::new(false),
@@ -841,13 +1023,14 @@ pub fn run() {
         .expect("error while building tauri application")
         .run(|app, event| {
             if let RunEvent::Exit = event {
-                let create: State<CreateState> = app.state();
-                if let Some(mut child) = create.0.lock().unwrap().take() {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                }
                 let state: State<EngineState> = app.state();
                 let mut eng = state.0.lock().unwrap();
+                // A dangling authorization must not ride into the next
+                // session on a surviving daemon.
+                let auth: State<AuthState> = app.state();
+                if let Some(jobid) = auth.0.lock().unwrap().take().filter(|&j| j > 0) {
+                    let _ = rc_raw(eng.port, &eng.pass, "job/stop", &json!({ "jobid": jobid }));
+                }
                 // "Keep drives mounted": if anything is mounted and the
                 // user asked for it, leave the daemon running — the next
                 // session re-adopts it via the engine file.

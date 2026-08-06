@@ -170,23 +170,6 @@ pub fn rand_hex(n_bytes: usize) -> Result<String, String> {
     Ok(buf.iter().map(|b| format!("{b:02x}")).collect())
 }
 
-/// Make a child process receive SIGTERM when we die, so short-lived
-/// helpers (OAuth flows) never outlive the app.
-#[cfg(target_os = "linux")]
-pub fn die_with_parent(cmd: &mut Command) {
-    use std::os::unix::process::CommandExt;
-    unsafe {
-        cmd.pre_exec(|| {
-            libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGTERM);
-            Ok(())
-        });
-    }
-    clean_appimage_env(cmd);
-}
-
-#[cfg(not(target_os = "linux"))]
-pub fn die_with_parent(_cmd: &mut Command) {}
-
 /// For the rcd daemon: new session (detached from our lifetime and any
 /// terminal) and a clean environment — but NO parent-death signal, so it
 /// can keep drives mounted after Monti quits.
@@ -229,16 +212,6 @@ pub fn clean_appimage_env(cmd: &mut Command) {
             cmd.env(&key, kept.join(":"));
         }
     }
-}
-
-/// True if the rclone config already has a remote with this name.
-pub fn remote_exists(rclone: &PathBuf, name: &str) -> bool {
-    Command::new(rclone)
-        .arg("listremotes")
-        .output()
-        .ok()
-        .and_then(|o| String::from_utf8(o.stdout).ok())
-        .is_some_and(|s| s.lines().any(|l| l.trim().trim_end_matches(':') == name))
 }
 
 /// The engine deliberately survives Monti when "keep mounts on quit" is
