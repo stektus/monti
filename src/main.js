@@ -44,10 +44,25 @@ function setEngine(stateClass, label) {
   $("engine-label").textContent = label;
 }
 
+// Render the message inside the open modal dialog (the page-level banner
+// sits under the ::backdrop and would be invisible); clearing clears all.
 function showError(msg) {
-  const el = $("global-error");
+  const slots = ["global-error", "add-error", "remote-error"];
+  if (!msg) {
+    for (const id of slots) {
+      const el = $(id);
+      el.textContent = "";
+      el.classList.add("hidden");
+    }
+    return;
+  }
+  let target = "global-error";
+  if ($("add-dialog").open) target = "add-error";
+  else if ($("remote-dialog").open) target = "remote-error";
+  const el = $(target);
   el.textContent = msg;
-  el.classList.toggle("hidden", !msg);
+  el.classList.remove("hidden");
+  if (target !== "global-error") el.scrollIntoView({ block: "nearest" });
 }
 
 async function rc(path, body = {}) {
@@ -374,6 +389,7 @@ let dialogKey = { id: "", secret: "" }; // key as stored in config when opened
 
 async function openRemoteDialog(name) {
   dialogRemote = name;
+  showError("");
   const pref = prefFor(name);
   $("remote-title").textContent = `${name} — settings`;
   $("remote-mountpoint").value = pref.mountPoint || "";
@@ -544,6 +560,7 @@ window.addEventListener("DOMContentLoaded", () => {
   // --- add cloud dialog ---
   $("add-btn").addEventListener("click", () => {
     $("add-form").reset();
+    showError("");
     $("add-status").classList.add("hidden");
     $("add-advanced").open = false;
     updateAddForm();

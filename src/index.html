@@ -267,6 +267,7 @@
         <p class="muted auth-wait hidden" id="add-status">
           ⏳ Waiting for you to authorize in the browser… Press Cancel to abort.
         </p>
+        <p class="error hidden" id="add-error"></p>
         <div class="dialog-actions">
           <button class="btn" type="button" id="add-cancel">Cancel</button>
           <button class="btn primary" type="submit" id="add-submit">Connect</button>
@@ -327,6 +328,7 @@
           </p>
         </div>
 
+        <p class="error hidden" id="remote-error"></p>
         <div class="dialog-actions">
           <button class="btn" type="button" id="remote-reconnect" title="Re-run the browser sign-in for this drive">Re-authorize</button>
           <span class="spacer"></span>
