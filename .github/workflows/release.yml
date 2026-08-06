@@ -49,3 +49,14 @@ jobs:
             FUSE3 is required at runtime (preinstalled on most desktop distros).
           releaseDraft: false
           prerelease: false
+
+      - name: Upload SHA256SUMS
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cd src-tauri/target/release/bundle
+          for f in appimage/*.AppImage deb/*.deb rpm/*.rpm; do
+            (cd "$(dirname "$f")" && sha256sum "$(basename "$f")")
+          done > SHA256SUMS
+          cat SHA256SUMS
+          gh release upload "${{ github.ref_name }}" SHA256SUMS --clobber
