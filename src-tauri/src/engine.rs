@@ -25,6 +25,9 @@ pub struct Engine {
     /// from a previous session was adopted (see `try_adopt_engine`).
     pub child: Option<Child>,
     pub pid: u32,
+    /// /proc/<pid>/stat start time of the daemon — pids get reused, the
+    /// (pid, starttime) pair identifies one concrete process forever.
+    pub starttime: u64,
     pub port: u16,
     pub pass: String,
     /// vfsOpt used for each mounted fs ("name:"), so an engine restart can
@@ -242,12 +245,82 @@ pub fn is_rcd_pid(pid: u32) -> bool {
     cmdline.contains("rclone") && cmdline.contains("rcd")
 }
 
+/// Field 22 of /proc/<pid>/stat — the process start time in clock ticks.
+/// Parsed after the last ')' because field 2 (comm) may contain anything.
+pub fn proc_starttime(pid: u32) -> Option<u64> {
+    let stat = fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+    let rest = &stat[stat.rfind(')')? + 1..];
+    rest.split_whitespace().nth(19)?.parse().ok()
+}
+
+fn boot_id() -> String {
+    fs::read_to_string("/proc/sys/kernel/random/boot_id")
+        .map(|s| s.trim().to_string())
+        .unwrap_or_default()
+}
+
+/// Same pid + same start time + rcd-looking cmdline = the exact process
+/// we spawned. Any mismatch means the pid was recycled — hands off.
+fn is_our_daemon(pid: u32, saved_starttime: u64) -> bool {
+    saved_starttime != 0
+        && proc_starttime(pid) == Some(saved_starttime)
+        && is_rcd_pid(pid)
+}
+
+/// Does <pid> hold the LISTEN socket for 127.0.0.1:<port>? Looked up via
+/// /proc/net/tcp (inode) and the process's fd table. Guards against a
+/// stranger's service squatting on our saved port — we must never send
+/// the RC password there.
+fn pid_owns_port(pid: u32, port: u16) -> bool {
+    let Ok(tcp) = fs::read_to_string("/proc/net/tcp") else {
+        return false;
+    };
+    let needle = format!("0100007F:{port:04X}");
+    let Some(inode) = tcp.lines().skip(1).find_map(|line| {
+        let mut f = line.split_whitespace();
+        let local = f.nth(1)?;
+        let state = f.nth(1)?;
+        if local == needle && state == "0A" {
+            f.nth(4).map(str::to_string) // inode column
+        } else {
+            None
+        }
+    }) else {
+        return false;
+    };
+    let target = format!("socket:[{inode}]");
+    let Ok(fds) = fs::read_dir(format!("/proc/{pid}/fd")) else {
+        return false;
+    };
+    fds.filter_map(|e| e.ok())
+        .filter_map(|e| fs::read_link(e.path()).ok())
+        .any(|l| l.to_string_lossy() == target)
+}
+
+/// SIGTERM the daemon — but only after re-checking it is still the exact
+/// process we remembered, so a recycled pid never kills a bystander.
+fn safe_kill(app: &AppHandle, pid: u32, starttime: u64) {
+    if pid != 0 && is_our_daemon(pid, starttime) {
+        log_line(app, &format!("terminating engine (pid {pid})"));
+        unsafe {
+            libc::kill(pid as i32, libc::SIGTERM);
+        }
+    }
+}
+
 pub fn save_engine_file(app: &AppHandle, eng: &Engine) {
     let Some(path) = engine_file(app) else { return };
     if let Some(dir) = path.parent() {
         let _ = fs::create_dir_all(dir);
     }
-    let data = json!({ "port": eng.port, "pass": eng.pass, "pid": eng.pid });
+    let data = json!({
+        "version": 2,
+        "port": eng.port,
+        "pass": eng.pass,
+        "pid": eng.pid,
+        "starttime": eng.starttime,
+        "boot_id": boot_id(),
+    });
     let _ = fs::write(&path, data.to_string());
     #[cfg(unix)]
     {
@@ -256,8 +329,9 @@ pub fn save_engine_file(app: &AppHandle, eng: &Engine) {
     }
 }
 
-/// Try to reconnect to an engine left by a previous session. Returns true
-/// on success; kills an unreachable stale daemon as a side effect.
+/// Try to reconnect to an engine left by a previous session. Each check
+/// closes its own attack/mistake vector; on any mismatch nothing is
+/// killed unless the process is provably ours.
 pub fn try_adopt_engine(app: &AppHandle, eng: &mut Engine) -> bool {
     let Some(path) = engine_file(app) else {
         return false;
@@ -269,24 +343,54 @@ pub fn try_adopt_engine(app: &AppHandle, eng: &mut Engine) -> bool {
     let port = saved["port"].as_u64().unwrap_or(0) as u16;
     let pass = saved["pass"].as_str().unwrap_or("").to_string();
     let pid = saved["pid"].as_u64().unwrap_or(0) as u32;
-    if port != 0 && !pass.is_empty() && rc_raw(port, &pass, "rc/noop", &json!({})).is_ok() {
+    let starttime = saved["starttime"].as_u64().unwrap_or(0);
+    let saved_boot = saved["boot_id"].as_str().unwrap_or("");
+    let cleanup = || {
+        let _ = fs::remove_file(&path);
+        false
+    };
+    if port == 0 || pass.is_empty() || pid == 0 {
+        return cleanup();
+    }
+    // After a reboot nothing survived — and every pid belongs to someone else.
+    if !saved_boot.is_empty() && saved_boot != boot_id() {
+        return cleanup();
+    }
+    if starttime != 0 {
+        // v2 file: full identity chain.
+        if !is_our_daemon(pid, starttime) {
+            return cleanup(); // recycled pid — not ours, do not touch
+        }
+        if !pid_owns_port(pid, port) {
+            // Our daemon lost the port / someone else has it: never send
+            // credentials there; put our process down and start fresh.
+            safe_kill(app, pid, starttime);
+            return cleanup();
+        }
+    }
+    // Final proof of life + identity: the daemon itself reports our pid.
+    let daemon_pid = rc_raw(port, &pass, "core/pid", &json!({}))
+        .ok()
+        .and_then(|v| v["pid"].as_u64())
+        .unwrap_or(0) as u32;
+    if daemon_pid == pid {
         eng.child = None;
         eng.pid = pid;
+        eng.starttime = if starttime != 0 {
+            starttime
+        } else {
+            proc_starttime(pid).unwrap_or(0)
+        };
         eng.port = port;
         eng.pass = pass;
+        save_engine_file(app, eng); // upgrade legacy files to v2
         log_line(app, &format!("adopted running engine (pid {pid}, port {port})"));
         return true;
     }
-    // Unreachable — if the pid is still an rcd, put it down before
-    // spawning a fresh daemon.
-    if pid != 0 && is_rcd_pid(pid) {
-        log_line(app, &format!("reaping unreachable engine leftover (pid {pid})"));
-        unsafe {
-            libc::kill(pid as i32, libc::SIGTERM);
-        }
-    }
-    let _ = fs::remove_file(&path);
-    false
+    // Unreachable or imposter — reap only what is provably ours.
+    log_line(app, &format!("engine leftover unusable (pid {pid}), cleaning up"));
+    safe_kill(app, pid, starttime);
+    cleanup()
 }
 
 pub fn free_port() -> Result<u16, String> {
@@ -396,6 +500,7 @@ pub fn start_engine_locked(app: &AppHandle, eng: &mut Engine) -> Result<(), Stri
         }
         if rc_raw(port, &pass, "rc/noop", &json!({})).is_ok() {
             eng.pid = child.id();
+            eng.starttime = proc_starttime(eng.pid).unwrap_or(0);
             eng.child = Some(child);
             eng.port = port;
             eng.pass = pass;
@@ -432,21 +537,18 @@ pub fn stop_engine_locked(app: &AppHandle, eng: &mut Engine) {
     } else if eng.pid != 0 {
         // Adopted daemon: no Child handle, watch /proc and then SIGTERM.
         for _ in 0..20 {
-            if !is_rcd_pid(eng.pid) {
+            if !is_our_daemon(eng.pid, eng.starttime) {
                 break;
             }
             thread::sleep(Duration::from_millis(100));
         }
-        if is_rcd_pid(eng.pid) {
-            unsafe {
-                libc::kill(eng.pid as i32, libc::SIGTERM);
-            }
-        }
+        safe_kill(app, eng.pid, eng.starttime);
     }
     if let Some(path) = engine_file(app) {
         let _ = fs::remove_file(path);
     }
     eng.pid = 0;
+    eng.starttime = 0;
     eng.port = 0;
     eng.pass.clear();
 }
