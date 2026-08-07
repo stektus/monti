@@ -92,5 +92,8 @@ jobs:
             | grep -vx "${{ github.ref_name }}" \
             | while read -r t; do
                 echo "deleting superseded release $t"
-                gh release delete "$t" --repo "${{ github.repository }}" --cleanup-tag --yes
+                # --cleanup-tag errors out when the tag is already gone;
+                # delete release and tag separately, tolerating absence.
+                gh release delete "$t" --repo "${{ github.repository }}" --yes || true
+                git push origin --delete "refs/tags/$t" 2>/dev/null || true
               done
