@@ -38,27 +38,24 @@ jobs:
 
       - run: npm ci
 
-      - name: Build bundles and create the GitHub release
-        uses: tauri-apps/tauri-action@v0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tagName: ${{ github.ref_name }}
-          releaseName: "Monti ${{ github.ref_name }}"
-          releaseBody: |
-            Mount your clouds — download, install, click **Add cloud**.
+      - name: Build bundles
+        run: npm run tauri build 2>&1 | tee /tmp/build.log
 
-            | Package | For |
-            |---|---|
-            | `.AppImage` | any distro — `chmod +x` and run |
-            | `.deb` | Debian, Ubuntu, Mint, … |
-            | `.rpm` | Fedora, openSUSE, … |
+      # The runner's logs are admin-only; put the build log somewhere the
+      # maintainer can actually read when a build dies.
+      - name: Publish build log on failure
+        if: failure()
+        run: |
+          git config user.name ci
+          git config user.email ci@users.noreply.github.com
+          git checkout --orphan ci-logs
+          git reset
+          cp /tmp/build.log ci-build.log || true
+          git add -f ci-build.log
+          git commit -m "build log for ${{ github.ref_name }} run ${{ github.run_id }}"
+          git push -f origin ci-logs
 
-            FUSE3 is required at runtime (preinstalled on most desktop distros).
-          releaseDraft: false
-          prerelease: false
-
-      - name: Upload SHA256SUMS
+      - name: Create the GitHub release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -67,4 +64,20 @@ jobs:
             (cd "$(dirname "$f")" && sha256sum "$(basename "$f")")
           done > SHA256SUMS
           cat SHA256SUMS
-          gh release upload "${{ github.ref_name }}" SHA256SUMS --clobber
+          cat > /tmp/notes.md <<'EOF'
+          Mount your clouds — download, install, click **Add cloud**.
+
+          | Package | For |
+          |---|---|
+          | `.AppImage` | any distro — `chmod +x` and run |
+          | `.deb` | Debian, Ubuntu, Mint, … |
+          | `.rpm` | Fedora, openSUSE, … |
+
+          FUSE3 is required at runtime (preinstalled on most desktop distros).
+          `SHA256SUMS` lists checksums for every package; the install script
+          verifies them automatically.
+          EOF
+          gh release create "${{ github.ref_name }}" \
+            --title "Monti ${{ github.ref_name }}" \
+            --notes-file /tmp/notes.md \
+            appimage/*.AppImage deb/*.deb rpm/*.rpm SHA256SUMS
