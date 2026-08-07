@@ -364,7 +364,10 @@ async function refreshRemotes() {
               `drive is removed from the rclone config on this machine.`
           );
           if (!ok) return;
-          await invoke("delete_remote", { name });
+          await invoke("delete_remote", {
+            name,
+            mountPoint: prefFor(name).mountPoint || null,
+          });
           // Only forget the prefs once the remote is really gone — a failed
           // delete (e.g. still mounted) keeps the drive fully configured.
           const all = loadPrefs();

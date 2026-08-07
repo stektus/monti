@@ -679,6 +679,7 @@ async fn delete_remote(
     app: AppHandle,
     state: State<'_, EngineState>,
     name: String,
+    mount_point: Option<String>,
 ) -> Result<(), String> {
     // Deleting the config of a mounted remote would strand the mount
     // (and a systemd-managed one would break on its next restart).
@@ -688,13 +689,36 @@ async fn delete_remote(
             m.mount_point
         ));
     }
-    let eng = state.0.lock().unwrap();
-    rc_raw(
-        eng.port,
-        &eng.pass,
-        "config/delete",
-        &json!({ "name": name }),
-    )?;
+    {
+        let eng = state.0.lock().unwrap();
+        rc_raw(
+            eng.port,
+            &eng.pass,
+            "config/delete",
+            &json!({ "name": name }),
+        )?;
+    }
+    // Leave no trace: drop the now-unused mount folder(s). remove_dir
+    // refuses non-empty directories, so user files are never at risk.
+    let home = app.path().home_dir().map_err(|e| e.to_string())?;
+    let clouddrives = home.join("CloudDrives");
+    if !name.is_empty() && !name.contains('/') && !name.contains('\\') && !name.starts_with('.') {
+        let _ = fs::remove_dir(clouddrives.join(&name));
+    }
+    if let Some(custom) = mount_point
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+    {
+        let p = match custom.strip_prefix("~/") {
+            Some(rest) => home.join(rest),
+            None => PathBuf::from(custom),
+        };
+        // Only tidy inside the user's home, and never the home dir itself.
+        if p.starts_with(&home) && p != home {
+            let _ = fs::remove_dir(&p);
+        }
+    }
+    let _ = fs::remove_dir(&clouddrives); // gone too once the last drive leaves
     log_line(&app, &format!("deleted remote {name}"));
     Ok(())
 }
