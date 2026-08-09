@@ -1134,16 +1134,16 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // WebKitGTK renders through DMABUF by default, and on a good number of
-    // Linux setups — NVIDIA's proprietary driver, hybrid graphics, VMs,
-    // some Mesa builds — that path cannot create an EGL display. WebKit
-    // does not fall back: it prints "Could not create default EGL display:
-    // EGL_BAD_PARAMETER" and the window stays blank or the process aborts,
-    // which is what a user on Manjaro hit.
+    // WebKitGTK renders through DMABUF by default, and on setups where that
+    // path cannot create an EGL display — NVIDIA's proprietary driver,
+    // hybrid graphics, VMs — it does not fall back: it prints "Could not
+    // create default EGL display: EGL_BAD_PARAMETER" and the window stays
+    // blank or the process aborts.
     //
-    // Software compositing costs nothing worth measuring for a page of
-    // static cards, so prefer it and let anyone who wants the accelerated
-    // path ask for it with WEBKIT_DISABLE_DMABUF_RENDERER=0.
+    // This does not cover every blank window (the AppImage had its own
+    // cause: see the release workflow's libwayland-client step), but it is
+    // free for a page of static cards, so prefer it and let anyone who wants
+    // the accelerated path ask with WEBKIT_DISABLE_DMABUF_RENDERER=0.
     if std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none() {
         std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
     }
@@ -1167,11 +1167,32 @@ pub fn run() {
             keep_mounts: AtomicBool::new(true),
         })
         .setup(|app| {
+            let handle = app.handle().clone();
+
+            // First line of every run. A user whose window never draws has
+            // no drives, no mounts and therefore nothing in the log to send
+            // with a report — that is exactly what happened with the blank
+            // window on Manjaro, and it cost two rounds of questions.
+            log_line(
+                &handle,
+                &format!(
+                    "monti {} starting: session={} wayland={} x11={} appimage={}",
+                    handle.package_info().version,
+                    std::env::var("XDG_SESSION_TYPE").unwrap_or_else(|_| "?".into()),
+                    std::env::var("WAYLAND_DISPLAY").unwrap_or_else(|_| "-".into()),
+                    std::env::var("DISPLAY").unwrap_or_else(|_| "-".into()),
+                    if std::env::var_os("APPIMAGE").is_some() {
+                        "yes"
+                    } else {
+                        "no"
+                    },
+                ),
+            );
+
             // libappindicator-sys PANICS (not errors) when the appindicator
             // .so is absent, which would crash the whole app on distros
             // without it. Catch the panic: no tray is a degraded mode, not
             // a fatal one.
-            let handle = app.handle().clone();
             let ok = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 build_tray(&handle).is_ok()
             }))

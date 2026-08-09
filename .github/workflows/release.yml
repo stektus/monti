@@ -41,6 +41,39 @@ jobs:
       - name: Build bundles
         run: npm run tauri build 2>&1 | tee /tmp/build.log
 
+      # linuxdeploy bundles the build machine's libwayland-client (Ubuntu
+      # 22.04 ships wayland 1.20) and AppRun puts it first on
+      # LD_LIBRARY_PATH. Mesa's libEGL_mesa imports three symbols added in
+      # wayland 1.23 — wl_display_create_queue_with_name,
+      # wl_display_dispatch_queue_timeout, wl_fixes_interface — so with our
+      # copy in front eglInitialize fails, WebKit aborts with
+      # "Could not create default EGL display: EGL_BAD_PARAMETER" and the
+      # window never draws. Anything that can run a GTK app already has
+      # libwayland-client, so ship without ours.
+      - name: Unbundle libwayland-client from the AppImage
+        run: |
+          set -euo pipefail
+          cd src-tauri/target/release/bundle/appimage
+          img=$(ls ./*.AppImage | head -1)
+          curl -fsSL -o /tmp/appimagetool \
+            https://github.com/AppImage/appimagetool/releases/download/1.9.1/appimagetool-x86_64.AppImage
+          echo "ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0  /tmp/appimagetool" \
+            | sha256sum -c -
+          chmod +x /tmp/appimagetool
+          rm -rf squashfs-root
+          "$img" --appimage-extract > /dev/null
+          rm -f squashfs-root/usr/lib/libwayland-client.so.0 "$img"
+          APPIMAGE_EXTRACT_AND_RUN=1 ARCH=x86_64 /tmp/appimagetool squashfs-root "$img"
+          rm -rf squashfs-root
+          # Guard: the shipped image must not carry it after all this.
+          "$img" --appimage-extract > /dev/null
+          if [ -e squashfs-root/usr/lib/libwayland-client.so.0 ]; then
+            echo "::error::libwayland-client is still bundled"
+            exit 1
+          fi
+          rm -rf squashfs-root
+          ls -l "$img"
+
       # The runner's logs are admin-only; put the build log somewhere the
       # maintainer can actually read when a build dies.
       - name: Publish build log on failure

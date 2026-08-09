@@ -2,6 +2,29 @@
 
 Notable changes per release. Dates are the release date.
 
+## v0.4.5 — 2026-08-09
+
+**The real fix for the blank AppImage window.** v0.4.4 addressed a different
+cause and did not help the person who reported it, so here is what was actually
+happening: the AppImage shipped its own `libwayland-client` from the build
+machine (Ubuntu 22.04, wayland 1.20) and put it ahead of the system's. Mesa's
+EGL driver imports three symbols added in wayland 1.23 —
+`wl_display_create_queue_with_name`, `wl_display_dispatch_queue_timeout`,
+`wl_fixes_interface` — so on any host with a current Mesa, `eglInitialize`
+failed, WebKit aborted with `EGL_BAD_PARAMETER`, and the window came up white.
+Nothing the user could set worked around it, because no WebKit option can
+supply a missing symbol.
+
+The library is no longer bundled — every desktop that can run a GTK app already
+has it — and the release build fails if it ever comes back.
+
+**Monti now logs from its first line**, with version, session type and display
+server. The blank-window reports had empty log folders, because the log only
+started once something touched a drive.
+
+Root-caused from a Manjaro user's report; reproduced locally by forcing the
+same EGL path, and the repacked build verified in the environment that failed.
+
 ## v0.4.4 — 2026-08-09
 
 **Fixes a blank window on many Linux setups.** WebKitGTK renders through DMABUF

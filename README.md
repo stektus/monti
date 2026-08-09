@@ -106,21 +106,18 @@ needed.
 
 ## If something goes wrong
 
-**The window is blank / white.** Fixed by default since v0.4.4 — update first.
-WebKitGTK's accelerated renderer aborts on some drivers (NVIDIA's proprietary
-one, hybrid graphics, virtual machines) with `Could not create default EGL
-display: EGL_BAD_PARAMETER`, and does not fall back on its own; Monti now picks
-software compositing before the window opens. On an older build, or to ask for
-the accelerated path back:
+**The window is blank / white.** Update to v0.4.5 or later — the AppImage used
+to carry its own `libwayland-client`, which is older than what a current Mesa
+needs, so the renderer could not create an EGL display and aborted with
+`EGL_BAD_PARAMETER`. It is no longer bundled.
+
+If a window is still blank on the current version, try the accelerated path
+either way and report what happens:
 
 ```bash
-WEBKIT_DISABLE_DMABUF_RENDERER=1 ~/Applications/Monti.AppImage   # older builds
-WEBKIT_DISABLE_DMABUF_RENDERER=0 ~/Applications/Monti.AppImage   # opt back in
+WEBKIT_DISABLE_DMABUF_RENDERER=0 ~/Applications/Monti.AppImage   # accelerated
+WEBKIT_DISABLE_COMPOSITING_MODE=1 ~/Applications/Monti.AppImage  # last resort
 ```
-
-If a window is still blank on the current version, add
-`WEBKIT_DISABLE_COMPOSITING_MODE=1` — and please report it, that is a case I
-have not seen.
 
 **No tray icon.** Monti needs a StatusNotifier host and the appindicator
 library. On Arch/Manjaro: `sudo pacman -S libayatana-appindicator`. Without it
