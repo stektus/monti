@@ -1,5 +1,4 @@
 const { invoke } = window.__TAURI__.core;
-const { openPath, openUrl } = window.__TAURI__.opener;
 const { listen } = window.__TAURI__.event;
 
 const PROVIDER_LABELS = {
@@ -312,7 +311,7 @@ async function refreshRemotes() {
 
     if (ownPoint) {
       actions.append(
-        makeBtn("Open folder", "primary", () => openPath(ownPoint)),
+        makeBtn("Open folder", "primary", () => invoke("open_folder", { path: ownPoint })),
         makeBtn("Unmount", "", async () => {
           try {
             await invoke("unmount_remote", { mountPoint: ownPoint });
@@ -334,7 +333,7 @@ async function refreshRemotes() {
       );
     } else if (extPoint) {
       actions.append(
-        makeBtn("Open folder", "primary", () => openPath(extPoint)),
+        makeBtn("Open folder", "primary", () => invoke("open_folder", { path: extPoint })),
         makeBtn("Unmount", "", async () => {
           const ok = confirm(
             `"${name}" is mounted by something outside Monti (a systemd service ` +
@@ -466,7 +465,7 @@ async function initSettings() {
   $("open-config-btn").addEventListener("click", () => {
     if (info.configPath) {
       const dir = info.configPath.slice(0, info.configPath.lastIndexOf("/"));
-      openPath(dir).catch((e) => showError(String(e)));
+      invoke("open_folder", { path: dir }).catch((e) => showError(String(e)));
     }
   });
 
@@ -610,7 +609,7 @@ window.addEventListener("DOMContentLoaded", () => {
     const a = e.target.closest("a[href^='http']");
     if (!a) return;
     e.preventDefault();
-    openUrl(a.href).catch((err) => showError(String(err)));
+    invoke("open_link", { url: a.href }).catch((err) => showError(String(err)));
   });
 
   // --- install engine ---

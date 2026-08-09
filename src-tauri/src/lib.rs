@@ -11,7 +11,7 @@ use std::{
     fs,
     io::Read,
     path::PathBuf,
-    process::Command,
+    process::{Command, Stdio},
     sync::{
         atomic::{AtomicBool, Ordering},
         Mutex,
@@ -29,7 +29,7 @@ use tauri::{
 };
 
 use engine::{
-    app_bin_dir, build_vfs_opt, engine_alive, find_rclone, log_line, rc_raw,
+    app_bin_dir, build_vfs_opt, detach_child, engine_alive, find_rclone, log_line, rc_raw,
     restart_engine_preserving_mounts, save_engine_file, start_engine_locked, stop_engine_locked,
     Engine, EngineState, MountEntry,
 };
@@ -87,6 +87,55 @@ fn read_proc_mounts() -> Vec<SystemMount> {
 #[tauri::command]
 fn list_system_mounts() -> Vec<SystemMount> {
     read_proc_mounts()
+}
+
+// ---------- opening folders and links ----------
+
+/// Hand a folder or link to the desktop's handler.
+///
+/// Done here rather than through tauri-plugin-opener because inside an
+/// AppImage the bundled `xdg-open` (1.1.3) wins the PATH lookup, and its
+/// KDE branch only knows session versions 4 and 5 — on Plasma 6 it matches
+/// nothing, runs no command and reports success, so folders and links
+/// silently never opened. `detach_child` strips the AppImage entries from
+/// PATH, so the system xdg-open is used and the child outlives Monti.
+fn spawn_opener(target: &str) -> Result<(), String> {
+    let mut cmd = Command::new("xdg-open");
+    cmd.arg(target)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    detach_child(&mut cmd);
+    let mut child = cmd
+        .spawn()
+        .map_err(|e| format!("could not run xdg-open: {e}"))?;
+    // xdg-open returns as soon as it has handed the target over; reap it
+    // so it doesn't linger as a zombie.
+    thread::spawn(move || {
+        let _ = child.wait();
+    });
+    Ok(())
+}
+
+/// Open a folder in the file manager. Directories only: pointing xdg-open
+/// at a file would let a `.desktop` file execute instead of being shown.
+#[tauri::command]
+fn open_folder(path: String) -> Result<(), String> {
+    let p = PathBuf::from(&path);
+    if !p.is_dir() {
+        return Err(format!("{path} is not a folder"));
+    }
+    spawn_opener(&p.display().to_string())
+}
+
+/// Open an https link in the browser. Only https, so a crafted link can't
+/// reach file:// or a custom scheme handler.
+#[tauri::command]
+fn open_link(url: String) -> Result<(), String> {
+    if !url.starts_with("https://") {
+        return Err("only https links can be opened".into());
+    }
+    spawn_opener(&url)
 }
 
 // ---------- commands ----------
@@ -1059,7 +1108,6 @@ pub fn run() {
                 let _ = w.set_focus();
             }
         }))
-        .plugin(tauri_plugin_opener::init())
         .manage(EngineState(Mutex::new(Engine::default())))
         .manage(AuthState(Mutex::new(None)))
         .manage(Flags {
@@ -1119,6 +1167,8 @@ pub fn run() {
             unmount_remote,
             unmount_external,
             list_system_mounts,
+            open_folder,
+            open_link,
             get_autostart,
             set_autostart,
             set_close_to_tray,
