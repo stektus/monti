@@ -180,6 +180,7 @@ a:hover { text-decoration: underline; }
 .spacer { flex: 1; }
 
 .remote-path { font-size: 12px; word-break: break-all; min-height: 18px; }
+.remote-cache { font-size: 12px; margin-top: 3px; }
 .mono { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
 
 .remote-actions {
@@ -334,7 +335,6 @@ a:hover { text-decoration: underline; }
   background: var(--danger-bg);
   border-radius: 12px;
 }
-.hidden { display: none !important; }
 
 /* ---------- dialogs ---------- */
 
@@ -407,6 +407,36 @@ dialog select:focus-visible {
 
 .auth-wait { font-weight: 500; }
 
+.confirm-text { margin: 0 0 14px; font-size: 13.5px; line-height: 1.5; }
+.confirm-points {
+  margin: 0 0 14px;
+  padding-left: 18px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--muted);
+}
+.confirm-warn {
+  margin: 0 0 14px;
+  padding: 10px 13px;
+  border-radius: 11px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--err);
+  background: var(--danger-bg);
+}
+#confirm-dialog .check-row { margin-bottom: 0; }
+
+.cache-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin: 0 0 4px;
+  padding: 12px 0 2px;
+  border-top: 1px solid var(--border);
+}
+.cache-row .setting-name { margin-bottom: 2px; }
+
 /* ---------- own API key ---------- */
 
 details#add-advanced {
@@ -438,3 +468,7 @@ details#add-advanced label { margin-bottom: 10px; }
 .key-section .setting-name { margin-bottom: 2px; }
 .key-section label { margin-bottom: 10px; }
 dialog input.mono { font-size: 12px; }
+
+/* Last on purpose: .hidden must beat display rules of equal specificity
+   further up the file (.check-row's flex, for one). */
+.hidden { display: none !important; }

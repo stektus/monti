@@ -128,6 +128,21 @@
         </section>
 
         <section class="card">
+          <h2>Storage</h2>
+          <div class="about-rows">
+            <div class="about-row"><span class="muted">Cached by your drives</span><span id="cache-used">—</span></div>
+            <div class="about-row"><span class="muted">Free on this disk</span><span id="cache-free">—</span></div>
+            <div class="about-row"><span class="muted">Limit per drive by default</span><span id="cache-default">—</span></div>
+          </div>
+          <p class="muted" id="cache-note">
+            Opening a file downloads a copy here so apps can work with it.
+            Each drive drops its oldest copies once it reaches the limit,
+            which you can change per drive in its settings.
+          </p>
+          <p class="error hidden" id="cache-warning"></p>
+        </section>
+
+        <section class="card">
           <h2>About</h2>
           <div class="about-rows">
             <div class="about-row"><span class="muted">Monti</span><span id="about-version">—</span></div>
@@ -277,6 +292,28 @@
       </form>
     </dialog>
 
+    <!-- ============ CONFIRMATION DIALOG ============ -->
+    <!-- Replaces the browser's confirm(): that one is drawn by the system
+         with a "JavaScript - tauri://localhost" title, which reads as an
+         error at the exact moment someone is deciding on something they
+         cannot undo. -->
+    <dialog id="confirm-dialog">
+      <form method="dialog" id="confirm-form">
+        <h2 id="confirm-title"></h2>
+        <p class="confirm-text" id="confirm-text"></p>
+        <ul class="confirm-points hidden" id="confirm-points"></ul>
+        <p class="confirm-warn hidden" id="confirm-warn"></p>
+        <label class="check-row hidden" id="confirm-extra-row">
+          <input type="checkbox" id="confirm-extra" />
+          <span id="confirm-extra-label"></span>
+        </label>
+        <div class="dialog-actions">
+          <button class="btn" type="button" id="confirm-cancel">Cancel</button>
+          <button class="btn" type="submit" id="confirm-ok">OK</button>
+        </div>
+      </form>
+    </dialog>
+
     <!-- ============ DRIVE SETTINGS DIALOG ============ -->
     <dialog id="remote-dialog">
       <form method="dialog" id="remote-form">
@@ -298,7 +335,7 @@
         <div class="two-col">
           <label>
             Cache size limit
-            <input id="remote-cache-size" placeholder="unlimited · e.g. 10G" />
+            <input id="remote-cache-size" placeholder="" />
           </label>
           <label>
             Keep cache for
@@ -306,9 +343,18 @@
           </label>
         </div>
         <p class="muted">
-          Downloaded files are cached on disk for fast access. Applies on
-          next mount.
+          Opening a file downloads a copy to this computer, so apps can work
+          with it normally. Older copies are dropped once the limit is
+          reached. Applies on next mount.
         </p>
+
+        <div class="cache-row">
+          <div>
+            <div class="setting-name">Cached on this computer</div>
+            <div class="muted" id="remote-cache-used">—</div>
+          </div>
+          <button class="btn" type="button" id="remote-cache-clear">Clear cache</button>
+        </div>
 
         <div class="key-section">
           <div class="setting-name">API key</div>

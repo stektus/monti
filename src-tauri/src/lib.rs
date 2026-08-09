@@ -811,10 +811,47 @@ fn vfs_cache_size(app: AppHandle, name: String) -> Result<u64, String> {
         .sum())
 }
 
-/// Delete a remote's local VFS cache (offered by the UI after the remote
-/// itself is removed). Cloud data is not touched.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CacheInfo {
+    /// Bytes cached by all drives together.
+    used: u64,
+    /// Free space left on the disk that holds the cache.
+    free: u64,
+    /// Limit a drive gets when the user has not chosen one.
+    default_limit: String,
+}
+
+/// Cache totals for the Settings screen and the low-disk warning.
+#[tauri::command]
+fn cache_info(app: AppHandle) -> Result<CacheInfo, String> {
+    let root = app
+        .path()
+        .cache_dir()
+        .map_err(|e| e.to_string())?
+        .join("rclone");
+    Ok(CacheInfo {
+        used: dir_size(&root.join("vfs")) + dir_size(&root.join("vfsMeta")),
+        free: engine::free_space(&root)
+            .or_else(|| engine::free_space(std::path::Path::new("/")))
+            .unwrap_or(0),
+        default_limit: engine::default_cache_max_size(&root),
+    })
+}
+
+/// Delete a remote's local VFS cache. Cloud data is not touched.
+///
+/// Refuses while the remote is mounted: rclone keeps open handles into
+/// these files, and pulling them out from under a live mount can fail
+/// reads and drop writes that were still queued for upload.
 #[tauri::command]
 fn clear_vfs_cache(app: AppHandle, name: String) -> Result<(), String> {
+    if let Some(m) = read_proc_mounts().into_iter().find(|m| m.remote == name) {
+        return Err(format!(
+            "\"{name}\" is mounted at {} — unmount it before clearing the cache.",
+            m.mount_point
+        ));
+    }
     for dir in vfs_cache_dirs(&app, &name)? {
         if dir.is_dir() {
             fs::remove_dir_all(&dir).map_err(|e| e.to_string())?;
@@ -879,7 +916,7 @@ async fn mount_remote(
             mount_point.display()
         ));
     }
-    let vfs_opt = build_vfs_opt(vfs.as_ref());
+    let vfs_opt = build_vfs_opt(&app, vfs.as_ref());
     let mut eng = state.0.lock().unwrap();
     rc_raw(
         eng.port,
@@ -1162,6 +1199,7 @@ pub fn run() {
             cancel_create_remote,
             delete_remote,
             vfs_cache_size,
+            cache_info,
             clear_vfs_cache,
             mount_remote,
             unmount_remote,

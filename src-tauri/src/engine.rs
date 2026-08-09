@@ -46,10 +46,47 @@ pub struct Engine {
 
 pub struct EngineState(pub Mutex<Engine>);
 
+/// Free space on the filesystem holding `path`, in bytes.
+///
+/// statvfs needs a path that exists, and the cache directory is missing
+/// until the first mount writes to it — so walk up to the nearest existing
+/// ancestor, which is on the same filesystem in every layout we care about.
+pub fn free_space(path: &std::path::Path) -> Option<u64> {
+    use std::ffi::CString;
+    let mut probe = path;
+    loop {
+        if probe.exists() {
+            break;
+        }
+        probe = probe.parent()?;
+    }
+    let c = CString::new(probe.as_os_str().as_encoded_bytes()).ok()?;
+    let mut st: libc::statvfs = unsafe { std::mem::zeroed() };
+    if unsafe { libc::statvfs(c.as_ptr(), &mut st) } != 0 {
+        return None;
+    }
+    Some(st.f_bavail as u64 * st.f_frsize as u64)
+}
+
+/// How large the on-disk cache of one drive may grow when the user has not
+/// chosen a limit.
+///
+/// Mounts always run with CacheMode full, so every file that gets opened is
+/// written to disk. Left unbounded — rclone's own default — that quietly
+/// eats the disk, which is the most common complaint about rclone mounts.
+/// A tenth of the free space, clamped to 1–20 GB, keeps the cache useful
+/// without letting one drive take the machine down.
+pub fn default_cache_max_size(cache_root: &std::path::Path) -> String {
+    const GB: u64 = 1024 * 1024 * 1024;
+    let tenth = free_space(cache_root).map(|f| f / 10).unwrap_or(10 * GB);
+    let bytes = tenth.clamp(GB, 20 * GB);
+    format!("{}M", bytes / (1024 * 1024))
+}
+
 /// Build the vfsOpt for a mount: CacheMode "full" is always forced (apps
 /// like KeePassXC corrupt saves without it), the rest is a whitelist of
 /// user-tunable options. Values are validated by rclone at mount time.
-pub fn build_vfs_opt(user: Option<&Value>) -> Value {
+pub fn build_vfs_opt(app: &AppHandle, user: Option<&Value>) -> Value {
     let mut opt = json!({ "CacheMode": 3 });
     if let Some(Value::Object(map)) = user {
         for (key, value) in map {
@@ -64,6 +101,13 @@ pub fn build_vfs_opt(user: Option<&Value>) -> Value {
                 opt[key] = value.clone();
             }
         }
+    }
+    if opt.get("CacheMaxSize").is_none() {
+        let root = app
+            .path()
+            .cache_dir()
+            .unwrap_or_else(|_| PathBuf::from("/tmp"));
+        opt["CacheMaxSize"] = json!(default_cache_max_size(&root));
     }
     opt
 }
@@ -742,5 +786,24 @@ mod port_tests {
         // The lookup accepts any local address, so ownership must still be
         // decided by the fd table alone: a bystander pid never matches.
         assert!(!foreign, "someone else's port reported as ours");
+    }
+}
+
+#[cfg(test)]
+mod cache_limit_tests {
+    use std::path::Path;
+
+    /// The default cache cap must stay inside its bounds and must not fall
+    /// back to a guess just because the cache directory is not there yet.
+    #[test]
+    fn default_limit_is_bounded_and_survives_missing_dir() {
+        let missing = Path::new("/tmp/monti-does-not-exist-12345/vfs");
+        let limit = super::default_cache_max_size(missing);
+        let mb: u64 = limit.trim_end_matches('M').parse().expect("MB value");
+        assert!((1024..=20480).contains(&mb), "limit out of bounds: {limit}");
+        assert!(
+            super::free_space(missing).is_some(),
+            "free space must resolve through a missing directory"
+        );
     }
 }

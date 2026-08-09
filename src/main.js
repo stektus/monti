@@ -69,6 +69,70 @@ async function rc(path, body = {}) {
   return invoke("rc", { path, body });
 }
 
+// ---------- confirmation dialog ----------
+
+// Ask the question inside the app instead of through the browser's
+// confirm(), which the system draws with a "JavaScript - tauri://localhost"
+// title. Resolves to { ok, extra } — `extra` is the optional checkbox.
+function ask({ title, text, points = [], warn = "", okLabel = "OK", danger = false, extra = null }) {
+  const dlg = $("confirm-dialog");
+  $("confirm-title").textContent = title;
+  $("confirm-text").textContent = text;
+
+  const list = $("confirm-points");
+  list.innerHTML = "";
+  for (const p of points) {
+    const li = document.createElement("li");
+    li.textContent = p;
+    list.append(li);
+  }
+  list.classList.toggle("hidden", points.length === 0);
+
+  $("confirm-warn").textContent = warn;
+  $("confirm-warn").classList.toggle("hidden", !warn);
+
+  const box = $("confirm-extra");
+  box.checked = extra ? !!extra.checked : false;
+  $("confirm-extra-label").textContent = extra ? extra.label : "";
+  $("confirm-extra-row").classList.toggle("hidden", !extra);
+
+  const okBtn = $("confirm-ok");
+  okBtn.textContent = okLabel;
+  okBtn.className = `btn ${danger ? "danger" : "primary"}`;
+
+  return new Promise((resolve) => {
+    let answered = false;
+    const finish = (ok) => {
+      if (answered) return;
+      answered = true;
+      dlg.removeEventListener("close", onClose);
+      $("confirm-cancel").removeEventListener("click", onCancel);
+      $("confirm-form").removeEventListener("submit", onSubmit);
+      resolve({ ok, extra: ok && extra ? box.checked : false });
+    };
+    // Esc and the window manager's close both fire "close" without submit.
+    // The event is delivered as a queued task, so a close belonging to the
+    // previous question can land here after the next one is already on
+    // screen — answering it for the user. If the dialog is open again by
+    // the time we hear about it, the event is not ours.
+    const onClose = () => {
+      if (!dlg.open) finish(false);
+    };
+    const onCancel = () => {
+      dlg.close();
+      finish(false);
+    };
+    const onSubmit = () => finish(true);
+
+    dlg.addEventListener("close", onClose);
+    $("confirm-cancel").addEventListener("click", onCancel);
+    $("confirm-form").addEventListener("submit", onSubmit);
+    dlg.showModal();
+    // Destructive answers should never be one stray Enter away.
+    $("confirm-cancel").focus();
+  });
+}
+
 function makeBtn(label, extra, onClick, title = "") {
   const b = document.createElement("button");
   b.className = `btn ${extra}`;
@@ -154,6 +218,14 @@ function vfsOptFor(name) {
   return Object.keys(opt).length ? opt : null;
 }
 
+// Where a drive's folder lives, for telling the person what will be removed.
+// Mirrors the backend: a custom mount point wins, otherwise ~/CloudDrives/<name>.
+function mountFolderOf(name, mountPoint) {
+  const custom = (mountPoint || "").trim();
+  if (custom) return custom;
+  return `~/CloudDrives/${name}`;
+}
+
 // The unit is mandatory: rclone reads a bare "500" as 500 KiB, which is
 // never what someone typing a cache size means.
 const SIZE_RE = /^\d+(\.\d+)?\s*(b|k|ki|m|mi|g|gi|t|ti|p|pi)$/i;
@@ -200,6 +272,12 @@ const fmtBytes = (n) =>
     : n >= 1048576
       ? `${Math.round(n / 1048576)} MB`
       : `${Math.max(1, Math.round(n / 1024))} kB`;
+
+// rclone size strings ("20480M") are for rclone, not for people.
+const fmtLimit = (s) =>
+  String(s).replace(/^(\d+)M$/, (_, m) =>
+    m >= 1024 ? `${Math.round(m / 1024)} GB` : `${m} MB`
+  );
 
 const fmtSpeed = (bps) =>
   bps >= 1048576
@@ -301,11 +379,23 @@ async function refreshRemotes() {
         }
       </div>
       <div class="remote-path muted mono"></div>
+      <div class="remote-cache muted hidden"></div>
       <div class="remote-actions"></div>`;
     card.querySelector(".remote-name").textContent = name;
     card.querySelector(".provider").textContent = PROVIDER_LABELS[type] || type;
     card.querySelector(".remote-path").textContent =
       ownPoint || extPoint || prefFor(name).mountPoint || `~/CloudDrives/${name}`;
+
+    // Measuring walks the cache directory, so do it after the card is on
+    // screen rather than holding up the whole list.
+    const cacheEl = card.querySelector(".remote-cache");
+    invoke("vfs_cache_size", { name })
+      .then((used) => {
+        if (!used) return;
+        cacheEl.textContent = `${fmtBytes(used)} cached on this computer`;
+        cacheEl.classList.remove("hidden");
+      })
+      .catch(() => {});
 
     const actions = card.querySelector(".remote-actions");
 
@@ -318,12 +408,19 @@ async function refreshRemotes() {
           } catch (e) {
             const m = String(e).match(/UPLOADS_PENDING:(\d+)/);
             if (!m) throw e;
-            const ok = confirm(
-              `${m[1]} file(s) from this drive are still uploading to the cloud.\n\n` +
-                `If you unmount now, the upload pauses and resumes on the next ` +
-                `mount — but if you shut the computer down before that, unsaved ` +
-                `changes stay only on this machine.\n\nUnmount anyway?`
-            );
+            const { ok } = await ask({
+              title: "Uploads are still running",
+              text:
+                `${m[1]} file(s) from "${name}" have not reached the cloud yet.`,
+              points: [
+                "Unmounting pauses the upload; it resumes the next time you mount the drive.",
+                "Until then those changes exist only on this computer.",
+              ],
+              warn:
+                "Shutting the computer down before the next mount can lose them.",
+              okLabel: "Unmount anyway",
+              danger: true,
+            });
             if (!ok) return;
             await invoke("unmount_remote", { mountPoint: ownPoint, force: true });
           }
@@ -335,13 +432,19 @@ async function refreshRemotes() {
       actions.append(
         makeBtn("Open folder", "primary", () => invoke("open_folder", { path: extPoint })),
         makeBtn("Unmount", "", async () => {
-          const ok = confirm(
-            `"${name}" is mounted by something outside Monti (a systemd service ` +
-              `or a manual rclone mount).\n\nUnmount it anyway? Close any apps ` +
-              `using files there first — unsaved changes in open files would be ` +
-              `lost. If a service manages the mount, it may remount it or need ` +
-              `to be disabled separately.`
-          );
+          const { ok } = await ask({
+            title: `Unmount "${name}"?`,
+            text:
+              "This drive was mounted outside Monti — by a systemd service or " +
+              "a manual rclone mount.",
+            points: [
+              "Close any app still using files there first.",
+              "A service that manages this mount may bring it back, or may need to be disabled separately.",
+            ],
+            warn: "Unsaved changes in files that are still open would be lost.",
+            okLabel: "Unmount",
+            danger: true,
+          });
           if (!ok) return;
           await invoke("unmount_external", { mountPoint: extPoint });
           await refreshRemotes();
@@ -357,29 +460,39 @@ async function refreshRemotes() {
         }),
         makeBtn("⚙", "icon", () => openRemoteDialog(name), "Drive settings"),
         makeBtn("Remove", "danger", async () => {
-          const ok = confirm(
-            `Disconnect "${name}" from this computer?\n\n` +
-              `Files in the cloud are NOT touched. The saved sign-in for this ` +
-              `drive is removed from the rclone config on this machine.`
-          );
-          if (!ok) return;
-          await invoke("delete_remote", {
-            name,
-            mountPoint: prefFor(name).mountPoint || null,
+          // Everything is decided in one dialog, before anything happens:
+          // asking about the cache afterwards meant asking a question the
+          // person could no longer answer with the drive in front of them.
+          const mountPoint = prefFor(name).mountPoint || null;
+          const cached = await invoke("vfs_cache_size", { name }).catch(() => 0);
+          const points = [
+            "Files in the cloud are not touched.",
+            "The saved sign-in for this drive is removed from the rclone config on this machine.",
+          ];
+          if (mountFolderOf(name, mountPoint)) {
+            points.push(`The empty mount folder ${mountFolderOf(name, mountPoint)} is removed.`);
+          }
+          const { ok, extra } = await ask({
+            title: `Disconnect "${name}" from this computer?`,
+            text: "The drive disappears from Monti. You can add it back later by signing in again.",
+            points,
+            okLabel: "Disconnect",
+            danger: true,
+            extra: cached
+              ? {
+                  label: `Also delete ${fmtBytes(cached)} of cached file copies`,
+                  checked: true,
+                }
+              : null,
           });
+          if (!ok) return;
+          await invoke("delete_remote", { name, mountPoint });
           // Only forget the prefs once the remote is really gone — a failed
           // delete (e.g. still mounted) keeps the drive fully configured.
           const all = loadPrefs();
           delete all[name];
           savePrefs(all);
-          const cached = await invoke("vfs_cache_size", { name }).catch(() => 0);
-          if (
-            cached > 0 &&
-            confirm(
-              `"${name}" left ${fmtBytes(cached)} of downloaded file copies ` +
-                `in the local cache. Delete them too?\n\nFiles in the cloud are not affected.`
-            )
-          ) {
+          if (extra) {
             await invoke("clear_vfs_cache", { name }).catch((e) => showError(String(e)));
           }
           await refreshRemotes();
@@ -443,7 +556,56 @@ async function openRemoteDialog(name) {
     : "Using rclone's shared key — it is being retired during 2026, " +
       "switching to your own key is recommended.";
 
+  // Say what the empty limit field actually means, instead of "unlimited".
+  invoke("cache_info")
+    .then((c) => {
+      $("remote-cache-size").placeholder = `${fmtLimit(c.defaultLimit)} · e.g. 10G`;
+    })
+    .catch(() => {});
+  refreshDialogCache(name);
+
   $("remote-dialog").showModal();
+}
+
+// Storage section in Settings. A cache that outgrows the disk is the
+// oldest and loudest complaint about rclone mounts, so say plainly how
+// much is used, how much is left, and warn before the disk is gone.
+async function refreshCacheInfo() {
+  let info;
+  try {
+    info = await invoke("cache_info");
+  } catch {
+    return;
+  }
+  $("cache-used").textContent = fmtBytes(info.used);
+  $("cache-free").textContent = fmtBytes(info.free);
+  $("cache-default").textContent = fmtLimit(info.defaultLimit);
+
+  const warn = $("cache-warning");
+  const GB = 1024 * 1024 * 1024;
+  if (info.free < 2 * GB) {
+    warn.textContent =
+      `Only ${fmtBytes(info.free)} left on this disk. Clear a drive's cache ` +
+      `in its settings, or lower its cache size limit.`;
+    warn.classList.remove("hidden");
+  } else {
+    warn.classList.add("hidden");
+  }
+}
+
+// Cache size for the open settings dialog, plus the state of its button.
+async function refreshDialogCache(name) {
+  const label = $("remote-cache-used");
+  const btn = $("remote-cache-clear");
+  label.textContent = "counting…";
+  btn.disabled = true;
+  const used = await invoke("vfs_cache_size", { name }).catch(() => 0);
+  const mounted = ownMounts.has(name);
+  label.textContent = used ? fmtBytes(used) : "nothing cached";
+  btn.disabled = !used || mounted;
+  btn.title = mounted
+    ? "Unmount the drive first — rclone is using these files right now"
+    : "Delete the downloaded copies kept on this computer";
 }
 
 // ---------- views ----------
@@ -468,6 +630,8 @@ async function initSettings() {
       invoke("open_folder", { path: dir }).catch((e) => showError(String(e)));
     }
   });
+
+  await refreshCacheInfo();
 
   // Re-download the engine into the app folder (recovers from a corrupted
   // or interrupted download; the running daemon keeps its old binary until
@@ -737,6 +901,29 @@ window.addEventListener("DOMContentLoaded", () => {
     $("remote-dialog").close();
   });
   $("remote-dialog").addEventListener("cancel", () => abortAuth());
+
+  $("remote-cache-clear").addEventListener("click", async () => {
+    if (!dialogRemote) return;
+    const name = dialogRemote;
+    const used = await invoke("vfs_cache_size", { name }).catch(() => 0);
+    const { ok } = await ask({
+      title: "Clear the local cache?",
+      text: `${fmtBytes(used)} of downloaded copies of "${name}" will be deleted from this computer.`,
+      points: [
+        "Files in the cloud are not touched.",
+        "They download again the next time you open them.",
+      ],
+      okLabel: "Clear cache",
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      await invoke("clear_vfs_cache", { name });
+    } catch (e) {
+      showError(String(e));
+    }
+    await refreshDialogCache(name);
+  });
 
   $("remote-reconnect").addEventListener("click", async () => {
     if (!dialogRemote) return;

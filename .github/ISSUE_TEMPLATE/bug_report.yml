@@ -1,0 +1,71 @@
+name: Bug report
+description: Something behaves wrong, crashes, or does nothing at all
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. A silent "nothing happened" is a bug too — those
+        are usually the interesting ones.
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, what you got instead.
+      placeholder: |
+        1. Clicked "Add cloud" and picked Google Drive
+        2. Signed in, the browser said it worked
+        3. The drive card never appeared
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Monti version
+      description: Settings → About, or the file name of the package you installed.
+      placeholder: v0.4.3
+    validations:
+      required: true
+
+  - type: dropdown
+    id: package
+    attributes:
+      label: How you installed it
+      options:
+        - install.sh
+        - AppImage
+        - .deb
+        - .rpm
+        - built from source
+    validations:
+      required: true
+
+  - type: input
+    id: system
+    attributes:
+      label: Distro and desktop
+      placeholder: Manjaro, KDE Plasma 6, Wayland
+    validations:
+      required: true
+
+  - type: input
+    id: provider
+    attributes:
+      label: Cloud provider
+      placeholder: Google Drive
+    validations:
+      required: false
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: |
+        From `~/.local/share/io.github.stektus.monti/` — `monti.log` and, if the
+        engine is involved, `engine.log`. They carry no passwords or tokens, but
+        please skim them before pasting.
+      render: text
+    validations:
+      required: false

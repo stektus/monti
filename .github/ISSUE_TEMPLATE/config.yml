@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Security issue
+    url: https://github.com/stektus/monti/security/advisories/new
+    about: Anything involving credentials, tokens or local privilege — report it privately.
+  - name: rclone itself
+    url: https://forum.rclone.org
+    about: Questions about rclone's own behaviour, providers or flags are better answered there.

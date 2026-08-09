@@ -1,0 +1,33 @@
+name: Idea or feature request
+description: Something missing, awkward, or worth doing differently
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Monti's goal is that mounting clouds needs no terminal. Ideas that make
+        that truer for more people go to the front of the queue.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do
+      description: The situation, not the solution — what were you doing when this got in the way?
+      placeholder: I keep several drives and cannot tell which one filled my disk.
+    validations:
+      required: true
+
+  - type: textarea
+    id: idea
+    attributes:
+      label: What you have in mind
+      description: Optional. A rough idea is fine; so is "no idea, but this hurts".
+    validations:
+      required: false
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: How you work around it today
+    validations:
+      required: false
