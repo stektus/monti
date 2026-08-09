@@ -263,37 +263,45 @@ fn is_our_daemon(pid: u32, saved_starttime: u64) -> bool {
     saved_starttime != 0 && proc_starttime(pid) == Some(saved_starttime) && is_rcd_pid(pid)
 }
 
-/// Does <pid> hold the LISTEN socket for 127.0.0.1:<port>? Looked up via
-/// /proc/net/tcp (inode) and the process's fd table. Guards against a
+/// Does <pid> hold a LISTEN socket on <port>? Looked up via the kernel's
+/// socket tables (inode) and the process's fd table. Guards against a
 /// stranger's service squatting on our saved port — we must never send
 /// the RC password there.
+///
+/// Both /proc/net/tcp and /proc/net/tcp6 are scanned, and any local
+/// address is accepted: ownership is decided by the fd table, so a
+/// listener that is not ours simply won't match the pid.
 fn pid_owns_port(pid: u32, port: u16) -> bool {
-    let Ok(tcp) = fs::read_to_string("/proc/net/tcp") else {
+    let suffix = format!(":{port:04X}");
+    let mut inodes = Vec::new();
+    for table in ["/proc/net/tcp", "/proc/net/tcp6"] {
+        let Ok(tcp) = fs::read_to_string(table) else {
+            continue;
+        };
+        // Columns: sl local rem st tx:rx tr:when retrnsmt uid timeout
+        // inode … — after taking `local` (idx 1) and `st` (idx 3), the
+        // inode is 5 fields further on.
+        inodes.extend(tcp.lines().skip(1).filter_map(|line| {
+            let mut f = line.split_whitespace();
+            let local = f.nth(1)?;
+            let state = f.nth(1)?;
+            if local.ends_with(&suffix) && state == "0A" {
+                f.nth(5).map(str::to_string)
+            } else {
+                None
+            }
+        }));
+    }
+    if inodes.is_empty() {
         return false;
-    };
-    // /proc/net/tcp columns: sl local rem st tx:rx tr:when retrnsmt uid
-    // timeout inode … — after taking `local` (idx 1) and `st` (idx 3),
-    // the inode is 5 fields further on.
-    let needle = format!("0100007F:{port:04X}");
-    let Some(inode) = tcp.lines().skip(1).find_map(|line| {
-        let mut f = line.split_whitespace();
-        let local = f.nth(1)?;
-        let state = f.nth(1)?;
-        if local == needle && state == "0A" {
-            f.nth(5).map(str::to_string)
-        } else {
-            None
-        }
-    }) else {
-        return false;
-    };
-    let target = format!("socket:[{inode}]");
+    }
+    let targets: Vec<String> = inodes.iter().map(|i| format!("socket:[{i}]")).collect();
     let Ok(fds) = fs::read_dir(format!("/proc/{pid}/fd")) else {
         return false;
     };
     fds.filter_map(|e| e.ok())
         .filter_map(|e| fs::read_link(e.path()).ok())
-        .any(|l| l.to_string_lossy() == target)
+        .any(|l| targets.iter().any(|t| *t == l.to_string_lossy()))
 }
 
 /// SIGTERM the daemon — but only after re-checking it is still the exact
@@ -727,8 +735,12 @@ mod port_tests {
             }
             std::thread::sleep(std::time::Duration::from_millis(100));
         }
+        let foreign = super::pid_owns_port(std::process::id(), port);
         let _ = child.kill();
         let _ = child.wait();
         assert!(owned, "live daemon not recognized as owner of its port");
+        // The lookup accepts any local address, so ownership must still be
+        // decided by the fd table alone: a bystander pid never matches.
+        assert!(!foreign, "someone else's port reported as ours");
     }
 }
