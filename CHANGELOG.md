@@ -2,6 +2,22 @@
 
 Notable changes per release. Dates are the release date.
 
+## v0.4.4 — 2026-08-09
+
+**Fixes a blank window on many Linux setups.** WebKitGTK renders through DMABUF
+by default, and where that path cannot create an EGL display — NVIDIA's
+proprietary driver, hybrid graphics, virtual machines, some Mesa builds — it
+does not fall back: it prints `Could not create default EGL display:
+EGL_BAD_PARAMETER` and the window comes up white, or the process aborts. Monti
+now selects software compositing before the webview starts, which costs nothing
+worth measuring for a page of static cards. Set
+`WEBKIT_DISABLE_DMABUF_RENDERER=0` to ask for the accelerated path back.
+
+Reported by a Manjaro user on a fresh install.
+
+Also: a troubleshooting section in the README covering blank windows, a missing
+tray icon, and drives mounted outside Monti.
+
 ## v0.4.3 — 2026-08-09
 
 **Folders and links open again.** Two separate faults, both reported by a user

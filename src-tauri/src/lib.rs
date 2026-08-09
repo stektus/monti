@@ -1134,6 +1134,20 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // WebKitGTK renders through DMABUF by default, and on a good number of
+    // Linux setups — NVIDIA's proprietary driver, hybrid graphics, VMs,
+    // some Mesa builds — that path cannot create an EGL display. WebKit
+    // does not fall back: it prints "Could not create default EGL display:
+    // EGL_BAD_PARAMETER" and the window stays blank or the process aborts,
+    // which is what a user on Manjaro hit.
+    //
+    // Software compositing costs nothing worth measuring for a page of
+    // static cards, so prefer it and let anyone who wants the accelerated
+    // path ask for it with WEBKIT_DISABLE_DMABUF_RENDERER=0.
+    if std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none() {
+        std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
+    }
+
     tauri::Builder::default()
         // Must be the first plugin. A second launch (tray apps get started
         // twice all the time) focuses the existing window instead of

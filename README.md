@@ -104,6 +104,37 @@ packages are x86_64 only for now — on arm64, build from source. If rclone is n
 installed, Monti downloads the official build into its own folder; no root
 needed.
 
+## If something goes wrong
+
+**The window is blank / white.** WebKitGTK could not start its accelerated
+renderer — usually NVIDIA's proprietary driver, hybrid graphics or a VM. The log
+says `Could not create default EGL display: EGL_BAD_PARAMETER`. Monti works
+around this by default since v0.4.4. If you are on an older build, or want the
+accelerated path back:
+
+```bash
+WEBKIT_DISABLE_DMABUF_RENDERER=1 ~/Applications/Monti.AppImage   # workaround
+WEBKIT_DISABLE_DMABUF_RENDERER=0 ~/Applications/Monti.AppImage   # opt back in
+```
+
+If the window is still blank, add `WEBKIT_DISABLE_COMPOSITING_MODE=1`.
+
+**No tray icon.** Monti needs a StatusNotifier host and the appindicator
+library. On Arch/Manjaro: `sudo pacman -S libayatana-appindicator`. Without it
+the app still works — closing the window simply quits instead of hiding.
+
+**A drive shows "mounted · system".** Something outside Monti mounted it — a
+systemd unit or a manual `rclone mount`. Monti will not mount it a second time,
+because two caches over one remote can corrupt files. Use that folder as it is,
+or unmount it from the card and let Monti take over.
+
+**"is mounted at … — unmount it first".** Removing a drive or clearing its cache
+needs the mount gone first, so rclone is not reading files while they disappear.
+
+**Logs** live in `~/.local/share/io.github.stektus.monti/`: `monti.log` for what
+Monti did, `engine.log` for what rclone said. Neither contains passwords or
+tokens.
+
 ## How it works
 
 ```
