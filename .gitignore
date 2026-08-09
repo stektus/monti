@@ -17,10 +17,6 @@ dist-ssr
 !.vscode/extensions.json
 .idea
 .DS_Store
-
-# Local-only project notes for AI assistants — must never be published
-CLAUDE.md
-
 *.suo
 *.ntvs*
 *.njsproj
