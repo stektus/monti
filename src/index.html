@@ -89,8 +89,22 @@
 
       <!-- ============ SETTINGS VIEW ============ -->
       <div id="view-settings" class="hidden">
+       <div class="settings-grid">
         <section class="card">
           <h2>General</h2>
+          <div class="setting-row">
+            <div>
+              <div class="setting-name">Appearance</div>
+              <div class="muted">
+                Follows your desktop unless you pick one here.
+              </div>
+            </div>
+            <select id="opt-theme">
+              <option value="auto">Match system</option>
+              <option value="light">Light</option>
+              <option value="dark">Dark</option>
+            </select>
+          </div>
           <div class="setting-row">
             <div>
               <div class="setting-name">Start Monti on login</div>
@@ -202,6 +216,7 @@
             <a href="https://rclone.org" target="_blank" rel="noreferrer">rclone</a>.
           </p>
         </section>
+       </div>
       </div>
 
       <p class="error hidden" id="global-error"></p>

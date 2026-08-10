@@ -2,6 +2,31 @@
 
 Notable changes per release. Dates are the release date.
 
+## v0.5.1 — 2026-08-10
+
+**Light or dark, your choice.** Monti already followed the desktop's setting;
+Settings → Appearance can now override it in either direction, and the choice
+is remembered.
+
+**Drive cards line up.** A drive with an extra badge — "own key", "read-only" —
+used to push its path, quota and buttons out of step with the card beside it.
+Every card is now built from the same rows, and the buttons sit on one line
+across the whole row.
+
+**The window uses the window.** On a large screen the page stopped at laptop
+width and left two thirds of the monitor empty; cards now flow into as many
+columns as fit. Settings are laid out in columns too, instead of one long
+scroll.
+
+**Dialogs behave.** They fit into a short window and scroll inside themselves
+instead of having their buttons cut off, and clicking beside a dialog closes
+it — with the same cleanup Escape does, so a browser sign-in in progress is
+stopped properly.
+
+**Fixes:** the quota bar had no track and transfer rows drew their separator in
+the text colour (a stylesheet variable that was never defined), and the
+dropdowns in Settings were raw system widgets — white boxes in a dark window.
+
 ## v0.5.0 — 2026-08-10
 
 **Every drive shows how full the cloud is.** A bar and a line — "127 GB of

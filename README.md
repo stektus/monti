@@ -43,6 +43,8 @@ a way to use it without becoming an rclone expert. That is Monti.
   working; it reconnects to its background engine on the next start.
 - **You can see how full the cloud is** on every drive, and Monti says
   something before the cache fills your own disk.
+- **It looks like the rest of your desktop** — light or dark, following your
+  system settings, or whichever you pick.
 - **A speed limit** so a big transfer does not take the whole connection, and
   a list of what has been transferred.
 - **It notices when a drive goes away** — unmounted from a terminal, or a

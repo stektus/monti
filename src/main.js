@@ -133,6 +133,27 @@ function ask({ title, text, points = [], warn = "", okLabel = "OK", danger = fal
   });
 }
 
+// Clicking the dimmed area outside a dialog closes it, as it does in every
+// other desktop app. Esc already worked, and both cloud dialogs hang their
+// cleanup (stopping a running browser authorization) on the "cancel" event
+// Esc fires — so send that first instead of closing behind their backs.
+// mousedown, not click: a selection that starts inside the dialog and ends
+// outside it must not count as clicking away.
+function closeOnBackdropClick(dlg) {
+  dlg.addEventListener("mousedown", (e) => {
+    if (e.target !== dlg) return; // landed on something inside
+    const box = dlg.getBoundingClientRect();
+    const insidePadding =
+      e.clientX >= box.left &&
+      e.clientX <= box.right &&
+      e.clientY >= box.top &&
+      e.clientY <= box.bottom;
+    if (insidePadding) return;
+    dlg.dispatchEvent(new Event("cancel"));
+    dlg.close();
+  });
+}
+
 function makeBtn(label, extra, onClick, title = "") {
   const b = document.createElement("button");
   b.className = `btn ${extra}`;
@@ -243,6 +264,20 @@ const notifyEnabled = () => localStorage.getItem(NOTIFY_KEY) !== "off";
 function notify(title, body) {
   if (!notifyEnabled()) return;
   invoke("notify_user", { title, body }).catch(() => {});
+}
+
+// ---------- appearance ----------
+
+// Light or dark is the desktop's call by default — the stylesheet follows
+// prefers-color-scheme — but a person who runs a light desktop and a dark
+// file manager (or the other way round) can say so here, and that choice
+// wins in both directions.
+const THEME_KEY = "monti.theme";
+const savedTheme = () => localStorage.getItem(THEME_KEY) || "auto";
+
+function applyTheme(choice = savedTheme()) {
+  if (choice === "auto") delete document.documentElement.dataset.theme;
+  else document.documentElement.dataset.theme = choice;
 }
 
 // ---------- speed limit ----------
@@ -473,9 +508,6 @@ async function refreshRemotes() {
     card.innerHTML = `
       <div class="remote-head">
         <span class="remote-name"></span>
-        <span class="chip provider"></span>
-        ${ownKey ? '<span class="chip key" title="Connected through your own API key">own key</span>' : ""}
-        ${readOnly ? '<span class="chip" title="Read-only: files cannot be changed">read-only</span>' : ""}
         <span class="spacer"></span>
         ${
           ownPoint
@@ -486,6 +518,11 @@ async function refreshRemotes() {
               : '<span class="chip state">not mounted</span>'
         }
       </div>
+      <div class="remote-tags">
+        <span class="chip provider"></span>
+        ${ownKey ? '<span class="chip key" title="Connected through your own API key">own key</span>' : ""}
+        ${readOnly ? '<span class="chip" title="Read-only: files cannot be changed">read-only</span>' : ""}
+      </div>
       <div class="remote-path muted mono"></div>
       <div class="remote-quota hidden">
         <div class="quota-bar"><span></span></div>
@@ -495,8 +532,13 @@ async function refreshRemotes() {
       <div class="remote-actions"></div>`;
     card.querySelector(".remote-name").textContent = name;
     card.querySelector(".provider").textContent = PROVIDER_LABELS[type] || type;
-    card.querySelector(".remote-path").textContent =
+    const pathEl = card.querySelector(".remote-path");
+    pathEl.textContent =
       ownPoint || extPoint || prefFor(name).mountPoint || `~/CloudDrives/${name}`;
+    // The line is truncated to keep every card the same shape; the full
+    // path is one hover away.
+    pathEl.title = pathEl.textContent;
+    card.querySelector(".remote-name").title = name;
 
     // Measuring walks the cache directory, so do it after the card is on
     // screen rather than holding up the whole list.
@@ -911,6 +953,14 @@ async function initSettings() {
     localStorage.setItem(NOTIFY_KEY, e.target.checked ? "on" : "off");
   });
 
+  // Appearance
+  const theme = $("opt-theme");
+  theme.value = savedTheme();
+  theme.addEventListener("change", (e) => {
+    localStorage.setItem(THEME_KEY, e.target.value);
+    applyTheme(e.target.value);
+  });
+
   // Speed limit. The engine forgets it on every restart, so the choice is
   // ours to remember and re-apply — see applyBwLimit() at boot.
   const sel = $("opt-bwlimit");
@@ -957,6 +1007,10 @@ async function boot() {
 }
 
 window.addEventListener("DOMContentLoaded", () => {
+  applyTheme(); // before anything is painted, so there is no flash
+  for (const id of ["add-dialog", "confirm-dialog", "remote-dialog"]) {
+    closeOnBackdropClick($(id));
+  }
   boot();
   initSettings().catch((e) => showError(String(e)));
 

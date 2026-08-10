@@ -20,8 +20,14 @@
     "Noto Sans", sans-serif;
 }
 
+/* Three theme states, in this order: the system's choice, unless the person
+   picked one in Settings — then data-theme on <html> decides, in both
+   directions. color-scheme keeps scrollbars and native controls in step. */
+:root { color-scheme: light; }
+
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
     --bg: #161617;
     --surface: #1d1d1f;
     --surface-2: #272729;
@@ -35,6 +41,22 @@
     --danger-bg: #3a2323;
     --shadow: 0 1px 2px rgb(0 0 0 / 40%), 0 4px 16px rgb(0 0 0 / 30%);
   }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #161617;
+  --surface: #1d1d1f;
+  --surface-2: #272729;
+  --text: #f5f5f7;
+  --muted: #98989d;
+  --border: #38383a;
+  --accent: #0a84ff;
+  --accent-hover: #2492ff;
+  --ok-text: #4fd870;
+  --warn-text: #ffb340;
+  --danger-bg: #3a2323;
+  --shadow: 0 1px 2px rgb(0 0 0 / 40%), 0 4px 16px rgb(0 0 0 / 30%);
 }
 
 * { box-sizing: border-box; }
@@ -137,8 +159,11 @@ a:hover { text-decoration: underline; }
 
 /* ---------- layout ---------- */
 
+/* Wide screens are the norm now; capping the page at a laptop's width left
+   two thirds of a 27" monitor empty. Cards flow into as many columns as fit
+   and the cap only stops a single card from stretching absurdly wide. */
 .container {
-  max-width: 1240px;
+  max-width: 1800px;
   margin: 0 auto;
   padding: 26px 22px 40px;
 }
@@ -165,7 +190,21 @@ a:hover { text-decoration: underline; }
   box-shadow: var(--shadow);
 }
 
-#view-settings .card { max-width: 640px; margin: 0 auto 16px; }
+/* Settings used to be one column you scrolled through; on any normal window
+   the four groups now sit side by side and the whole page fits on screen.
+   Columns are capped at reading width, not at whatever the monitor allows. */
+.settings-grid {
+  display: grid;
+  /* The max has to stay flexible: with a fixed one, auto-fit counts columns
+     using that maximum and a 960px window ends up with a single 620px
+     column. The reading width is capped by the grid instead. */
+  grid-template-columns: repeat(auto-fit, minmax(380px, 1fr));
+  justify-content: center;
+  align-items: start;
+  gap: 14px;
+  max-width: 1280px;
+  margin: 0 auto;
+}
 #view-settings h2 { margin: 0 0 6px; font-size: 17px; }
 
 .install-card { max-width: 560px; margin: 40px auto; text-align: center; }
@@ -173,14 +212,44 @@ a:hover { text-decoration: underline; }
 
 /* ---------- drive cards ---------- */
 
-.remote-card { display: flex; flex-direction: column; gap: 8px; }
+/* Every card is built from the same fixed rows — name, tags, path, quota,
+   buttons — each keeping its height whether it has content or not. Without
+   that, one drive with an extra chip pushes its path and buttons down and
+   nothing lines up with the card beside it. */
+.remote-card { display: flex; flex-direction: column; gap: 8px; height: 100%; }
 
-.remote-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.remote-name { font-weight: 650; font-size: 16.5px; letter-spacing: -0.01em; }
+.remote-head { display: flex; align-items: center; gap: 8px; flex-wrap: nowrap; }
+.remote-name {
+  font-weight: 650;
+  font-size: 16.5px;
+  letter-spacing: -0.01em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
 .spacer { flex: 1; }
 
-.remote-path { font-size: 12px; word-break: break-all; min-height: 18px; }
-.remote-cache { font-size: 12px; margin-top: 3px; }
+.remote-tags {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  min-height: 21px;
+}
+
+/* One line, truncated from the left: the tail of a path is the part that
+   says which folder this is. */
+.remote-path {
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  text-align: left;
+  min-height: 18px;
+}
+.remote-cache { font-size: 12px; margin-top: 3px; min-height: 18px; }
 
 /* Recent transfers: one line per file, name truncated from the left so the
    part that identifies it — the file name — is the part that survives. */
@@ -190,7 +259,7 @@ a:hover { text-decoration: underline; }
   justify-content: space-between;
   gap: 12px;
   padding: 3px 0;
-  border-bottom: 1px solid var(--line);
+  border-bottom: 1px solid var(--border);
 }
 .transfer-row:last-child { border-bottom: 0; }
 .transfer-name {
@@ -205,11 +274,11 @@ a:hover { text-decoration: underline; }
 
 /* How full the cloud is. The bar carries the glance; the line under it
    carries the numbers, because a bar alone never answers "how much left". */
-.remote-quota { margin-top: 8px; }
+.remote-quota { margin-top: 8px; min-height: 26px; }
 .quota-bar {
   height: 5px;
   border-radius: 3px;
-  background: var(--line);
+  background: var(--border);
   overflow: hidden;
 }
 .quota-bar > span {
@@ -223,11 +292,14 @@ a:hover { text-decoration: underline; }
 .quota-text { font-size: 12px; margin-top: 4px; }
 .mono { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
 
+/* Pinned to the bottom edge, so the buttons of every card sit on one line
+   across the row no matter how much text is above them. */
 .remote-actions {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
-  margin-top: 4px;
+  margin-top: auto;
+  padding-top: 4px;
 }
 
 .chip {
@@ -315,6 +387,30 @@ a:hover { text-decoration: underline; }
 .setting-row:first-of-type { border-top: 0; }
 .setting-name { font-weight: 550; }
 
+/* Settings had raw system dropdowns next to hand-made switches — white
+   boxes in a dark window. Same look as the ones in the dialogs. */
+.setting-row select {
+  flex: none;
+  min-width: 150px;
+  padding: 8px 34px 8px 12px;
+  font: inherit;
+  font-size: 13.5px;
+  color: var(--text);
+  background-color: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%2398989d' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 13px center;
+}
+.setting-row select:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 25%, transparent);
+}
+
 /* macOS-style switch */
 .switch { position: relative; display: inline-block; width: 46px; height: 28px; flex: none; }
 .switch input { opacity: 0; width: 0; height: 0; }
@@ -385,6 +481,11 @@ dialog {
   color: var(--text);
   padding: 24px 26px;
   width: min(440px, 92vw);
+  /* A short window must scroll the dialog instead of cutting its buttons
+     off: the drive settings are taller than a half-height window. */
+  max-height: 88vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   box-shadow: 0 24px 60px rgb(0 0 0 / 30%);
 }
 dialog::backdrop { background: rgb(0 0 0 / 40%); backdrop-filter: blur(3px); }
