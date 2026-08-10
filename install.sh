@@ -74,6 +74,47 @@ fi
 [ "$(uname -m)" = "x86_64" ] || die "Prebuilt packages are x86_64 only for now — see README 'Building from source'."
 have curl || die "curl is required."
 
+# --- the AppImage carries its own GTK and WebKit but takes the C library and
+# the graphics stack from the system, as an AppImage should. Checking that
+# here turns "error while loading shared libraries" — or, when started from
+# the applications menu, a window that never appears — into a sentence that
+# says what to do.
+newer_or_same() { [ "$(printf '%s\n%s\n' "$1" "$2" | sort -V | head -1)" = "$2" ]; }
+
+glibc=$(ldd --version 2>/dev/null | head -1 | grep -oE '[0-9]+\.[0-9]+$' || true)
+if [ -n "$glibc" ] && ! newer_or_same "$glibc" 2.35; then
+  die "your C library is glibc $glibc and Monti needs 2.35 or newer.
+        Supported: Ubuntu 22.04+, Debian 12+, Fedora 36+, openSUSE Tumbleweed,
+        Arch and derivatives. On an older system, build from source — see the
+        README."
+fi
+
+ldc=$(command -v ldconfig || echo /sbin/ldconfig)
+if [ -x "$ldc" ]; then
+  # Read the cache once. Piping it into grep per library makes ldconfig die
+  # of SIGPIPE the moment grep is satisfied, and under `pipefail` that reads
+  # as "not found" for whichever libraries happen to match early.
+  cache=$("$ldc" -p 2>/dev/null || true)
+  # Everything the bundle's ELF headers ask for and does not carry itself,
+  # minus the ones no system can be missing (libc, libm, the loader).
+  missing=""
+  for lib in libGL.so.1 libEGL.so.1 libgbm.so.1 libdrm.so.2 libX11.so.6 \
+             libxcb.so.1 libX11-xcb.so.1 libwayland-client.so.0 \
+             libfontconfig.so.1 libfreetype.so.6 libharfbuzz.so.0 \
+             libfribidi.so.0 libexpat.so.1 libgpg-error.so.0 libgmp.so.10 \
+             libcom_err.so.2 libstdc++.so.6 libz.so.1; do
+    case "$cache" in *"$lib"*) ;; *) missing="$missing $lib" ;; esac
+  done
+  if [ -n "$missing" ]; then
+    say "These system libraries are missing:$missing"
+    say "Every desktop ships them; on a minimal install, add your distribution's"
+    say "Mesa, X11 and fontconfig packages. Monti will not start without them."
+    ask "Install Monti anyway?" || exit 1
+  else
+    say "System libraries: ok"
+  fi
+fi
+
 # --- FUSE3: rclone needs fusermount3 to mount drives. (The AppImage itself
 # ships a static runtime and does not need libfuse2.)
 if have fusermount3; then

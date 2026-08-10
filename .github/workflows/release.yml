@@ -41,18 +41,17 @@ jobs:
       - name: Build bundles
         run: npm run tauri build 2>&1 | tee /tmp/build.log
 
-      # linuxdeploy bundles the build machine's libwayland-client (Ubuntu
-      # 22.04 ships wayland 1.20) and AppRun puts it first on
-      # LD_LIBRARY_PATH. Mesa's libEGL_mesa imports three symbols added in
-      # wayland 1.23 — wl_display_create_queue_with_name,
-      # wl_display_dispatch_queue_timeout, wl_fixes_interface — so with our
-      # copy in front eglInitialize fails, WebKit aborts with
-      # "Could not create default EGL display: EGL_BAD_PARAMETER" and the
-      # window never draws. Anything that can run a GTK app already has
-      # libwayland-client, so ship without ours.
-      - name: Unbundle libwayland-client from the AppImage
+      # linuxdeploy bundles libraries from the build machine that must come
+      # from the host instead. Ours are older, and a host driver that loads
+      # them misses the symbols it needs: the bundled libwayland-client
+      # (wayland 1.20) is why Mesa's EGL failed and the window turned white
+      # in v0.4.3 and v0.4.4. The list is vendored, so a build cannot change
+      # meaning because someone edited a file upstream.
+      - name: Unbundle host libraries from the AppImage
         run: |
           set -euo pipefail
+          list=$PWD/.github/appimage-host-libs.txt
+          grep -vE '^\s*#|^\s*$' "$list" | sort -u > /tmp/host-libs
           cd src-tauri/target/release/bundle/appimage
           img=$(ls ./*.AppImage | head -1)
           curl -fsSL -o /tmp/appimagetool \
@@ -62,17 +61,30 @@ jobs:
           chmod +x /tmp/appimagetool
           rm -rf squashfs-root
           "$img" --appimage-extract > /dev/null
-          rm -f squashfs-root/usr/lib/libwayland-client.so.0 "$img"
+          while read -r lib; do
+            if [ -e "squashfs-root/usr/lib/$lib" ]; then
+              echo "unbundling $lib"
+              rm -f "squashfs-root/usr/lib/$lib"
+            fi
+          done < /tmp/host-libs
+          rm -f "$img"
           APPIMAGE_EXTRACT_AND_RUN=1 ARCH=x86_64 /tmp/appimagetool squashfs-root "$img"
           rm -rf squashfs-root
-          # Guard: the shipped image must not carry it after all this.
+          # Guard: none of them may survive into the shipped image.
           "$img" --appimage-extract > /dev/null
-          if [ -e squashfs-root/usr/lib/libwayland-client.so.0 ]; then
-            echo "::error::libwayland-client is still bundled"
+          left=$(ls squashfs-root/usr/lib | sort -u | comm -12 /tmp/host-libs - || true)
+          if [ -n "$left" ]; then
+            echo "::error::host libraries are still bundled: $left"
             exit 1
           fi
           rm -rf squashfs-root
           ls -l "$img"
+
+      # A build that starts and draws nothing looks identical to a good one
+      # from here, so check the pixels — on distributions other than the one
+      # that built it.
+      - name: Smoke-test the AppImage on other distributions
+        run: bash .github/scripts/smoke-appimage.sh src-tauri/target/release/bundle/appimage/*.AppImage
 
       # The runner's logs are admin-only; put the build log somewhere the
       # maintainer can actually read when a build dies.

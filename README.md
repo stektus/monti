@@ -99,10 +99,24 @@ Prefer packages? Grab them from the
 The AppImage carries its own copy of the desktop libraries, which is why it is
 larger; the packages use the ones your system already has.
 
-FUSE3 is required at runtime (preinstalled on most desktop distros). Prebuilt
-packages are x86_64 only for now — on arm64, build from source. If rclone is not
-installed, Monti downloads the official build into its own folder; no root
-needed.
+### What it needs
+
+- **A desktop Linux with glibc 2.35 or newer** — Ubuntu 22.04+, Debian 12+,
+  Fedora 36+, openSUSE Tumbleweed, Arch and derivatives. The installer checks
+  and tells you if your system is older, instead of leaving you with a window
+  that never opens.
+- **FUSE3**, which rclone uses to mount drives. Preinstalled on most desktops;
+  the installer offers to add it if missing.
+- **x86_64** for the prebuilt packages. On arm64, build from source.
+
+The AppImage carries its own GTK and WebKit, but takes the C library, the
+graphics stack and fonts from your system — bundling those is exactly what
+breaks on other distributions. Every release is launched on **Debian 12,
+Ubuntu 24.04, Fedora 42 and Arch** before it is published, and is rejected if
+the window does not draw.
+
+If rclone is not installed, Monti downloads the official build into its own
+folder; no root needed.
 
 ## If something goes wrong
 

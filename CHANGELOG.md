@@ -2,6 +2,29 @@
 
 Notable changes per release. Dates are the release date.
 
+## v0.4.6 — 2026-08-10
+
+**Every release is now launched on other distributions before it ships.** The
+blank window in v0.4.3 and v0.4.4 was found by a user, twice, because nothing
+in the build ever started the app anywhere except the machine that compiled
+it. Releases now run the finished AppImage on Debian 12, Ubuntu 24.04,
+Fedora 42 and Arch, take a screenshot in each, and refuse to publish if the
+window is blank — a drawn interface has hundreds of distinct colours, an empty
+one has two, so the check needs no eyes.
+
+**No host library can be bundled by accident again.** Instead of removing the
+one library that caused the last failure, the build now strips every library
+that must come from the host — the vendored AppImage community list — and
+fails if any survives into the image.
+
+**The installer checks before it installs.** It compares your glibc against
+the 2.35 the packages need and looks for the system libraries the AppImage
+expects, so an unsupported system produces a sentence explaining that instead
+of `error while loading shared libraries` — or, from a menu launcher, silence.
+
+Verified on Debian 11 (correctly refused), Debian 12, Ubuntu 24.04, Fedora 42
+and Arch, running the published build in a container of each distribution.
+
 ## v0.4.5 — 2026-08-09
 
 **The real fix for the blank AppImage window.** v0.4.4 addressed a different
