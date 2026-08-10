@@ -41,6 +41,12 @@ a way to use it without becoming an rclone expert. That is Monti.
   password.
 - **Your drives survive quitting the app.** Close Monti and your folders keep
   working; it reconnects to its background engine on the next start.
+- **You can see how full the cloud is** on every drive, and Monti says
+  something before the cache fills your own disk.
+- **A speed limit** so a big transfer does not take the whole connection, and
+  a list of what has been transferred.
+- **It notices when a drive goes away** — unmounted from a terminal, or a
+  mount that dies — and tells you instead of showing an empty folder.
 - **It tells you the truth.** How much disk the cache is using, what a button
   is about to delete, and when something is still uploading.
 
@@ -98,6 +104,40 @@ Prefer packages? Grab them from the
 
 The AppImage carries its own copy of the desktop libraries, which is why it is
 larger; the packages use the ones your system already has.
+
+### Rather not pipe a script into bash?
+
+Fair. Here is the same install by hand — the script does nothing else:
+
+```bash
+mkdir -p ~/Applications && cd ~/Applications
+tag=$(curl -fsSLI -o /dev/null -w '%{url_effective}' \
+      https://github.com/stektus/monti/releases/latest | sed 's|.*/||')
+base=https://github.com/stektus/monti/releases/download/$tag
+curl -fLO "$base/Monti_${tag#v}_amd64.AppImage"
+curl -fLO "$base/SHA256SUMS"
+sha256sum --ignore-missing -c SHA256SUMS   # must say "…AppImage: OK"
+chmod +x Monti_*.AppImage
+./Monti_*.AppImage --version               # prints the version and exits
+```
+
+To get it in the application menu, save this as
+`~/.local/share/applications/monti.desktop` (with your own path in `Exec`):
+
+```ini
+[Desktop Entry]
+Type=Application
+Name=Monti
+Comment=Mount your clouds
+Exec=/home/YOU/Applications/Monti_0.5.0_amd64.AppImage
+Icon=monti
+Terminal=false
+Categories=Utility;
+StartupWMClass=monti
+```
+
+To remove it all: delete the AppImage, that `.desktop` file,
+`~/.config/autostart/monti.desktop` and `~/.local/share/io.github.stektus.monti/`.
 
 ### What it needs
 
@@ -157,7 +197,8 @@ of the fixes so far came from someone opening an issue.
 please include:
 
 - your distro and desktop (e.g. *Manjaro, KDE Plasma 6, Wayland*) and the Monti
-  version you installed;
+  version — `~/Applications/Monti.AppImage --version` prints it without
+  opening the window;
 - what you did, what you expected, what happened instead;
 - the end of `monti.log` and `engine.log` from the folder above — and, for a
   window that never draws anything, the output of running the AppImage from a
@@ -199,8 +240,8 @@ self-hosted storage: WebDAV / Nextcloud, S3-compatible, SFTP.
 - [x] Transfer activity indicator and engine health recovery
 - [x] WebDAV, S3-compatible and SFTP support
 - [x] One-command install script with checksum verification
-- [ ] Cloud storage quota on each drive card
-- [ ] Bandwidth limit and desktop notifications
+- [x] Cloud storage quota on each drive card
+- [x] Bandwidth limit, transfer history and desktop notifications
 - [ ] AUR and Flathub packages
 - [ ] Two-way sync (bisync) with a conflict-resolution UI
 - [ ] Translations (Ukrainian, Russian, …)

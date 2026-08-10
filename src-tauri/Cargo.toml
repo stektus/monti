@@ -1,6 +1,6 @@
 [package]
 name = "monti"
-version = "0.4.6"
+version = "0.5.0"
 description = "Mount your clouds. Google Drive, Dropbox and more as local folders on Linux."
 authors = ["Monti contributors"]
 license = "MIT"
@@ -21,6 +21,9 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-single-instance = "2"
+# Desktop notifications straight from Rust. The Tauri plugin wraps the same
+# crate but throws the send result away, which hides a missing daemon.
+notify-rust = { version = "4", default-features = false, features = ["z"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 ureq = { version = "2", features = ["json"] }

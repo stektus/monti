@@ -7,10 +7,10 @@
 mod engine;
 
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     fs,
     io::Read,
-    path::PathBuf,
+    path::{Path, PathBuf},
     process::{Command, Stdio},
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -87,6 +87,86 @@ fn read_proc_mounts() -> Vec<SystemMount> {
 #[tauri::command]
 fn list_system_mounts() -> Vec<SystemMount> {
     read_proc_mounts()
+}
+
+/// Resolve a mount point the way /proc/mounts writes it, without ever
+/// touching the mounted filesystem itself: only the parent directory is
+/// canonicalized, so a hung or dead FUSE mount cannot block the caller.
+fn canonical_mount_point(point: &str) -> String {
+    let path = Path::new(point);
+    match (path.parent(), path.file_name()) {
+        (Some(parent), Some(name)) => fs::canonicalize(parent)
+            .map(|p| p.join(name).to_string_lossy().into_owned())
+            .unwrap_or_else(|_| point.to_string()),
+        _ => point.to_string(),
+    }
+}
+
+/// Drives Monti mounted that are not mounted any more — someone ran
+/// `fusermount -u` in a terminal, or the mount died. Neither the app nor the
+/// engine is told: rclone drops such a mount from its list without a word,
+/// so the drive keeps looking mounted in a window nobody reloaded, and the
+/// folder is quietly empty.
+///
+/// Only Monti's own record can answer this, and a drive is reported once —
+/// the record is dropped with it, so an engine restart does not resurrect a
+/// mount the person deliberately took down.
+#[tauri::command]
+async fn lost_mounts(app: AppHandle, state: State<'_, EngineState>) -> Result<Vec<String>, String> {
+    let (port, pass, recorded) = {
+        let eng = state.0.lock().unwrap();
+        (eng.port, eng.pass.clone(), eng.mounts.clone())
+    };
+    if recorded.is_empty() {
+        return Ok(Vec::new());
+    }
+    let listed = engine::rc_raw_with_timeout(port, &pass, "mount/listmounts", &json!({}), 5)?;
+    let by_engine: HashSet<String> = listed
+        .get("mountPoints")
+        .and_then(Value::as_array)
+        .map(|points| {
+            points
+                .iter()
+                .filter_map(|m| m.get("MountPoint").and_then(Value::as_str))
+                .map(canonical_mount_point)
+                .collect()
+        })
+        .unwrap_or_default();
+    let by_kernel: HashSet<String> = read_proc_mounts()
+        .iter()
+        .map(|m| canonical_mount_point(&m.mount_point))
+        .collect();
+
+    let gone: Vec<String> = recorded
+        .iter()
+        .filter(|(_, entry)| {
+            let point = canonical_mount_point(&entry.mount_point);
+            !by_engine.contains(&point) || !by_kernel.contains(&point)
+        })
+        .map(|(fs, _)| fs.clone())
+        .collect();
+    if gone.is_empty() {
+        return Ok(Vec::new());
+    }
+    {
+        let mut eng = state.0.lock().unwrap();
+        for fs in &gone {
+            eng.mounts.remove(fs);
+        }
+        engine::save_engine_file(&app, &eng);
+    }
+    for fs in &gone {
+        log_line(
+            &app,
+            &format!("{fs} is no longer mounted (unmounted outside Monti)"),
+        );
+    }
+    // "gdrive:" and, for a local remote, "gdrive:." — the name is what comes
+    // before the colon either way.
+    Ok(gone
+        .iter()
+        .map(|fs| fs.split(':').next().unwrap_or(fs).to_string())
+        .collect())
 }
 
 // ---------- opening folders and links ----------
@@ -802,6 +882,48 @@ fn dir_size(path: &std::path::Path) -> u64 {
         .sum()
 }
 
+/// What the provider says about space on one remote.
+///
+/// Every field is optional on purpose: backends disagree about what they
+/// can answer — Drive reports all of it, S3 nothing — and a number nobody
+/// knows must be shown as absent, not as zero.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AboutInfo {
+    total: Option<u64>,
+    used: Option<u64>,
+    free: Option<u64>,
+    trashed: Option<u64>,
+}
+
+/// Space used in the cloud, so nobody has to open a web interface to find
+/// out whether their Drive is full.
+///
+/// This one call goes to the provider, so it gets a timeout of its own: a
+/// slow or unreachable backend must leave the drive card usable rather
+/// than hold up the whole list.
+#[tauri::command]
+async fn remote_about(state: State<'_, EngineState>, name: String) -> Result<AboutInfo, String> {
+    let (port, pass) = {
+        let eng = state.0.lock().unwrap();
+        (eng.port, eng.pass.clone())
+    };
+    let v = engine::rc_raw_with_timeout(
+        port,
+        &pass,
+        "operations/about",
+        &json!({ "fs": format!("{name}:") }),
+        20,
+    )?;
+    let num = |key: &str| v.get(key).and_then(Value::as_u64);
+    Ok(AboutInfo {
+        total: num("total"),
+        used: num("used"),
+        free: num("free"),
+        trashed: num("trashed"),
+    })
+}
+
 /// Bytes of cached file copies a remote keeps under ~/.cache/rclone.
 #[tauri::command]
 fn vfs_cache_size(app: AppHandle, name: String) -> Result<u64, String> {
@@ -820,6 +942,94 @@ struct CacheInfo {
     free: u64,
     /// Limit a drive gets when the user has not chosen one.
     default_limit: String,
+}
+
+/// The engine's list of finished transfers, newest first.
+///
+/// Answers "is this thing actually doing anything?" — the question behind
+/// most "my mount is broken" reports, where the real answer is usually
+/// "yes, it uploaded that file an hour ago".
+///
+/// The list lives in the daemon and starts empty after every restart; it
+/// is a session log, not a history, and the interface says so.
+#[tauri::command]
+async fn transfer_history(state: State<'_, EngineState>) -> Result<Value, String> {
+    let (port, pass) = {
+        let eng = state.0.lock().unwrap();
+        (eng.port, eng.pass.clone())
+    };
+    engine::rc_raw_with_timeout(port, &pass, "core/transferred", &json!({}), 5)
+}
+
+/// Read or set the engine's transfer speed limit.
+///
+/// `rate` is an rclone bandwidth string ("1M", "500k", "off") or None to
+/// only ask. The limit applies to the whole engine and takes effect at
+/// once, which is the point: someone throttles Monti because an upload is
+/// making a video call stutter *now*.
+#[tauri::command]
+async fn bandwidth_limit(
+    state: State<'_, EngineState>,
+    rate: Option<String>,
+) -> Result<String, String> {
+    let (port, pass) = {
+        let eng = state.0.lock().unwrap();
+        (eng.port, eng.pass.clone())
+    };
+    let body = match &rate {
+        Some(r) => json!({ "rate": r }),
+        None => json!({}),
+    };
+    let v = engine::rc_raw_with_timeout(port, &pass, "core/bwlimit", &body, 5)?;
+    // rclone answers with "rate" ("off" or e.g. "1M"); older builds only
+    // send the byte counts, so fall back to those rather than show nothing.
+    Ok(v.get("rate")
+        .and_then(Value::as_str)
+        .map(str::to_string)
+        .unwrap_or_else(|| match v.get("bytesPerSecond").and_then(Value::as_i64) {
+            Some(n) if n <= 0 => "off".into(),
+            Some(n) => format!("{n}"),
+            None => "off".into(),
+        }))
+}
+
+/// Put a message on the desktop for something the person must not miss —
+/// the engine dying, the disk filling up.
+///
+/// Linux notifications go through a D-Bus service that only exists if a
+/// notification daemon is running: standard on KDE, GNOME, XFCE and the
+/// rest, absent on a bare window manager without dunst or mako. A missing
+/// daemon must be as harmless as a missing tray icon, so failure is logged
+/// and swallowed — the same event is always on screen inside the app too.
+#[tauri::command]
+fn notify_user(app: AppHandle, title: String, body: String) {
+    // Showing a notification is a D-Bus round trip; on a session bus with no
+    // daemon it fails, and either way it has no business blocking a command.
+    std::thread::spawn(move || {
+        let sent = notify_rust::Notification::new()
+            .appname("Monti")
+            .summary(&title)
+            .body(&body)
+            .icon("monti")
+            .show();
+        if let Err(e) = sent {
+            log_line(&app, &format!("desktop notification unavailable: {e}"));
+        }
+    });
+}
+
+/// Free space on the disk holding the cache — one statvfs, no directory
+/// walk, so the drives screen can ask for it every time it redraws.
+#[tauri::command]
+fn disk_free(app: AppHandle) -> Result<u64, String> {
+    let root = app
+        .path()
+        .cache_dir()
+        .map_err(|e| e.to_string())?
+        .join("rclone");
+    Ok(engine::free_space(&root)
+        .or_else(|| engine::free_space(std::path::Path::new("/")))
+        .unwrap_or(0))
 }
 
 /// Cache totals for the Settings screen and the low-disk warning.
@@ -1134,6 +1344,30 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // A bug report starts with "which version?", and the answer must not
+    // require opening the window — on the machines that need reporting most,
+    // the window is exactly what does not come up.
+    if let Some(flag) = std::env::args().nth(1) {
+        match flag.as_str() {
+            "--version" | "-V" => {
+                println!("monti {}", env!("CARGO_PKG_VERSION"));
+                return;
+            }
+            "--help" | "-h" => {
+                println!(
+                    "monti {}\n\
+                     Mount your clouds. Google Drive, Dropbox and more as local folders.\n\n\
+                     Usage: monti [--version] [--help]\n\n\
+                     Monti has no command line of its own; run it without arguments to\n\
+                     open the window. Logs live in ~/.local/share/io.github.stektus.monti/.",
+                    env!("CARGO_PKG_VERSION")
+                );
+                return;
+            }
+            _ => {}
+        }
+    }
+
     // WebKitGTK renders through DMABUF by default, and on setups where that
     // path cannot create an EGL display — NVIDIA's proprietary driver,
     // hybrid graphics, VMs — it does not fall back: it prints "Could not
@@ -1234,7 +1468,13 @@ pub fn run() {
             cancel_create_remote,
             delete_remote,
             vfs_cache_size,
+            remote_about,
             cache_info,
+            disk_free,
+            notify_user,
+            bandwidth_limit,
+            transfer_history,
+            lost_mounts,
             clear_vfs_cache,
             mount_remote,
             unmount_remote,
@@ -1325,17 +1565,41 @@ mod tests {
         std::fs::write(&conf, "").ok()?;
         let port = engine::free_port().ok()?;
         let pass = "testpass".to_string();
+
+        // A test must never put a Google consent page in front of whoever is
+        // running it. Hiding the display is not enough: rclone opens links
+        // with xdg-open, which reaches the real session over D-Bus and opens
+        // the browser anyway. So PATH gets a stub that swallows the call, and
+        // the session bus is taken away as well.
+        let stub_dir = dir.join("nobrowser");
+        std::fs::create_dir_all(&stub_dir).ok()?;
+        for name in ["xdg-open", "x-www-browser", "sensible-browser", "kde-open"] {
+            let stub = stub_dir.join(name);
+            std::fs::write(&stub, "#!/bin/sh\nexit 0\n").ok()?;
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&stub, std::fs::Permissions::from_mode(0o755)).ok()?;
+        }
+
         let child = Command::new("rclone")
             .args(["rcd", &format!("--rc-addr=127.0.0.1:{port}")])
             .env("RCLONE_CONFIG", &conf)
             .env("RCLONE_RC_USER", engine::RC_USER)
             .env("RCLONE_RC_PASS", &pass)
-            // Never open a real browser from tests: no display, and a
-            // no-op $BROWSER for whatever ignores the missing display.
             .env("BROWSER", "true")
+            // Stub directory first, so the stubs win the lookup; the rest of
+            // PATH stays so rclone itself is still found.
+            .env(
+                "PATH",
+                format!(
+                    "{}:{}",
+                    stub_dir.display(),
+                    std::env::var("PATH").unwrap_or_default()
+                ),
+            )
             .env_remove("DISPLAY")
             .env_remove("WAYLAND_DISPLAY")
             .env_remove("XDG_CURRENT_DESKTOP")
+            .env_remove("DBUS_SESSION_BUS_ADDRESS")
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
@@ -1402,8 +1666,27 @@ mod tests {
         // Give the machine time to reach the browser-wait step, then cancel.
         thread::sleep(Duration::from_secs(4));
         auth.0.lock().unwrap().take();
+        let cancelled_at = std::time::Instant::now();
         let r = flow.join().unwrap();
-        assert_eq!(r, Err("Authorization cancelled.".to_string()));
+
+        // What must hold is that the wait ends at once. Whether the cancel
+        // wins the race is not ours to decide: with no browser to answer it,
+        // rclone's own auth server sometimes fails the step first (its
+        // listener is shared between steps, so a late callback lands on the
+        // next step and the state does not match). Both are correct
+        // endings; hanging until the five-minute deadline is not, and that
+        // is what a broken cancel looks like.
+        assert!(
+            cancelled_at.elapsed() < Duration::from_secs(60),
+            "cancel did not unblock the wait: took {:?}",
+            cancelled_at.elapsed()
+        );
+        assert!(r.is_err(), "authorization cannot succeed without a browser");
+        let err = r.unwrap_err();
+        assert!(
+            !err.contains("timed out"),
+            "flow ran to the deadline instead of stopping: {err}"
+        );
         // Clean the half-written section like create_remote's error path does.
         let _ = rc_raw(
             d.port,

@@ -231,10 +231,63 @@ function mountFolderOf(name, mountPoint) {
 const SIZE_RE = /^\d+(\.\d+)?\s*(b|k|ki|m|mi|g|gi|t|ti|p|pi)$/i;
 const AGE_RE = /^(\d+(\.\d+)?(ms|s|m|h|d|w|y))+$/i;
 
+// ---------- desktop notifications ----------
+
+// Only for things someone must act on and would otherwise learn about far
+// too late: the engine dying under a mounted drive, the disk running out.
+// Everything announced here is also visible in the window — the
+// notification exists for when the window is not.
+const NOTIFY_KEY = "monti.notify";
+const notifyEnabled = () => localStorage.getItem(NOTIFY_KEY) !== "off";
+
+function notify(title, body) {
+  if (!notifyEnabled()) return;
+  invoke("notify_user", { title, body }).catch(() => {});
+}
+
+// ---------- speed limit ----------
+
+// rclone holds the limit in the running daemon, not in its config, so it
+// is gone after every engine restart — including the automatic one after a
+// crash. Monti keeps the choice and puts it back.
+const BW_KEY = "monti.bwlimit";
+const savedBwLimit = () => localStorage.getItem(BW_KEY) || "off";
+
+async function applyBwLimit() {
+  const rate = savedBwLimit();
+  if (rate === "off") return; // the engine starts unlimited anyway
+  await invoke("bandwidth_limit", { rate }).catch(() => {});
+}
+
 // ---------- engine health ----------
 
 let healthTimer = null;
 let engineDown = false;
+let healthTicks = 0;
+
+// A drive can go away while the engine stays perfectly healthy: someone runs
+// `fusermount -u`, a mount dies. Nothing announces it — the window keeps
+// showing the drive as mounted while the folder is empty. The backend reports
+// each such drive once, so anything that comes back here is news.
+async function checkLostMounts() {
+  let lost;
+  try {
+    lost = await invoke("lost_mounts");
+  } catch {
+    return; // engine busy or restarting — the next pass will tell
+  }
+  if (!lost.length) return;
+  const which = lost.join(", ");
+  showError(
+    `${which} is no longer mounted — something unmounted it outside Monti. ` +
+      "Press Mount on the drive to bring the folder back."
+  );
+  notify(
+    "Monti: a drive disconnected",
+    `${which} is no longer mounted. Open Monti and press Mount.`
+  );
+  await refreshRemotes().catch(() => {});
+}
 
 async function healthTick() {
   if (document.hidden) return;
@@ -244,6 +297,11 @@ async function healthTick() {
   } catch {
     return; // IPC hiccup — decide on the next tick
   }
+  // Mounts change far more slowly than the engine dies, and the check costs
+  // an engine round trip, so it rides every fourth tick.
+  if (alive && !engineDown && ++healthTicks % 4 === 0) {
+    await checkLostMounts();
+  }
   if (!alive && !engineDown) {
     engineDown = true;
     setEngine("err", "engine stopped");
@@ -251,6 +309,10 @@ async function healthTick() {
     showError(
       "The rclone engine stopped unexpectedly — your drives are disconnected. " +
         "Press “Restart engine” to bring them back."
+    );
+    notify(
+      "Monti: your drives are disconnected",
+      "The rclone engine stopped. Open Monti and press “Restart engine”."
     );
   } else if (alive && engineDown) {
     engineDown = false;
@@ -278,6 +340,46 @@ const fmtLimit = (s) =>
   String(s).replace(/^(\d+)M$/, (_, m) =>
     m >= 1024 ? `${Math.round(m / 1024)} GB` : `${m} MB`
   );
+
+// Cloud quota per remote. Asking the provider costs a network round trip,
+// and the list is redrawn after every action, so answers are kept for a
+// few minutes — space in a cloud does not change by the second.
+const quotaCache = new Map();
+const QUOTA_TTL = 5 * 60 * 1000;
+
+async function showQuota(el, name) {
+  const hit = quotaCache.get(name);
+  let info = hit && Date.now() - hit.at < QUOTA_TTL ? hit.info : null;
+  if (!info) {
+    try {
+      info = await invoke("remote_about", { name });
+    } catch {
+      // Plenty of backends cannot answer this (S3 among them). That is a
+      // fact about the provider, not a failure worth showing.
+      quotaCache.set(name, { at: Date.now(), info: {} });
+      return;
+    }
+    quotaCache.set(name, { at: Date.now(), info });
+  }
+
+  const { total, used } = info;
+  if (used == null && total == null) return;
+
+  const bar = el.querySelector(".quota-bar");
+  const fill = bar.querySelector("span");
+  const text = el.querySelector(".quota-text");
+
+  if (total && used != null) {
+    const pct = Math.min(100, Math.round((used / total) * 100));
+    fill.style.width = `${pct}%`;
+    bar.classList.toggle("full", pct >= 90);
+    text.textContent = `${fmtBytes(used)} of ${fmtBytes(total)} used in the cloud`;
+  } else {
+    bar.classList.add("hidden");
+    text.textContent = `${fmtBytes(used ?? total)} used in the cloud`;
+  }
+  el.classList.remove("hidden");
+}
 
 const fmtSpeed = (bps) =>
   bps >= 1048576
@@ -330,8 +432,10 @@ async function fetchState() {
     rc("mount/listmounts"),
     invoke("list_system_mounts"),
   ]);
+  // rclone answers with the canonical fs, which is "gdrive:" for a cloud but
+  // "gdrive:." for a local remote — the drive name is what precedes the colon.
   const own = new Map(
-    (mounts.mountPoints || []).map((m) => [m.Fs.replace(/:$/, ""), m.MountPoint])
+    (mounts.mountPoints || []).map((m) => [m.Fs.split(":")[0], m.MountPoint])
   );
   const ownPoints = new Set(own.values());
   const external = new Map();
@@ -349,6 +453,10 @@ async function refreshRemotes() {
   const list = $("remotes-list");
   list.innerHTML = "";
   $("empty-hint").classList.toggle("hidden", remotes.length > 0);
+
+  invoke("disk_free")
+    .then((free) => lowDiskWarning($("disk-warning"), free))
+    .catch(() => {});
 
   for (const { name, type, hasOwnKey: ownKey, mountedReadOnly } of remotes) {
     const ownPoint = own.get(name);
@@ -379,6 +487,10 @@ async function refreshRemotes() {
         }
       </div>
       <div class="remote-path muted mono"></div>
+      <div class="remote-quota hidden">
+        <div class="quota-bar"><span></span></div>
+        <div class="quota-text muted"></div>
+      </div>
       <div class="remote-cache muted hidden"></div>
       <div class="remote-actions"></div>`;
     card.querySelector(".remote-name").textContent = name;
@@ -396,6 +508,8 @@ async function refreshRemotes() {
         cacheEl.classList.remove("hidden");
       })
       .catch(() => {});
+
+    showQuota(card.querySelector(".remote-quota"), name);
 
     const actions = card.querySelector(".remote-actions");
 
@@ -519,9 +633,46 @@ async function autoRemount() {
         vfs: vfsOptFor(name),
       });
     } catch (e) {
-      showError(`Auto-mount of "${name}" failed: ${e}`);
+      retryAutoMount(name, 0, e);
     }
   }
+}
+
+// Autostart puts Monti on screen before the network is necessarily up, and a
+// cloud that cannot be reached yet fails to mount for a minute or two at
+// most. Giving up on the first try would leave people with an empty folder
+// and no idea why, so keep trying quietly for about four minutes.
+const AUTOMOUNT_RETRIES = [10, 30, 60, 120]; // seconds between attempts
+
+function retryAutoMount(name, attempt, lastError) {
+  if (attempt >= AUTOMOUNT_RETRIES.length) {
+    showError(`Auto-mount of “${name}” failed: ${lastError}`);
+    return;
+  }
+  const wait = AUTOMOUNT_RETRIES[attempt];
+  showError(
+    `“${name}” is not mounted yet — trying again in ${wait}s. ` +
+      "Right after login this usually means the network is still coming up."
+  );
+  setTimeout(async () => {
+    try {
+      const { own, external } = await fetchState();
+      if (own.has(name) || external.has(name)) {
+        showError(""); // mounted meanwhile, by hand or by the engine
+        await refreshRemotes();
+        return;
+      }
+      await invoke("mount_remote", {
+        name,
+        mountPoint: prefFor(name).mountPoint || null,
+        vfs: vfsOptFor(name),
+      });
+      showError("");
+      await refreshRemotes();
+    } catch (e) {
+      retryAutoMount(name, attempt + 1, e);
+    }
+  }, wait * 1000);
 }
 
 // ---------- drive settings dialog ----------
@@ -581,15 +732,33 @@ async function refreshCacheInfo() {
   $("cache-free").textContent = fmtBytes(info.free);
   $("cache-default").textContent = fmtLimit(info.defaultLimit);
 
-  const warn = $("cache-warning");
-  const GB = 1024 * 1024 * 1024;
-  if (info.free < 2 * GB) {
-    warn.textContent =
-      `Only ${fmtBytes(info.free)} left on this disk. Clear a drive's cache ` +
+  lowDiskWarning($("cache-warning"), info.free);
+}
+
+// One sentence, two places: Settings, where someone went looking, and the
+// drives screen, where they did not. A disk filling up is worth saying
+// twice — by the time mounts start failing it is already too late.
+const LOW_DISK = 2 * 1024 * 1024 * 1024;
+let lowDiskTold = false;
+
+function lowDiskWarning(el, free) {
+  if (free > 0 && free < LOW_DISK) {
+    el.textContent =
+      `Only ${fmtBytes(free)} left on this disk. Clear a drive's cache ` +
       `in its settings, or lower its cache size limit.`;
-    warn.classList.remove("hidden");
+    el.classList.remove("hidden");
+    // Once per crossing, not once per redraw: this check runs on every
+    // refresh, and a notification per refresh would be its own problem.
+    if (!lowDiskTold) {
+      lowDiskTold = true;
+      notify(
+        "Monti: this disk is nearly full",
+        `Only ${fmtBytes(free)} left. Clear a drive's cache or lower its limit.`
+      );
+    }
   } else {
-    warn.classList.add("hidden");
+    el.classList.add("hidden");
+    lowDiskTold = false;
   }
 }
 
@@ -616,6 +785,46 @@ function switchView(view) {
   document
     .querySelectorAll(".seg-btn")
     .forEach((b) => b.classList.toggle("active", b.dataset.view === view));
+  // Numbers behind this tab go stale the moment it is hidden; refresh them
+  // when it is actually being looked at rather than on a timer.
+  if (view === "settings") {
+    refreshCacheInfo().catch(() => {});
+    refreshTransfers().catch(() => {});
+  }
+}
+
+// What the engine has finished moving since it started. Answers "is it
+// doing anything at all?", which is what most "it's broken" reports turn
+// out to be about.
+async function refreshTransfers() {
+  const box = $("transfer-list");
+  let list;
+  try {
+    list = (await invoke("transfer_history")).transferred || [];
+  } catch {
+    box.textContent = "The engine isn't running.";
+    return;
+  }
+  if (!list.length) {
+    box.textContent = "Nothing transferred since the engine started.";
+    return;
+  }
+  box.innerHTML = "";
+  for (const t of list.slice(-12).reverse()) {
+    const row = document.createElement("div");
+    row.className = "transfer-row";
+    const name = document.createElement("span");
+    name.className = "transfer-name mono";
+    name.textContent = t.name || "(unnamed)";
+    name.title = t.name || "";
+    const meta = document.createElement("span");
+    meta.className = t.error ? "transfer-meta failed" : "transfer-meta";
+    meta.textContent = t.error
+      ? "failed"
+      : `${fmtBytes(t.bytes || t.size || 0)}${t.checked ? " · checked" : ""}`;
+    row.append(name, meta);
+    box.append(row);
+  }
 }
 
 async function initSettings() {
@@ -695,6 +904,26 @@ async function initSettings() {
     localStorage.setItem("monti.closeToTray", e.target.checked ? "1" : "0");
     await invoke("set_close_to_tray", { enabled: e.target.checked });
   });
+
+  // Desktop notifications
+  $("opt-notify").checked = notifyEnabled();
+  $("opt-notify").addEventListener("change", (e) => {
+    localStorage.setItem(NOTIFY_KEY, e.target.checked ? "on" : "off");
+  });
+
+  // Speed limit. The engine forgets it on every restart, so the choice is
+  // ours to remember and re-apply — see applyBwLimit() at boot.
+  const sel = $("opt-bwlimit");
+  sel.value = savedBwLimit();
+  sel.addEventListener("change", async (e) => {
+    const rate = e.target.value;
+    localStorage.setItem(BW_KEY, rate);
+    try {
+      await invoke("bandwidth_limit", { rate });
+    } catch (err) {
+      showError(String(err));
+    }
+  });
 }
 
 // ---------- boot ----------
@@ -716,6 +945,7 @@ async function boot() {
     await invoke("start_engine");
     setEngine("ok", status.version || "engine running");
     $("remotes-section").classList.remove("hidden");
+    await applyBwLimit();
     await autoRemount();
     await refreshRemotes();
     if (!activityTimer) activityTimer = setInterval(pollActivity, 2000);
@@ -759,6 +989,9 @@ window.addEventListener("DOMContentLoaded", () => {
       btn.classList.add("hidden");
       setEngine("ok", "engine running");
       showError("");
+      // A fresh daemon is an unlimited daemon; put the limit back before
+      // the restored mounts start moving data.
+      await applyBwLimit();
       await refreshRemotes();
     } catch (e) {
       setEngine("err", "engine stopped");

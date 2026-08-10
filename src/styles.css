@@ -181,6 +181,46 @@ a:hover { text-decoration: underline; }
 
 .remote-path { font-size: 12px; word-break: break-all; min-height: 18px; }
 .remote-cache { font-size: 12px; margin-top: 3px; }
+
+/* Recent transfers: one line per file, name truncated from the left so the
+   part that identifies it — the file name — is the part that survives. */
+.transfer-list { font-size: 12px; margin-top: 6px; }
+.transfer-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 3px 0;
+  border-bottom: 1px solid var(--line);
+}
+.transfer-row:last-child { border-bottom: 0; }
+.transfer-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  text-align: left;
+}
+.transfer-meta { flex: none; }
+.transfer-meta.failed { color: var(--err); }
+
+/* How full the cloud is. The bar carries the glance; the line under it
+   carries the numbers, because a bar alone never answers "how much left". */
+.remote-quota { margin-top: 8px; }
+.quota-bar {
+  height: 5px;
+  border-radius: 3px;
+  background: var(--line);
+  overflow: hidden;
+}
+.quota-bar > span {
+  display: block;
+  height: 100%;
+  width: 0;
+  background: var(--accent);
+  transition: width 0.3s ease;
+}
+.quota-bar.full > span { background: var(--warn); }
+.quota-text { font-size: 12px; margin-top: 4px; }
 .mono { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
 
 .remote-actions {

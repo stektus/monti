@@ -74,6 +74,7 @@
             <h2>Your drives</h2>
             <button class="btn primary" id="add-btn">＋ Add cloud</button>
           </div>
+          <p class="error hidden" id="disk-warning"></p>
           <div id="remotes-list" class="grid"></div>
           <div class="empty hidden" id="empty-hint">
             <div class="empty-cloud">☁️</div>
@@ -125,6 +126,46 @@
               <span class="slider"></span>
             </label>
           </div>
+          <div class="setting-row">
+            <div>
+              <div class="setting-name">Desktop notifications</div>
+              <div class="muted">
+                Only when something needs you: the engine stops, or the disk
+                is nearly full.
+              </div>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="opt-notify" />
+              <span class="slider"></span>
+            </label>
+          </div>
+        </section>
+
+        <section class="card">
+          <h2>Transfers</h2>
+          <div class="setting-row">
+            <div>
+              <div class="setting-name">Speed limit</div>
+              <div class="muted">
+                Caps how fast Monti uploads and downloads, so a big transfer
+                doesn't take the whole connection. Applies immediately.
+              </div>
+            </div>
+            <select id="opt-bwlimit">
+              <option value="off">No limit</option>
+              <option value="256k">256 kB/s</option>
+              <option value="1M">1 MB/s</option>
+              <option value="5M">5 MB/s</option>
+              <option value="10M">10 MB/s</option>
+              <option value="25M">25 MB/s</option>
+            </select>
+          </div>
+          <div class="setting-name">Recent transfers</div>
+          <p class="muted">
+            What the engine has moved since it started. The list is kept by
+            the engine, so it empties whenever the engine restarts.
+          </p>
+          <div id="transfer-list" class="transfer-list muted">—</div>
         </section>
 
         <section class="card">

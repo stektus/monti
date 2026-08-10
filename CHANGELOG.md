@@ -2,6 +2,46 @@
 
 Notable changes per release. Dates are the release date.
 
+## v0.5.0 — 2026-08-10
+
+**Every drive shows how full the cloud is.** A bar and a line — "127 GB of
+916 GB used in the cloud" — read straight from the provider, so you learn
+you are out of space in Monti rather than from a failed upload.
+
+**Monti warns before the disk fills up.** Mounted drives cache what you open;
+when free space on this computer drops below 2 GB, a banner says so and points
+at the cache limits.
+
+**Speed limit.** Settings → Transfers caps how fast Monti uploads and
+downloads, so a big transfer does not take the whole connection. The limit is
+applied immediately and put back after every engine restart — rclone keeps it
+only in memory, so it would otherwise vanish silently.
+
+**Recent transfers.** The same screen lists what the engine has moved since it
+started, with sizes, and marks failures.
+
+**Desktop notifications for the two things you cannot see from another
+window**: the engine stopping and the disk running out. Switch them off in
+Settings. A machine with no notification daemon at all — a bare window manager
+without dunst or mako — is not a problem: the message is always in the window
+too, and the reason is written to the log.
+
+**Monti notices when a drive disappears.** Something unmounts your folder
+outside Monti — `fusermount -u`, a mount that dies — and the engine still
+reports it as mounted, so the drive looked fine while the folder was empty.
+Monti now asks the kernel, says which drive went, and offers to mount it back.
+
+**Auto-mounted drives survive a slow network.** Starting at login used to mean
+racing NetworkManager: the cloud was unreachable for a few seconds, the mount
+failed, and that was that. Monti now retries for about four minutes and says
+what it is doing.
+
+**`--version` and `--help`.** They print a line and exit instead of opening a
+window, which is what a bug report needs.
+
+**The README explains the manual install** for anyone who would rather not
+pipe a script into bash — download, verify the checksum, run.
+
 ## v0.4.6 — 2026-08-10
 
 **Every release is now launched on other distributions before it ships.** The

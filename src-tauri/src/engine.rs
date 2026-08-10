@@ -726,9 +726,81 @@ pub fn remount_saved(app: &AppHandle, eng: &Engine) {
                 app,
                 &format!("remounted {fs_name} at {}", entry.mount_point),
             ),
-            Err(e) => log_line(app, &format!("remount of {fs_name} failed: {e}")),
+            Err(e) => {
+                log_line(app, &format!("remount of {fs_name} failed: {e}"));
+                retry_mount(app, eng.port, &eng.pass, fs_name, entry);
+            }
         }
     }
+}
+
+/// How long to wait before each further attempt at a mount that failed.
+/// Autostart puts Monti on screen while NetworkManager is still bringing
+/// the connection up, so the first mount of the session can fail purely
+/// because there is no route yet — a minute later there is.
+const REMOUNT_DELAYS: [u64; 4] = [10, 30, 60, 120];
+
+/// Keep trying a mount that failed, in the background, for about four
+/// minutes. Gives up quietly: a wrong password or a deleted folder fails
+/// the same way every time, and the drive is on screen as unmounted with a
+/// Mount button either way.
+fn retry_mount(app: &AppHandle, port: u16, pass: &str, fs_name: &str, entry: &MountEntry) {
+    let app = app.clone();
+    let pass = pass.to_string();
+    let fs_name = fs_name.to_string();
+    let entry = entry.clone();
+    thread::spawn(move || {
+        for (attempt, delay) in REMOUNT_DELAYS.iter().enumerate() {
+            thread::sleep(Duration::from_secs(*delay));
+            // Someone may have mounted it by hand while we waited, and the
+            // daemon may have been restarted onto another port — in both
+            // cases this retry has nothing left to do.
+            match rc_raw(port, &pass, "mount/listmounts", &json!({})) {
+                Ok(v) => {
+                    let already =
+                        v.get("mountPoints")
+                            .and_then(Value::as_array)
+                            .is_some_and(|points| {
+                                points.iter().any(|m| {
+                                    m.get("MountPoint").and_then(Value::as_str)
+                                        == Some(entry.mount_point.as_str())
+                                })
+                            });
+                    if already {
+                        return;
+                    }
+                }
+                Err(_) => return, // engine gone or replaced; not our mount to fix
+            }
+            let result = rc_raw(
+                port,
+                &pass,
+                "mount/mount",
+                &json!({
+                    "fs": fs_name,
+                    "mountPoint": entry.mount_point,
+                    "vfsOpt": entry.vfs_opt,
+                }),
+            );
+            match result {
+                Ok(_) => {
+                    log_line(
+                        &app,
+                        &format!(
+                            "mounted {fs_name} at {} on retry {}",
+                            entry.mount_point,
+                            attempt + 1
+                        ),
+                    );
+                    return;
+                }
+                Err(e) => log_line(
+                    &app,
+                    &format!("retry {} for {fs_name} failed: {e}", attempt + 1),
+                ),
+            }
+        }
+    });
 }
 
 /// Restart the rcd daemon and remount everything that was mounted.
