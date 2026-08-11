@@ -146,11 +146,16 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          set -euo pipefail
           cd bundle
-          ls -R
-          for f in *.AppImage *.deb *.rpm; do
-            sha256sum "$f"
-          done > SHA256SUMS
+          # An artifact keeps the directory structure of what was uploaded,
+          # so the packages arrive under appimage/, deb/ and rpm/. Flatten
+          # them: SHA256SUMS must list bare file names, which is what the
+          # install script looks for.
+          find . -mindepth 2 -type f -exec mv -t . {} +
+          find . -mindepth 1 -type d -empty -delete
+          ls -l
+          sha256sum ./*.AppImage ./*.deb ./*.rpm | sed 's|\./||' > SHA256SUMS
           cat SHA256SUMS
           cat > /tmp/notes.md <<'EOF'
           Mount your clouds — download, install, click **Add cloud**.
