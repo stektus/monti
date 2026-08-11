@@ -347,10 +347,6 @@ both are in the dialog as well:
 - [ ] Translations — the interface is English-only for now
 - [ ] More providers (Proton Drive, Mega, …)
 
-Not planned: **Flatpak.** A sandboxed app's mounts are invisible to the file
-manager outside it, which is the whole point of Monti —
-[the measurements are in packaging/](packaging/README.md#flatpak--closed-not-open).
-
 ## Building from source
 
 Prerequisites: [Rust](https://rustup.rs), Node.js ≥ 20, and Tauri's Linux system
