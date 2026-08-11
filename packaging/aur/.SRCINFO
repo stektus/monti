@@ -1,0 +1,22 @@
+pkgbase = monti-bin
+	pkgdesc = Mount your clouds — a friendly GUI for rclone (Google Drive, Dropbox, WebDAV, S3, SFTP as local folders)
+	pkgver = 0.7.0
+	pkgrel = 1
+	url = https://github.com/stektus/monti
+	arch = x86_64
+	license = MIT
+	depends = webkit2gtk-4.1
+	depends = gtk3
+	depends = fuse3
+	optdepends = libayatana-appindicator: close-to-tray support
+	optdepends = rclone: use the system engine instead of the one Monti downloads itself
+	provides = monti
+	conflicts = monti
+	options = !strip
+	options = !debug
+	source = Monti-0.7.0.deb::https://github.com/stektus/monti/releases/download/v0.7.0/Monti_0.7.0_amd64.deb
+	source = LICENSE-0.7.0::https://github.com/stektus/monti/raw/v0.7.0/LICENSE
+	sha256sums = 599d8d86f80131bacad89b67c3b79a03b9bc299efd0e12b14a85b9b51f0e4855
+	sha256sums = 16fbf90b022ad1dbc88cbcab922023eec51879ce067831b64d18c1bd30fd9339
+
+pkgname = monti-bin

@@ -9,7 +9,9 @@
 folder on your Linux desktop — open it in your file manager, edit files, save
 them. No terminal, no config files, no sync folder eating your disk.
 
-![Monti — your clouds as drive cards](docs/screenshot-main.png)
+![Monti — your clouds as drive cards, in light and dark](docs/screenshot-main.png)
+
+<sub>One window, both themes: Monti follows your desktop, or you pick.</sub>
 
 *Monti* — from **mount**, and Italian for *mountains*: the place where clouds
 come down to earth.
@@ -64,14 +66,21 @@ a way to use it without becoming an rclone expert. That is Monti.
 
 ## Screenshots
 
+Every picture below is a real run — a WebDAV server, a local drive and an
+encrypted drive on top of them. Light and dark alternate, because both are
+the same build: Monti follows the desktop unless you tell it otherwise.
+
 | | |
 |---|---|
-| ![Your drives](docs/screenshot-main.png) | **Your drives** — every cloud as a card: mounted or not, where it lives on this computer, how full the cloud is. |
+| ![Your drives](docs/screenshot-main.png) | **Your drives** — every cloud as a card: mounted or not, where it lives on this computer, how full the cloud is. The window is one build in two themes. |
 | ![Choosing folders](docs/screenshot-folders.png) | **Only the folders you want** — tick what a drive carries. The rest stays in the cloud and never appears on this computer. |
 | ![Synced folders](docs/screenshot-sync.png) | **Synced folders** — a real local copy kept the same in both directions, for the folder you work in rather than the drive you browse. |
+| ![The first sync](docs/screenshot-firstsync.png) | **Before the first sync** — how much the cloud side holds and how much room is left here, and which side wins if a file exists on both. The first run is the only one that can overwrite. |
 | ![An encrypted drive](docs/screenshot-encrypted.png) | **An encrypted drive** — stored inside a drive you already have. Contents and names are encrypted here, and the warning about the password is not in the small print. |
 | ![Add a cloud](docs/screenshot-add-cloud.png) | **Adding a cloud** — pick a provider, give it a name, sign in. The API-key wizard is there when you want it, folded away when you don't. |
 | ![Drive settings](docs/screenshot-drive-settings.png) | **Per-drive settings** — where it mounts, whether it mounts on start, read-only mode, cache limit, which folders it carries, and how much it has cached right now. |
+| ![A new synced pair](docs/screenshot-newsync.png) | **Setting up a sync** — a folder here, a folder in the cloud, how often, and what to do when both sides changed. **Browse…** opens your file manager's picker. |
+| ![Settings](docs/screenshot-settings.png) | **Settings** — theme, start on login, keep drives mounted after quitting, tray, notifications, a speed limit, and what the engine has moved since it started. |
 | ![Storage](docs/screenshot-storage.png) | **Storage** — what the cache costs you and how much room is left, because a cache that quietly fills the disk is the classic way rclone mounts go wrong. |
 | ![Disconnecting a drive](docs/screenshot-disconnect.png) | **Removing a drive** — the dialog lists exactly what happens, including the folder it deletes, and lets you clear the cache in the same click. |
 
@@ -143,6 +152,18 @@ Prefer packages? Grab them from the
 The AppImage carries its own copy of the desktop libraries, which is why it is
 larger; the packages use the ones your system already has.
 
+**On Arch, Manjaro or EndeavourOS** you can have a real pacman package instead:
+
+```bash
+git clone https://github.com/stektus/monti && cd monti/packaging/aur
+makepkg -si
+```
+
+It repackages the release `.deb` and checks it against the checksums in the
+`PKGBUILD`. Monti is not on the AUR yet: after the 2026 malware clean-up
+aur.archlinux.org closed new account registration, and as of 11 August 2026 it
+is still closed — the package is ready to publish the day that changes.
+
 ### Uninstall
 
 ```bash
@@ -170,7 +191,7 @@ same script for the user-level leftovers:
 ```bash
 sudo apt remove monti        # Debian, Ubuntu, Mint
 sudo dnf remove monti        # Fedora, openSUSE
-paru -R monti-bin            # Arch (AUR)
+sudo pacman -R monti-bin     # Arch, from the PKGBUILD above
 ```
 
 ### Rather not pipe a script into bash?
@@ -323,8 +344,9 @@ both are in the dialog as well:
 - [x] One-command install script with checksum verification
 - [x] Cloud storage quota on each drive card
 - [x] Bandwidth limit, transfer history and desktop notifications
-- [ ] AUR package (`monti-bin` — the PKGBUILD is ready, see
-      [packaging/](packaging/))
+- [ ] AUR package — blocked: the AUR is not taking new accounts. The
+      `PKGBUILD` is release-ready and `makepkg -si` works today, see
+      [packaging/](packaging/)
 - [x] arm64 builds
 - [x] Two-way sync (bisync) with a conflict-resolution UI
 - [x] Selective folders — choose what a drive or a synced pair carries

@@ -18,10 +18,10 @@ conflicts=('monti')
 options=('!strip' '!debug')
 source=("Monti-$pkgver.deb::$url/releases/download/v$pkgver/Monti_${pkgver}_amd64.deb"
         "LICENSE-$pkgver::$url/raw/v$pkgver/LICENSE")
-# Filled by `updpkgsums` against the published release before pushing to the
-# AUR — the files do not exist until the release workflow has run.
-sha256sums=('SKIP'
-            'SKIP')
+# Refreshed with `updpkgsums` after each release — the files do not exist
+# until the release workflow has published them.
+sha256sums=('599d8d86f80131bacad89b67c3b79a03b9bc299efd0e12b14a85b9b51f0e4855'
+            '16fbf90b022ad1dbc88cbcab922023eec51879ce067831b64d18c1bd30fd9339')
 
 package() {
   # The release .deb already has the right layout: /usr/bin, the .desktop
