@@ -344,7 +344,7 @@ both are in the dialog as well:
 - [x] Two-way sync (bisync) with a conflict-resolution UI
 - [x] Selective folders — choose what a drive or a synced pair carries
 - [x] Encrypted drives (rclone crypt) with an honest warning about the password
-- [ ] Translations (Ukrainian, Russian, …)
+- [ ] Translations — the interface is English-only for now
 - [ ] More providers (Proton Drive, Mega, …)
 
 Not planned: **Flatpak.** A sandboxed app's mounts are invisible to the file
