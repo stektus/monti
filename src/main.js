@@ -276,6 +276,9 @@ const excludedByParent = (rel) =>
 // A folder inside one that is already left out cannot be chosen separately:
 // its checkbox says what will happen and takes no orders.
 function refreshPickerRows() {
+  // Listing a cloud folder takes seconds, and the dialog can be closed
+  // inside those seconds — then there is nothing left to refresh.
+  if (!picker) return;
   for (const row of picker.rows) {
     const byParent = excludedByParent(row.rel);
     row.box.checked = !byParent && !excludedExactly(row.rel);
@@ -286,10 +289,9 @@ function refreshPickerRows() {
 }
 
 async function loadChildren(container, fullPath, depth) {
-  const dirs = await invoke("list_cloud_dirs", {
-    name: picker.remote,
-    path: fullPath,
-  });
+  const remote = picker.remote;
+  const dirs = await invoke("list_cloud_dirs", { name: remote, path: fullPath });
+  if (!picker) return 0; // closed while the cloud was answering
   for (const full of dirs) container.append(folderRow(full, depth));
   refreshPickerRows();
   return dirs.length;
@@ -354,6 +356,7 @@ function folderRow(full, depth) {
 }
 
 function showPickerError(e) {
+  if (!picker) return; // the dialog is gone; nowhere to say it
   const el = $("folders-error");
   el.textContent = String(e);
   el.classList.remove("hidden");
@@ -382,7 +385,7 @@ function chooseFolders({ remote, base, excluded, title, hint }) {
     loadChildren(tree, picker.base, 0)
       .then((n) => {
         tree.classList.remove("loading");
-        tree.firstChild.remove(); // the "reading" line
+        tree.firstChild?.remove(); // the "reading" line
         if (!n) tree.textContent = "This folder has no subfolders.";
       })
       .catch((e) => {
