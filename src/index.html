@@ -36,6 +36,7 @@
 
       <nav class="seg" role="tablist">
         <button class="seg-btn active" data-view="drives">Drives</button>
+        <button class="seg-btn" data-view="sync">Sync</button>
         <button class="seg-btn" data-view="settings">Settings</button>
       </nav>
 
@@ -82,6 +83,28 @@
             <p class="muted">
               Click <b>Add cloud</b>, sign in through your browser, and your
               files will appear as a regular folder on this computer.
+            </p>
+          </div>
+        </section>
+      </div>
+
+      <!-- ============ SYNC VIEW ============ -->
+      <div id="view-sync" class="hidden">
+        <section>
+          <div class="section-head">
+            <h2>Synced folders</h2>
+            <button class="btn primary" id="add-pair-btn">+&nbsp; New sync</button>
+          </div>
+          <p class="error hidden" id="sync-error"></p>
+          <div id="sync-list" class="grid"></div>
+          <div class="empty hidden" id="sync-empty">
+            <div class="empty-cloud">🔄</div>
+            <h3>Nothing is being synced</h3>
+            <p class="muted">
+              A synced folder is a real copy on this computer, kept the same
+              as a folder in the cloud in both directions. Unlike a mounted
+              drive it works with no network — and catches up afterwards.
+              Syncing happens while Monti is running.
             </p>
           </div>
         </section>
@@ -438,6 +461,93 @@
           <span class="spacer"></span>
           <button class="btn" type="button" id="remote-cancel">Cancel</button>
           <button class="btn primary" type="submit" id="remote-save">Save</button>
+        </div>
+      </form>
+    </dialog>
+
+    <!-- ============ SYNC PAIR DIALOG ============ -->
+    <dialog id="pair-dialog">
+      <form method="dialog" id="pair-form">
+        <h2 id="pair-title">New sync</h2>
+        <label>
+          Name
+          <input id="pair-name" placeholder="Documents" />
+        </label>
+        <label>
+          Folder on this computer
+          <input id="pair-local" class="mono" placeholder="~/Documents" />
+        </label>
+        <div class="two-col">
+          <label>
+            Cloud
+            <select id="pair-remote"></select>
+          </label>
+          <label>
+            Folder in the cloud
+            <input id="pair-path" class="mono" placeholder="Documents" />
+          </label>
+        </div>
+        <p class="muted">
+          Leave the cloud folder empty to sync the whole drive — that is
+          rarely what you want.
+        </p>
+
+        <div class="two-col">
+          <label>
+            Sync
+            <select id="pair-schedule">
+              <option value="manual">Only when I press Sync</option>
+              <option value="start">When Monti starts</option>
+              <option value="15m">Every 15 minutes</option>
+              <option value="1h">Every hour</option>
+            </select>
+          </label>
+          <label>
+            If both sides changed
+            <select id="pair-conflict">
+              <option value="newer">Keep the newer file</option>
+              <option value="path1">Keep the one on this computer</option>
+              <option value="path2">Keep the one in the cloud</option>
+            </select>
+          </label>
+        </div>
+        <p class="muted">
+          The other version is never deleted: it is kept beside the winner
+          with <code>.conflict</code> in its name, and Monti asks you what to
+          do with it.
+        </p>
+
+        <p class="error hidden" id="pair-error"></p>
+        <div class="dialog-actions">
+          <span class="spacer"></span>
+          <button class="btn" type="button" id="pair-cancel">Cancel</button>
+          <button class="btn primary" type="submit" id="pair-save">Save</button>
+        </div>
+      </form>
+    </dialog>
+
+    <!-- ============ FIRST SYNC DIALOG ============ -->
+    <dialog id="firstsync-dialog">
+      <form method="dialog" id="firstsync-form">
+        <h2>First sync</h2>
+        <p class="muted" id="firstsync-text"></p>
+        <label>
+          When the same file exists on both sides
+          <select id="firstsync-mode">
+            <option value="newer">Keep whichever is newer</option>
+            <option value="path1">Keep the one on this computer</option>
+            <option value="path2">Keep the one in the cloud</option>
+          </select>
+        </label>
+        <p class="muted">
+          This first run is the only one that can overwrite a file with the
+          other side's version. Every run after it compares both sides and
+          keeps conflicts.
+        </p>
+        <div class="dialog-actions">
+          <span class="spacer"></span>
+          <button class="btn" type="button" id="firstsync-cancel">Cancel</button>
+          <button class="btn primary" type="submit" id="firstsync-ok">Start</button>
         </div>
       </form>
     </dialog>

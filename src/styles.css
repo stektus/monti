@@ -302,6 +302,29 @@ a:hover { text-decoration: underline; }
   padding-top: 4px;
 }
 
+/* ---------- synced folders ---------- */
+
+.sync-progress { font-size: 12px; min-height: 18px; }
+.failed-text { color: var(--err); }
+
+/* Files that changed on both sides. They sit inside the pair's card because
+   they belong to it, and each row carries its own decision. */
+.conflict-box {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+.conflict-head { font-size: 12px; color: var(--warn-text); margin-bottom: 6px; }
+.conflict-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 0;
+  font-size: 12px;
+}
+.conflict-row .transfer-name { flex: 1; min-width: 0; }
+.btn.small { padding: 3px 9px; font-size: 11.5px; }
+
 .chip {
   font-size: 11px;
   font-weight: 500;

@@ -35,6 +35,9 @@ a way to use it without becoming an rclone expert. That is Monti.
 
 - **Your cloud is a folder.** It appears in `~/CloudDrives/`, and every app —
   Dolphin, Nautilus, LibreOffice, KeePassXC — treats it like any other folder.
+- **Or a folder that works offline.** A synced folder is a real copy on this
+  computer, kept the same as a cloud folder in both directions — the Dropbox
+  arrangement, for the times a mounted drive is the wrong tool.
 - **Nothing is downloaded until you open it.** No full copy of your cloud on
   disk; files arrive when you actually open them.
 - **Sign in through your browser**, the way you expect. Monti never sees your
@@ -60,6 +63,28 @@ a way to use it without becoming an rclone expert. That is Monti.
 | ![Drive settings](docs/screenshot-drive-settings.png) | **Per-drive settings** — where it mounts, whether it mounts on start, read-only mode, cache limit, and how much this drive has cached right now. |
 | ![Storage](docs/screenshot-storage.png) | **Storage** — what the cache costs you and how much room is left, because a cache that quietly fills the disk is the classic way rclone mounts go wrong. |
 | ![Disconnecting a drive](docs/screenshot-disconnect.png) | **Removing a drive** — the dialog lists exactly what happens, including the folder it deletes, and lets you clear the cache in the same click. |
+
+## Mount or sync?
+
+Both are in Monti, and they answer different questions.
+
+| | **Mounted drive** | **Synced folder** |
+|---|---|---|
+| Disk used | only what you opened | a full copy |
+| Works with no network | no | yes, catches up later |
+| Opening a file | downloads it first | instant |
+| Scope | the whole drive | one folder |
+| Can go wrong by | nothing — one copy | the same file changed in two places |
+
+Rule of thumb: mount the drive you browse, sync the folder you work in.
+
+Syncing runs while Monti is running — Monti is not a background service, and
+the Sync screen says so rather than pretending otherwise. The first sync of a
+pair asks which side wins if a file exists on both, because it is the only run
+that can overwrite anything. After that, a file changed on both sides is never
+resolved by deleting: the version that loses is kept beside the winner and
+Monti asks what to do with it. A deletion is carried to the other side only
+after you confirm it.
 
 ## Pain points this closes
 
@@ -132,7 +157,7 @@ To get it in the application menu, save this as
 Type=Application
 Name=Monti
 Comment=Mount your clouds
-Exec=/home/YOU/Applications/Monti_0.5.2_amd64.AppImage
+Exec=/home/YOU/Applications/Monti_0.6.0_amd64.AppImage
 Icon=monti
 Terminal=false
 Categories=Utility;
@@ -249,7 +274,7 @@ self-hosted storage: WebDAV / Nextcloud, S3-compatible, SFTP.
 - [ ] AUR package (`monti-bin` — the PKGBUILD is ready, see
       [packaging/](packaging/))
 - [x] arm64 builds
-- [ ] Two-way sync (bisync) with a conflict-resolution UI
+- [x] Two-way sync (bisync) with a conflict-resolution UI
 - [ ] Translations (Ukrainian, Russian, …)
 - [ ] More providers (Proton Drive, Mega, …)
 

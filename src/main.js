@@ -47,7 +47,7 @@ function setEngine(stateClass, label) {
 // Render the message inside the open modal dialog (the page-level banner
 // sits under the ::backdrop and would be invisible); clearing clears all.
 function showError(msg) {
-  const slots = ["global-error", "add-error", "remote-error"];
+  const slots = ["global-error", "add-error", "remote-error", "pair-error", "sync-error"];
   if (!msg) {
     for (const id of slots) {
       const el = $(id);
@@ -59,6 +59,8 @@ function showError(msg) {
   let target = "global-error";
   if ($("add-dialog").open) target = "add-error";
   else if ($("remote-dialog").open) target = "remote-error";
+  else if ($("pair-dialog").open) target = "pair-error";
+  else if (!$("view-sync").classList.contains("hidden")) target = "sync-error";
   const el = $(target);
   el.textContent = msg;
   el.classList.remove("hidden");
@@ -717,6 +719,378 @@ function retryAutoMount(name, attempt, lastError) {
   }, wait * 1000);
 }
 
+// ---------- synced folders ----------
+
+// A synced folder is the other half of what Monti does: a mounted drive is
+// the whole cloud with nothing on disk, a synced folder is a real local copy
+// that works with no network. rclone calls it bisync; the hard parts it
+// leaves to us are the first run and what to do with a conflict.
+
+const SCHEDULE_LABELS = {
+  manual: "manual",
+  start: "when Monti starts",
+  "15m": "every 15 minutes",
+  "1h": "every hour",
+};
+
+let syncJobs = new Map(); // pair name -> { jobid, resync }
+
+async function refreshPairs() {
+  const pairs = await invoke("sync_pairs");
+  const list = $("sync-list");
+  list.innerHTML = "";
+  $("sync-empty").classList.toggle("hidden", pairs.length > 0);
+
+  for (const p of pairs) {
+    const card = document.createElement("div");
+    card.className = "card remote-card";
+    card.dataset.name = p.name;
+    const running = syncJobs.has(p.name);
+    card.innerHTML = `
+      <div class="remote-head">
+        <span class="remote-name"></span>
+        <span class="spacer"></span>
+        <span class="chip state${running ? " sync" : p.initialized ? " on" : ""}"></span>
+      </div>
+      <div class="remote-tags">
+        <span class="chip">${SCHEDULE_LABELS[p.schedule] || p.schedule}</span>
+      </div>
+      <div class="remote-path muted mono"></div>
+      <div class="sync-progress muted"></div>
+      <div class="remote-actions"></div>`;
+    card.querySelector(".remote-name").textContent = p.name;
+    card.querySelector(".chip.state").textContent = running
+      ? "syncing"
+      : p.initialized
+        ? "ready"
+        : "not synced yet";
+    const path = card.querySelector(".remote-path");
+    path.textContent = `${p.local}  ⇄  ${p.remote}`;
+    path.title = path.textContent;
+
+    const line = card.querySelector(".sync-progress");
+    if (p.lastRun) {
+      line.textContent =
+        p.lastResult === "ok"
+          ? `last sync ${p.lastRun} UTC`
+          : `last sync failed: ${p.lastResult}`;
+      line.classList.toggle("failed-text", p.lastResult !== "ok");
+    } else {
+      line.textContent = "never synced";
+    }
+
+    const actions = card.querySelector(".remote-actions");
+    if (running) {
+      actions.append(
+        makeBtn("Stop", "", async () => {
+          const job = syncJobs.get(p.name);
+          if (job) await invoke("sync_stop", { jobid: job.jobid }).catch(() => {});
+        })
+      );
+    } else {
+      actions.append(
+        makeBtn("Sync now", "primary", () => startSync(p)),
+        makeBtn("⚙", "icon", () => openPairDialog(p), "Settings for this pair"),
+        makeBtn("Remove", "danger", () => removePair(p))
+      );
+    }
+    list.append(card);
+    showConflicts(card, p.name);
+  }
+}
+
+// The one run that can overwrite files, so it asks first — every later run
+// keeps both versions instead.
+function askFirstSync(pair) {
+  return new Promise((resolve) => {
+    const dlg = $("firstsync-dialog");
+    $("firstsync-text").textContent =
+      `"${pair.name}" has not been synced yet. Monti will compare ` +
+      `${pair.local} and ${pair.remote} and make them match.`;
+    const done = (mode) => {
+      dlg.removeEventListener("close", onClose);
+      resolve(mode);
+    };
+    const onClose = () => done(null);
+    const onSubmit = () => {
+      dlg.removeEventListener("close", onClose);
+      $("firstsync-form").removeEventListener("submit", onSubmit);
+      resolve($("firstsync-mode").value);
+    };
+    dlg.addEventListener("close", onClose, { once: true });
+    $("firstsync-form").addEventListener("submit", onSubmit, { once: true });
+    $("firstsync-cancel").onclick = () => dlg.close();
+    dlg.showModal();
+  });
+}
+
+async function startSync(pair, force = false) {
+  showError("");
+  let resyncMode = null;
+  if (!pair.initialized) {
+    resyncMode = await askFirstSync(pair);
+    if (!resyncMode) return; // cancelled
+  }
+  let jobid;
+  try {
+    jobid = await invoke("sync_run", {
+      name: pair.name,
+      resync: !pair.initialized,
+      resyncMode,
+      dryRun: false,
+      force,
+    });
+  } catch (e) {
+    showError(`Sync of "${pair.name}" could not start: ${e}`);
+    return;
+  }
+  syncJobs.set(pair.name, { jobid, resync: !pair.initialized, force });
+  await refreshPairs();
+  followSync(pair.name);
+}
+
+// Deleting on one side means deleting on the other, and rclone refuses to do
+// that until someone says so — through the RC it stops at the very first
+// removed file. Say what it is about to delete, in files, and let the answer
+// stick for this pair.
+async function confirmDeletes(pair, n, total) {
+  const { ok, extra } = await ask({
+    title: "Files were deleted",
+    text:
+      n && total
+        ? `${n} of ${total} file(s) are gone from one side of "${pair.name}". ` +
+          "Syncing will remove them from the other side too."
+        : `Files are gone from one side of "${pair.name}". Syncing will ` +
+          "remove them from the other side too.",
+    points: [
+      `on this computer: ${pair.local}`,
+      `in the cloud: ${pair.remote}`,
+      "if this is not what you expected, cancel and check both folders first",
+    ],
+    okLabel: "Delete them",
+    danger: true,
+    extra: { label: "Stop asking for this pair", checked: false },
+  });
+  return { ok, remember: !!extra };
+}
+
+// bisync of a real folder takes minutes; follow the job and keep the card
+// honest about what is happening.
+function followSync(name) {
+  const tick = async () => {
+    const job = syncJobs.get(name);
+    if (!job) return;
+    let p;
+    try {
+      p = await invoke("sync_progress", { jobid: job.jobid });
+    } catch {
+      setTimeout(tick, 3000);
+      return;
+    }
+    if (!p.finished) {
+      const card = $("sync-list").querySelector(`[data-name="${CSS.escape(name)}"]`);
+      const line = card && card.querySelector(".sync-progress");
+      if (line) {
+        line.textContent = p.transfers
+          ? `syncing — ${p.transfers} file(s), ${fmtBytes(p.bytes)}`
+          : `syncing — checking ${p.checks} file(s)`;
+      }
+      setTimeout(tick, 2000);
+      return;
+    }
+    syncJobs.delete(name);
+
+    // The one failure that is a question rather than a fault.
+    const deletes = /^TOO_MANY_DELETES:(\d+):(\d+)$/.exec(p.error || "");
+    if (!p.success && deletes && !job.force) {
+      const pair = (await invoke("sync_pairs")).find((x) => x.name === name);
+      await refreshPairs().catch(() => {});
+      if (!pair) return;
+      const { ok, remember } = await confirmDeletes(pair, +deletes[1], +deletes[2]);
+      if (remember) {
+        await invoke("sync_finished", {
+          name,
+          ok: false,
+          wasResync: false,
+          detail: "waiting for you",
+          rememberDeletes: true,
+        }).catch(() => {});
+      }
+      if (ok) await startSync(pair, true);
+      return;
+    }
+
+    await invoke("sync_finished", {
+      name,
+      ok: p.success,
+      wasResync: job.resync,
+      detail: p.error || "",
+      rememberDeletes: false,
+    }).catch(() => {});
+    if (!p.success) {
+      showError(`Sync of "${name}" failed: ${p.error}`);
+      notify("Monti: sync failed", `"${name}" did not finish: ${p.error}`);
+    }
+    await refreshPairs().catch(() => {});
+  };
+  setTimeout(tick, 1500);
+}
+
+async function showConflicts(card, name) {
+  let list;
+  try {
+    list = await invoke("sync_conflicts", { name });
+  } catch {
+    return;
+  }
+  if (!list.length) return;
+  const box = document.createElement("div");
+  box.className = "conflict-box";
+  const head = document.createElement("div");
+  head.className = "conflict-head";
+  head.textContent = `${list.length} file(s) changed on both sides`;
+  box.append(head);
+  for (const c of list.slice(0, 8)) {
+    const row = document.createElement("div");
+    row.className = "conflict-row";
+    const name_ = document.createElement("span");
+    name_.className = "transfer-name mono";
+    name_.textContent = c.loser.split("/").pop();
+    name_.title = c.loser;
+    row.append(name_);
+    const settle = (keep, label, title) =>
+      makeBtn(
+        label,
+        "small",
+        async () => {
+          await invoke("sync_resolve", { loser: c.loser, keep }).catch((e) =>
+            showError(String(e))
+          );
+          await refreshPairs();
+        },
+        title
+      );
+    row.append(
+      settle("winner", "keep current", "Delete this older copy"),
+      settle("loser", "keep this", "Put this copy back under the original name"),
+      settle("both", "keep both", "Rename it to “(copy)” and stop calling it a conflict")
+    );
+    box.append(row);
+  }
+  card.append(box);
+}
+
+let editingPair = null;
+
+async function openPairDialog(pair = null) {
+  editingPair = pair;
+  showError("");
+  const remotes = await invoke("list_remotes").catch(() => []);
+  const sel = $("pair-remote");
+  sel.innerHTML = "";
+  for (const r of remotes) {
+    const opt = document.createElement("option");
+    opt.value = r.name;
+    opt.textContent = r.name;
+    sel.append(opt);
+  }
+  $("pair-title").textContent = pair ? `${pair.name} — sync settings` : "New sync";
+  $("pair-name").value = pair ? pair.name : "";
+  $("pair-name").disabled = !!pair; // the name keys the pair's history
+  $("pair-local").value = pair ? pair.local : "";
+  if (pair) {
+    const [remote, ...rest] = pair.remote.split(":");
+    sel.value = remote;
+    $("pair-path").value = rest.join(":");
+  } else {
+    $("pair-path").value = "";
+  }
+  $("pair-schedule").value = pair ? pair.schedule : "manual";
+  $("pair-conflict").value = pair ? pair.conflictResolve : "newer";
+  $("pair-dialog").showModal();
+}
+
+async function savePairFromDialog() {
+  const name = $("pair-name").value.trim();
+  const local = $("pair-local").value.trim(); // "~/..." is expanded by the backend
+  const remote = `${$("pair-remote").value}:${$("pair-path").value.trim().replace(/^\/+/, "")}`;
+  if (!$("pair-remote").value) {
+    showError("Connect a cloud first — there is nothing to sync with.");
+    return;
+  }
+  try {
+    await invoke("sync_pair_save", {
+      pair: {
+        name,
+        local,
+        remote,
+        schedule: $("pair-schedule").value,
+        conflictResolve: $("pair-conflict").value,
+        initialized: editingPair ? editingPair.initialized : false,
+      },
+    });
+  } catch (e) {
+    showError(String(e));
+    return;
+  }
+  $("pair-dialog").close();
+  await refreshPairs();
+}
+
+async function removePair(pair) {
+  const { ok } = await ask({
+    title: `Stop syncing "${pair.name}"?`,
+    text: "Monti forgets this pair. Nothing is deleted:",
+    points: [
+      `${pair.local} stays exactly as it is`,
+      `${pair.remote} stays exactly as it is`,
+      "the two simply stop being kept the same",
+    ],
+    okLabel: "Stop syncing",
+    danger: true,
+  });
+  if (!ok) return;
+  await invoke("sync_pair_remove", { name: pair.name }).catch((e) => showError(String(e)));
+  await refreshPairs();
+}
+
+// Pairs set to "when Monti starts". A pair that has never been synced is
+// left alone: the first run needs an answer nobody is there to give.
+async function syncOnStart() {
+  const pairs = await invoke("sync_pairs").catch(() => []);
+  for (const p of pairs) {
+    if (p.schedule === "start" && p.initialized) await startSync(p).catch(() => {});
+  }
+}
+
+// Pairs set to run on a schedule, driven from here because rclone has no
+// scheduler of its own. Nothing runs while Monti is closed, and the Sync
+// screen says so rather than implying a background service.
+function startSyncSchedules() {
+  const due = new Map(); // name -> next run, ms
+  const period = { "15m": 15 * 60 * 1000, "1h": 60 * 60 * 1000 };
+  setInterval(async () => {
+    if (engineDown) return;
+    let pairs;
+    try {
+      pairs = await invoke("sync_pairs");
+    } catch {
+      return;
+    }
+    const now = Date.now();
+    for (const p of pairs) {
+      const every = period[p.schedule];
+      if (!every || !p.initialized || syncJobs.has(p.name)) continue;
+      const next = due.get(p.name) ?? now + every;
+      due.set(p.name, next);
+      if (now >= next) {
+        due.set(p.name, now + every);
+        startSync(p).catch(() => {});
+      }
+    }
+  }, 60000);
+}
+
 // ---------- drive settings dialog ----------
 
 let dialogRemote = null;
@@ -823,6 +1197,7 @@ async function refreshDialogCache(name) {
 
 function switchView(view) {
   $("view-drives").classList.toggle("hidden", view !== "drives");
+  $("view-sync").classList.toggle("hidden", view !== "sync");
   $("view-settings").classList.toggle("hidden", view !== "settings");
   document
     .querySelectorAll(".seg-btn")
@@ -833,6 +1208,7 @@ function switchView(view) {
     refreshCacheInfo().catch(() => {});
     refreshTransfers().catch(() => {});
   }
+  if (view === "sync") refreshPairs().catch(() => {});
 }
 
 // What the engine has finished moving since it started. Answers "is it
@@ -998,6 +1374,8 @@ async function boot() {
     await applyBwLimit();
     await autoRemount();
     await refreshRemotes();
+    await syncOnStart();
+    startSyncSchedules();
     if (!activityTimer) activityTimer = setInterval(pollActivity, 2000);
     if (!healthTimer) healthTimer = setInterval(healthTick, 5000);
   } catch (e) {
@@ -1008,7 +1386,13 @@ async function boot() {
 
 window.addEventListener("DOMContentLoaded", () => {
   applyTheme(); // before anything is painted, so there is no flash
-  for (const id of ["add-dialog", "confirm-dialog", "remote-dialog"]) {
+  for (const id of [
+    "add-dialog",
+    "confirm-dialog",
+    "remote-dialog",
+    "pair-dialog",
+    "firstsync-dialog",
+  ]) {
     closeOnBackdropClick($(id));
   }
   boot();
@@ -1078,6 +1462,14 @@ window.addEventListener("DOMContentLoaded", () => {
     } finally {
       btn.disabled = false;
     }
+  });
+
+  // --- synced folders ---
+  $("add-pair-btn").addEventListener("click", () => openPairDialog().catch((e) => showError(String(e))));
+  $("pair-cancel").addEventListener("click", () => $("pair-dialog").close());
+  $("pair-form").addEventListener("submit", (e) => {
+    e.preventDefault(); // saving can fail, and the dialog must stay open then
+    savePairFromDialog().catch((err) => showError(String(err)));
   });
 
   // --- add cloud dialog ---

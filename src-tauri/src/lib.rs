@@ -5,6 +5,7 @@
 // talks to rclone directly and never sees the RC credentials.
 
 mod engine;
+mod sync;
 
 use std::{
     collections::{HashMap, HashSet},
@@ -1475,6 +1476,15 @@ pub fn run() {
             bandwidth_limit,
             transfer_history,
             lost_mounts,
+            sync::sync_pairs,
+            sync::sync_pair_save,
+            sync::sync_pair_remove,
+            sync::sync_run,
+            sync::sync_progress,
+            sync::sync_finished,
+            sync::sync_stop,
+            sync::sync_conflicts,
+            sync::sync_resolve,
             clear_vfs_cache,
             mount_remote,
             unmount_remote,

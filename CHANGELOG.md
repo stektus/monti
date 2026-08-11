@@ -2,6 +2,28 @@
 
 Notable changes per release. Dates are the release date.
 
+## v0.6.0 — 2026-08-11
+
+**Synced folders.** A new Sync screen keeps a folder on this computer and a
+folder in the cloud the same, in both directions — the arrangement people
+install Dropbox for. It is the other half of what a mounted drive does: a
+mount is the whole cloud with nothing on disk and nothing without a network; a
+synced folder is a real copy that works on a train and catches up afterwards.
+
+The hard parts are the ones this is careful about:
+
+- **The first sync asks.** It is the only run that can overwrite a file with
+  the other side's version, so Monti asks which side wins instead of guessing.
+- **A conflict never deletes.** When the same file changed in both places the
+  newer one keeps the name and the other is kept beside it, and the pair's card
+  offers three plain answers: keep this one, keep that one, keep both.
+- **A deletion asks too.** Removing a file locally removes it from the cloud on
+  the next sync, so Monti says how many files are about to go and waits — once,
+  or for good, per folder.
+- **No promises about the background.** Syncing runs while Monti runs. Pairs
+  can sync on start, every 15 minutes or every hour, and the screen says
+  plainly that a closed Monti syncs nothing.
+
 ## v0.5.2 — 2026-08-11
 
 **arm64 builds.** Every release now carries an AppImage, `.deb` and `.rpm` for

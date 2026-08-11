@@ -123,7 +123,7 @@ fn monti_log_path(app: &AppHandle) -> Option<PathBuf> {
 }
 
 /// Epoch seconds → "YYYY-MM-DD HH:MM:SS" (UTC), no chrono dependency.
-fn utc_stamp() -> String {
+pub fn utc_stamp() -> String {
     let secs = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs())
