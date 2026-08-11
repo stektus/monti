@@ -11,6 +11,7 @@ const PROVIDER_LABELS = {
   webdav: "WebDAV",
   s3: "S3",
   sftp: "SFTP",
+  crypt: "encrypted",
 };
 
 // Providers that authorize through the browser; the rest are configured
@@ -663,7 +664,7 @@ async function refreshRemotes() {
     .then((free) => lowDiskWarning($("disk-warning"), free))
     .catch(() => {});
 
-  for (const { name, type, hasOwnKey: ownKey, mountedReadOnly } of remotes) {
+  for (const { name, type, hasOwnKey: ownKey, mountedReadOnly, wraps } of remotes) {
     const ownPoint = own.get(name);
     const extPoint = external.get(name);
     // For a live Monti mount show the real state; otherwise what the next
@@ -690,6 +691,11 @@ async function refreshRemotes() {
       </div>
       <div class="remote-tags">
         <span class="chip provider"></span>
+        ${
+          wraps
+            ? '<span class="chip wraps" title="The encrypted copy is stored here"></span>'
+            : ""
+        }
         ${ownKey ? '<span class="chip key" title="Connected through your own API key">own key</span>' : ""}
         ${readOnly ? '<span class="chip" title="Read-only: files cannot be changed">read-only</span>' : ""}
       </div>
@@ -702,6 +708,7 @@ async function refreshRemotes() {
       <div class="remote-actions"></div>`;
     card.querySelector(".remote-name").textContent = name;
     card.querySelector(".provider").textContent = PROVIDER_LABELS[type] || type;
+    if (wraps) card.querySelector(".wraps").textContent = `in ${wraps}`;
     const pathEl = card.querySelector(".remote-path");
     pathEl.textContent =
       ownPoint || extPoint || prefFor(name).mountPoint || `~/CloudDrives/${name}`;
@@ -1878,6 +1885,22 @@ window.addEventListener("DOMContentLoaded", () => {
     $("add-status").textContent = oauth
       ? "⏳ Waiting for you to authorize in the browser… Press Cancel to abort."
       : "⏳ Connecting…";
+    // An encrypted drive is stored inside a drive that already exists, so
+    // the list of those has to be current every time the form is shown.
+    if (p === "crypt") {
+      invoke("list_remotes")
+        .then((remotes) => {
+          const sel = $("crypt-remote");
+          sel.innerHTML = "";
+          for (const r of remotes.filter((r) => r.type !== "crypt")) {
+            const opt = document.createElement("option");
+            opt.value = r.name;
+            opt.textContent = r.name;
+            sel.append(opt);
+          }
+        })
+        .catch(() => {});
+    }
   };
   $("add-provider").addEventListener("change", updateAddForm);
 
@@ -1917,6 +1940,20 @@ window.addEventListener("DOMContentLoaded", () => {
         pass: $("sftp-pass").value,
         key_file: v("sftp-key"),
       };
+    }
+    if (p === "crypt") {
+      const base = $("crypt-remote").value;
+      if (!base) return "Add a drive first — an encrypted drive lives inside one.";
+      // Both fields are compared as typed, spaces included: the password is
+      // sent unchanged, and a mistyped one is only discovered much later,
+      // when the files no longer open.
+      const pass = $("crypt-pass").value;
+      if (!pass) return "A password is required — that is the whole point.";
+      if (pass !== $("crypt-pass2").value) return "The two passwords are not the same.";
+      if (!$("crypt-understood").checked)
+        return "Please confirm the password is written down: it cannot be recovered.";
+      const folder = v("crypt-path").replace(/^\/+|\/+$/g, "") || "Encrypted";
+      return { remote: `${base}:${folder}`, password: pass };
     }
     return null;
   };

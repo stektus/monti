@@ -442,6 +442,10 @@ struct RemoteInfo {
     /// For drives mounted by Monti: whether the LIVE mount is read-only
     /// (the pref may have changed since it was mounted).
     mounted_read_only: Option<bool>,
+    /// For an encrypted drive: where its files really live ("gdrive:Encrypted").
+    /// A path, never a secret — and without it the card would not say which
+    /// cloud is carrying the encrypted copy.
+    wraps: Option<String>,
 }
 
 /// Sanitized view of the config for the UI: names, types and the public
@@ -454,37 +458,44 @@ async fn list_remotes(state: State<'_, EngineState>) -> Result<Vec<RemoteInfo>, 
         (eng.port, eng.pass.clone(), eng.mounts.clone())
     };
     let dump = rc_raw(port, &pass, "config/dump", &json!({}))?;
-    let mut out: Vec<RemoteInfo> = dump
-        .as_object()
-        .map(|obj| {
-            obj.iter()
-                .map(|(name, conf)| {
-                    let client_id = conf
-                        .get("client_id")
-                        .and_then(Value::as_str)
-                        .unwrap_or("")
-                        .trim()
-                        .to_string();
-                    RemoteInfo {
-                        name: name.clone(),
-                        typ: conf
-                            .get("type")
+    let mut out: Vec<RemoteInfo> =
+        dump.as_object()
+            .map(|obj| {
+                obj.iter()
+                    .map(|(name, conf)| {
+                        let client_id = conf
+                            .get("client_id")
                             .and_then(Value::as_str)
-                            .unwrap_or("?")
-                            .to_string(),
-                        has_own_key: !client_id.is_empty(),
-                        client_id,
-                        mounted_read_only: live_mounts.get(&format!("{name}:")).map(|m| {
-                            m.vfs_opt
-                                .get("ReadOnly")
-                                .and_then(Value::as_bool)
-                                .unwrap_or(false)
-                        }),
-                    }
-                })
-                .collect()
-        })
-        .unwrap_or_default();
+                            .unwrap_or("")
+                            .trim()
+                            .to_string();
+                        RemoteInfo {
+                            name: name.clone(),
+                            typ: conf
+                                .get("type")
+                                .and_then(Value::as_str)
+                                .unwrap_or("?")
+                                .to_string(),
+                            has_own_key: !client_id.is_empty(),
+                            client_id,
+                            mounted_read_only: live_mounts.get(&format!("{name}:")).map(|m| {
+                                m.vfs_opt
+                                    .get("ReadOnly")
+                                    .and_then(Value::as_bool)
+                                    .unwrap_or(false)
+                            }),
+                            wraps: (conf.get("type").and_then(Value::as_str) == Some("crypt"))
+                                .then(|| {
+                                    conf.get("remote")
+                                        .and_then(Value::as_str)
+                                        .unwrap_or("")
+                                        .to_string()
+                                }),
+                        }
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
     out.sort_by(|a, b| a.name.cmp(&b.name));
     Ok(out)
 }
@@ -687,6 +698,10 @@ async fn create_remote(
             }
             return Ok(());
         }
+        // An encrypted drive is a drive on top of another one. rclone stores
+        // the password obscured (reversible, not encrypted) in its config, so
+        // what this protects is the copy in the cloud — the dialog says so.
+        "crypt" => &["remote", "password", "password2"],
         "webdav" => &["url", "vendor", "user", "pass"],
         "s3" => &[
             "provider",
@@ -701,14 +716,43 @@ async fn create_remote(
 
     let mut parameters = serde_json::Map::new();
     for (key, value) in params.unwrap_or_default() {
-        let value = value.trim();
+        // A password is taken exactly as typed. Trimming one changes it
+        // silently, and with an encrypted drive nobody would find out until
+        // the files no longer open.
+        let is_password = provider == "crypt" && key.starts_with("password");
+        let value = if is_password {
+            value
+        } else {
+            value.trim().to_string()
+        };
         if value.is_empty() {
             continue;
         }
         if !allowed_params.contains(&key.as_str()) {
             return Err(format!("unexpected option: {key}"));
         }
-        parameters.insert(key, Value::String(value.to_string()));
+        parameters.insert(key, Value::String(value));
+    }
+    if provider == "crypt" {
+        // Without a password rclone would happily make a remote that
+        // encrypts with an empty key — protection that is not protection.
+        if !parameters.contains_key("password") {
+            return Err("an encrypted drive needs a password".into());
+        }
+        let target = parameters
+            .get("remote")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string();
+        let base = target.split(':').next().unwrap_or_default();
+        let eng = state.0.lock().unwrap();
+        let dump = rc_raw(eng.port, &eng.pass, "config/dump", &json!({}))?;
+        if base.is_empty() || dump.get(base).is_none() {
+            return Err(format!(
+                "\"{base}\" is not a drive on this computer — an encrypted \
+                 drive is stored inside one you already have."
+            ));
+        }
     }
     if provider == "s3" {
         // Keys come from the form, never from env vars / IAM profiles.
