@@ -184,6 +184,10 @@ jobs:
           Upgrading? Install over the old version — your drives, settings and
           synced folders are kept. Removing Monti later:
           `./install.sh --uninstall`.
+
+          Only the newest release is kept here, so what earlier versions
+          brought is in
+          [CHANGELOG.md](https://github.com/stektus/monti/blob/main/CHANGELOG.md).
           EOF
           head -40 /tmp/notes.md
           gh release create "${{ github.ref_name }}" \
