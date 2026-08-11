@@ -160,9 +160,7 @@ makepkg -si
 ```
 
 It repackages the release `.deb` and checks it against the checksums in the
-`PKGBUILD`. Monti is not on the AUR yet: after the 2026 malware clean-up
-aur.archlinux.org closed new account registration, and as of 11 August 2026 it
-is still closed — the package is ready to publish the day that changes.
+`PKGBUILD`. (Not on the AUR: it is not accepting new maintainer accounts.)
 
 ### Uninstall
 
@@ -242,11 +240,10 @@ To remove it all: delete the AppImage, that `.desktop` file,
 - **x86_64 or arm64.** Every release carries both; the installer picks the
   right one.
 
-The AppImage carries its own GTK and WebKit, but takes the C library, the
-graphics stack and fonts from your system — bundling those is exactly what
-breaks on other distributions. Every release is launched on **Debian 12,
-Ubuntu 24.04, Fedora 42 and Arch** before it is published, and is rejected if
-the window does not draw.
+The AppImage carries its own GTK and WebKit, and takes the C library, the
+graphics stack and fonts from your system. Every release is launched on
+**Debian 12, Ubuntu 24.04, Fedora 42 and Arch** before it is published, and is
+rejected if the window does not draw.
 
 If rclone is not installed, Monti downloads the official build into its own
 folder; no root needed.
@@ -342,9 +339,7 @@ both are in the dialog as well:
 - [x] One-command install script with checksum verification
 - [x] Cloud storage quota on each drive card
 - [x] Bandwidth limit, transfer history and desktop notifications
-- [ ] AUR package — blocked: the AUR is not taking new accounts. The
-      `PKGBUILD` is release-ready and `makepkg -si` works today, see
-      [packaging/](packaging/)
+- [ ] AUR package — waiting on the AUR to accept new accounts again
 - [x] arm64 builds
 - [x] Two-way sync (bisync) with a conflict-resolution UI
 - [x] Selective folders — choose what a drive or a synced pair carries
