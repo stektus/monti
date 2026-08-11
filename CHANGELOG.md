@@ -2,7 +2,7 @@
 
 Notable changes per release. Dates are the release date.
 
-## Unreleased
+## v0.7.1 — 2026-08-11
 
 **Paths read the right way round again.** A drive card shows its folder
 truncated from the left, so the end — the part that says which folder it is —

@@ -219,7 +219,7 @@ To get it in the application menu, save this as
 Type=Application
 Name=Monti
 Comment=Mount your clouds
-Exec=/home/YOU/Applications/Monti_0.7.0_amd64.AppImage
+Exec=/home/YOU/Applications/Monti_0.7.1_amd64.AppImage
 Icon=monti
 Terminal=false
 Categories=Utility;
