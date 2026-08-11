@@ -59,14 +59,42 @@ if [ "${1:-}" = "--uninstall" ]; then
   update-desktop-database "$HOME/.local/share/applications" 2>/dev/null || true
 
   if [ -d "$APPDATA" ]; then
-    if ask "Also delete Monti's app data (bundled engine, logs, window state)?"; then
+    if ask "Also delete Monti's app data (bundled engine, logs, synced-folder list)?"; then
       rm -rf "$APPDATA"
       say "App data deleted."
     else
       say "App data kept at $APPDATA"
     fi
   fi
-  say "Monti removed. Your rclone config (~/.config/rclone) and cloud files were not touched."
+
+  # The cached copies of opened files. This is the big one — a mounted drive
+  # keeps what you opened, so it can be tens of gigabytes, and it lives in
+  # rclone's cache directory rather than Monti's.
+  VFS_CACHE="${XDG_CACHE_HOME:-$HOME/.cache}/rclone/vfs"
+  if [ -d "$VFS_CACHE" ]; then
+    size=$(du -sh "$VFS_CACHE" 2>/dev/null | cut -f1)
+    if ask "Delete ${size:-the} cached file copies in $VFS_CACHE? (they are copies; the originals are in your cloud)"; then
+      rm -rf "$VFS_CACHE"
+      say "Cached copies deleted."
+    else
+      say "Cached copies kept at $VFS_CACHE"
+    fi
+  fi
+
+  # What bisync remembers about each synced pair. Small, but it is Monti's
+  # litter and nothing else reads it.
+  BISYNC="${XDG_CACHE_HOME:-$HOME/.cache}/rclone/bisync"
+  [ -d "$BISYNC" ] && rm -rf "$BISYNC" && say "Sync state cleared."
+
+  # Mount folders, but only the empty ones: a folder with files in it is
+  # either not ours or holds something that never reached the cloud.
+  if [ -d "$HOME/CloudDrives" ]; then
+    find "$HOME/CloudDrives" -mindepth 1 -maxdepth 1 -type d -empty -exec rmdir {} + 2>/dev/null || true
+    rmdir "$HOME/CloudDrives" 2>/dev/null && say "Removed the empty ~/CloudDrives."
+    [ -d "$HOME/CloudDrives" ] && say "~/CloudDrives kept — it still has files in it."
+  fi
+
+  say "Monti removed. Your rclone config (~/.config/rclone) and everything in your clouds were not touched."
   exit 0
 fi
 

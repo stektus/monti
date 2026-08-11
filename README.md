@@ -66,8 +66,12 @@ a way to use it without becoming an rclone expert. That is Monti.
 
 | | |
 |---|---|
+| ![Your drives](docs/screenshot-main.png) | **Your drives** — every cloud as a card: mounted or not, where it lives on this computer, how full the cloud is. |
+| ![Choosing folders](docs/screenshot-folders.png) | **Only the folders you want** — tick what a drive carries. The rest stays in the cloud and never appears on this computer. |
+| ![Synced folders](docs/screenshot-sync.png) | **Synced folders** — a real local copy kept the same in both directions, for the folder you work in rather than the drive you browse. |
+| ![An encrypted drive](docs/screenshot-encrypted.png) | **An encrypted drive** — stored inside a drive you already have. Contents and names are encrypted here, and the warning about the password is not in the small print. |
 | ![Add a cloud](docs/screenshot-add-cloud.png) | **Adding a cloud** — pick a provider, give it a name, sign in. The API-key wizard is there when you want it, folded away when you don't. |
-| ![Drive settings](docs/screenshot-drive-settings.png) | **Per-drive settings** — where it mounts, whether it mounts on start, read-only mode, cache limit, and how much this drive has cached right now. |
+| ![Drive settings](docs/screenshot-drive-settings.png) | **Per-drive settings** — where it mounts, whether it mounts on start, read-only mode, cache limit, which folders it carries, and how much it has cached right now. |
 | ![Storage](docs/screenshot-storage.png) | **Storage** — what the cache costs you and how much room is left, because a cache that quietly fills the disk is the classic way rclone mounts go wrong. |
 | ![Disconnecting a drive](docs/screenshot-disconnect.png) | **Removing a drive** — the dialog lists exactly what happens, including the folder it deletes, and lets you clear the cache in the same click. |
 
@@ -125,7 +129,7 @@ curl -fsSL https://raw.githubusercontent.com/stektus/monti/main/install.sh | bas
 It checks FUSE (offers to install it), downloads the latest release, verifies it
 against the published checksums and adds Monti to your application menu.
 Everything lands in your home directory — no root files touched.
-Uninstall with `./install.sh --uninstall`.
+Uninstall with `./install.sh --uninstall` (see [Uninstall](#uninstall)).
 
 Prefer packages? Grab them from the
 [latest release](https://github.com/stektus/monti/releases/latest):
@@ -138,6 +142,36 @@ Prefer packages? Grab them from the
 
 The AppImage carries its own copy of the desktop libraries, which is why it is
 larger; the packages use the ones your system already has.
+
+### Uninstall
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/stektus/monti/main/install.sh | bash -s -- --uninstall
+```
+
+It removes the app, its menu entry and the autostart file, then asks about
+the two things worth a question:
+
+- **App data** — the engine Monti downloaded, its logs and the list of synced
+  folders (`~/.local/share/io.github.stektus.monti`).
+- **Cached file copies** — what mounted drives kept on disk from the files you
+  opened (`~/.cache/rclone/vfs`). It tells you the size first; these are
+  copies, the originals are in your cloud.
+
+It also clears the sync bookkeeping (`~/.cache/rclone/bisync`) and removes
+`~/CloudDrives` **only if it is empty** — a mount folder with files in it is
+left alone, because that is either not ours or something that never reached
+the cloud. Your rclone config (`~/.config/rclone`) and everything in your
+clouds are never touched.
+
+Installed a package instead? Remove it the way you installed it, then run the
+same script for the user-level leftovers:
+
+```bash
+sudo apt remove monti        # Debian, Ubuntu, Mint
+sudo dnf remove monti        # Fedora, openSUSE
+paru -R monti-bin            # Arch (AUR)
+```
 
 ### Rather not pipe a script into bash?
 
