@@ -40,6 +40,10 @@ a way to use it without becoming an rclone expert. That is Monti.
   arrangement, for the times a mounted drive is the wrong tool.
 - **Nothing is downloaded until you open it.** No full copy of your cloud on
   disk; files arrive when you actually open them.
+- **Only the folders you want.** Tick the folders a drive carries — a 2 TB
+  cloud does not have to arrive whole. The rest stays in the cloud, untouched.
+- **An encrypted drive if you want one.** Files are encrypted here, names
+  included, so the provider stores gibberish; you see your files.
 - **Sign in through your browser**, the way you expect. Monti never sees your
   password.
 - **Your drives survive quitting the app.** Close Monti and your folders keep
@@ -53,7 +57,10 @@ a way to use it without becoming an rclone expert. That is Monti.
 - **It notices when a drive goes away** — unmounted from a terminal, or a
   mount that dies — and tells you instead of showing an empty folder.
 - **It tells you the truth.** How much disk the cache is using, what a button
-  is about to delete, and when something is still uploading.
+  is about to delete, when something is still uploading — and what the
+  provider's error actually means, with its own words kept underneath.
+- **The tray does something.** Engine state at a glance, and one click to
+  mount or unmount a drive without opening the window.
 
 ## Screenshots
 
@@ -157,7 +164,7 @@ To get it in the application menu, save this as
 Type=Application
 Name=Monti
 Comment=Mount your clouds
-Exec=/home/YOU/Applications/Monti_0.6.0_amd64.AppImage
+Exec=/home/YOU/Applications/Monti_0.7.0_amd64.AppImage
 Icon=monti
 Terminal=false
 Categories=Utility;
@@ -262,6 +269,17 @@ file paths — trim anything you would rather not publish.
 Google Drive, Dropbox, Box, pCloud, Yandex Disk, OneDrive (experimental), and
 self-hosted storage: WebDAV / Nextcloud, S3-compatible, SFTP.
 
+On top of any of them you can add an **encrypted drive**: file contents and
+file names are encrypted on this computer, so the provider stores gibberish
+and only you can read it. Two things are worth knowing before you make one —
+both are in the dialog as well:
+
+- **A lost password cannot be recovered.** Not by Monti, not by the provider.
+  The files stay encrypted forever.
+- **The password is stored on this computer** in rclone's config, scrambled
+  but reversible. What encryption protects is the copy in the cloud, not the
+  config file on your disk.
+
 ## Roadmap
 
 - [x] Own OAuth client-id wizard (rclone's shared key is being retired in 2026)
@@ -275,6 +293,8 @@ self-hosted storage: WebDAV / Nextcloud, S3-compatible, SFTP.
       [packaging/](packaging/))
 - [x] arm64 builds
 - [x] Two-way sync (bisync) with a conflict-resolution UI
+- [x] Selective folders — choose what a drive or a synced pair carries
+- [x] Encrypted drives (rclone crypt) with an honest warning about the password
 - [ ] Translations (Ukrainian, Russian, …)
 - [ ] More providers (Proton Drive, Mega, …)
 

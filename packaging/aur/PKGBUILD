@@ -2,7 +2,7 @@
 # AUR package "monti-bin": repackages the .deb from the GitHub release.
 
 pkgname=monti-bin
-pkgver=0.6.0
+pkgver=0.7.0
 pkgrel=1
 pkgdesc="Mount your clouds — a friendly GUI for rclone (Google Drive, Dropbox, WebDAV, S3, SFTP as local folders)"
 arch=('x86_64')

@@ -2,6 +2,42 @@
 
 Notable changes per release. Dates are the release date.
 
+## v0.7.0 — 2026-08-11
+
+**Choose which folders a drive carries.** A cloud with 2 TB in it does not
+belong on a laptop. Drive settings and sync settings now open a picker of the
+cloud's own folders; unticked ones are left out — the mount does not show
+them, the sync does not compare them, and the cloud keeps them untouched.
+
+Changing the folders of a pair that already syncs sends it through the first
+run again, on purpose: bisync compares each run against its own listing from
+last time, so folders that vanish behind a new filter read as deletions —
+and answering Monti's delete question would then wipe them from the cloud.
+The first run rebuilds the listing instead, and never deletes.
+
+**Encrypted drives.** A new kind of drive that lives inside one you already
+have, encrypting file contents *and names* before they leave this computer.
+Use it like any other drive: mount it, sync with it, leave folders out of it.
+There is no password recovery, which the dialog says before it lets you
+create one, and rclone stores that password obscured — reversible — in its
+config file, which the dialog also says.
+
+**The tray finally says something.** Whether the engine is running, and one
+click to mount or unmount each drive without opening the window.
+
+**Errors in words that mean something.** "googleapi: Error 403: The user's
+Drive storage quota has been exceeded., storageQuotaExceeded" now leads with
+"the cloud is full", a rate limit says so instead of looking like the same
+error, an expired sign-in points at Re-authorize, and an unreachable provider
+says that. The provider's own sentence is kept underneath — a bug report
+needs it, and a wrong guess must not hide the truth.
+
+**Also:** a **Browse…** button beside the two path fields; **Share a file**
+on drives whose provider makes links (absent on those that do not); the first
+sync says how much it will download and how much room is left before it
+starts; and a drive mounted by Monti no longer shows as "not mounted" when
+rclone reports it under a path instead of a name.
+
 ## v0.6.0 — 2026-08-11
 
 **Synced folders.** A new Sync screen keeps a folder on this computer and a

@@ -31,6 +31,10 @@ tested.
   the same for Monti's own release.
 - **Opening things is constrained.** Folders open only as directories, links
   only over `https` — so neither path can be turned into "execute this".
+- **An encrypted drive's password goes nowhere it should not.** It travels to
+  the engine over the local API, never on a command line and never into a log,
+  and it is stored by rclone the way rclone stores passwords: obscured. See
+  below for what that does *not* mean.
 
 ## What Monti does not protect against
 
@@ -39,6 +43,11 @@ tested.
   read them.
 - **An encrypted rclone config.** Monti cannot unlock one; it detects the case
   and explains it instead of failing obscurely.
+- **Someone reading rclone's config file.** An encrypted drive's password is
+  stored there *obscured*, which is reversible by design — rclone has to be
+  able to use it unattended. Encryption protects the copy in the cloud; it
+  does not protect the machine holding the key. Monti says this in the dialog
+  that creates such a drive rather than letting it be assumed.
 - **The cloud provider itself,** or anything that happens after your files leave
   this machine.
 
