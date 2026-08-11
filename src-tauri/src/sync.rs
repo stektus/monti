@@ -387,6 +387,10 @@ pub async fn sync_progress(
             Some((n, total)) => format!("TOO_MANY_DELETES:{n}:{total}"),
             None => "TOO_MANY_DELETES:0:0".into(),
         };
+    } else if !error.is_empty() {
+        // A failed sync is exactly where "googleapi: Error 403 …" turns up,
+        // and where it helps least.
+        error = crate::engine::friendly_cloud_error(&error);
     }
     Ok(SyncProgress {
         finished: status["finished"].as_bool() == Some(true),

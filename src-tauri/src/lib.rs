@@ -1101,10 +1101,7 @@ async fn supports_links(state: State<'_, EngineState>, name: String) -> Result<b
 /// a path Monti can turn into the remote path the provider expects.
 /// Returns None when the chooser was dismissed.
 #[tauri::command]
-async fn share_link(
-    state: State<'_, EngineState>,
-    name: String,
-) -> Result<Option<String>, String> {
+async fn share_link(state: State<'_, EngineState>, name: String) -> Result<Option<String>, String> {
     let (port, pass, mount_point) = {
         let eng = state.0.lock().unwrap();
         let point = eng

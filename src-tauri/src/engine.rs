@@ -566,6 +566,91 @@ pub fn rc_raw(port: u16, pass: &str, path: &str, body: &Value) -> Result<Value, 
     rc_raw_with_timeout(port, pass, path, body, 120)
 }
 
+/// Turn what the provider said into what it means.
+///
+/// rclone reports the API's own words — `googleapi: Error 403: The user's
+/// Drive storage quota has been exceeded., storageQuotaExceeded` — and the
+/// person reading it wanted to copy a file. The raw text is kept at the end
+/// of the sentence, because a bug report needs it and because guessing wrong
+/// must not hide the truth.
+pub fn friendly_cloud_error(raw: &str) -> String {
+    let low = raw.to_lowercase();
+    let explain = |what: &str| format!("{what}\n\nThe provider said: {raw}");
+
+    // Google answers 403 for both "you are out of space" and "you are going
+    // too fast", and the word "quota" appears in both — so decide which one
+    // this is before saying anything.
+    let rate_limited = low.contains("ratelimitexceeded")
+        || low.contains("userratelimit")
+        || low.contains("rate limit")
+        || low.contains("too many requests")
+        || low.contains("error 429");
+    if !rate_limited
+        && (low.contains("storagequotaexceeded")
+            || low.contains("quota has been exceeded")
+            || low.contains("quotaexceeded")
+            || low.contains("insufficient storage"))
+    {
+        return explain(
+            "The cloud is full — the provider refused to store more. \
+             Free some space in the account, or buy more, and try again.",
+        );
+    }
+    if rate_limited {
+        return explain(
+            "The provider is asking Monti to slow down (too many requests in \
+             a short time). It usually clears in a few minutes; a speed limit \
+             in Settings → Transfers makes it much less likely.",
+        );
+    }
+    if low.contains("invalid_grant")
+        || low.contains("token expired")
+        || low.contains("cannot fetch token")
+        || low.contains("error 401")
+        || low.contains("unauthenticated")
+    {
+        return explain(
+            "The saved sign-in for this drive is no longer accepted — it \
+             expired, or access was withdrawn in the account's security \
+             settings. Open the drive's settings and press Re-authorize.",
+        );
+    }
+    if low.contains("no such host")
+        || low.contains("network is unreachable")
+        || low.contains("connection refused")
+        || low.contains("i/o timeout")
+        || low.contains("dial tcp")
+        || low.contains("tls handshake timeout")
+    {
+        return explain(
+            "The provider could not be reached. This is a network problem on \
+             this side more often than an outage: check the connection and \
+             try again.",
+        );
+    }
+    if low.contains("error 403") || low.contains("forbidden") {
+        return explain(
+            "The provider refused the request (403). Either the account has \
+             no permission for that folder, or the API key in use is not \
+             allowed to — a personal API key in the drive's settings solves \
+             the second case.",
+        );
+    }
+    if low.contains("fusermount") && low.contains("not found") {
+        return explain(
+            "FUSE is missing on this computer, so nothing can be mounted. \
+             Install the fuse3 package from your distribution and try again.",
+        );
+    }
+    if low.contains("directory not empty") {
+        return explain(
+            "The mount folder is not empty. FUSE can only mount over an empty \
+             folder — pick another one in the drive's settings.",
+        );
+    }
+    raw.to_string()
+}
+
 pub fn rc_raw_with_timeout(
     port: u16,
     pass: &str,
@@ -592,13 +677,38 @@ pub fn rc_raw_with_timeout(
         Ok(resp) => resp.into_json().map_err(|e| e.to_string()),
         Err(ureq::Error::Status(_, resp)) => {
             let value: Value = resp.into_json().unwrap_or(json!({}));
-            Err(value["error"]
-                .as_str()
-                .unwrap_or("rclone rc call failed")
-                .to_string())
+            Err(friendly_cloud_error(
+                value["error"].as_str().unwrap_or("rclone rc call failed"),
+            ))
         }
-        Err(e) => Err(e.to_string()),
+        Err(e) => Err(friendly_transport_error(&e.to_string(), timeout_secs)),
     }
+}
+
+/// What to say when the call to the engine itself did not complete.
+///
+/// This is not the provider's error — it is Monti's own HTTP call to
+/// 127.0.0.1 — and printing it raw produced the worst message in the app:
+/// "http://127.0.0.1:37185/operations/list: Network Error: Network Error:
+/// Error encountered in the status line: timed out reading response", which
+/// reads like the user's network is broken when what happened is that the
+/// cloud took too long to answer.
+fn friendly_transport_error(raw: &str, timeout_secs: u64) -> String {
+    let low = raw.to_lowercase();
+    if low.contains("timed out") || low.contains("timeout") {
+        return format!(
+            "The engine did not finish this in {timeout_secs} seconds. That \
+             usually means the cloud is slow to answer, or cannot be reached \
+             at all — rclone keeps retrying in the background. Try again in \
+             a moment."
+        );
+    }
+    if low.contains("connection refused") || low.contains("connection reset") {
+        return "The rclone engine is not answering — it looks like it stopped. \
+                Press “Restart engine” at the top of the window."
+            .into();
+    }
+    raw.to_string()
 }
 
 pub fn engine_alive(eng: &mut Engine) -> bool {
@@ -903,6 +1013,66 @@ mod port_tests {
         // The lookup accepts any local address, so ownership must still be
         // decided by the fd table alone: a bystander pid never matches.
         assert!(!foreign, "someone else's port reported as ours");
+    }
+}
+
+#[cfg(test)]
+mod error_tests {
+    use super::friendly_cloud_error;
+
+    /// Real messages, copied from rclone and from Google's API. The two 403s
+    /// are the pair worth pinning: "you are out of space" and "you are going
+    /// too fast" read almost alike and need opposite answers.
+    #[test]
+    fn the_two_403s_are_told_apart_and_the_original_survives() {
+        let full = friendly_cloud_error(
+            "googleapi: Error 403: The user's Drive storage quota has been \
+             exceeded., storageQuotaExceeded",
+        );
+        assert!(full.starts_with("The cloud is full"), "{full}");
+        assert!(full.contains("storageQuotaExceeded"), "raw text dropped");
+
+        let fast = friendly_cloud_error(
+            "googleapi: Error 403: Rate Limit Exceeded, userRateLimitExceeded",
+        );
+        assert!(fast.contains("slow down"), "{fast}");
+
+        let stale = friendly_cloud_error(
+            "failed to get token: oauth2: cannot fetch token: 400 Bad Request \
+             invalid_grant",
+        );
+        assert!(stale.contains("Re-authorize"), "{stale}");
+
+        let offline = friendly_cloud_error(
+            "Get \"https://www.googleapis.com/drive/v3/files\": dial tcp: \
+             lookup www.googleapis.com: no such host",
+        );
+        assert!(offline.contains("could not be reached"), "{offline}");
+
+        // Anything unrecognised must come through untouched: a wrong guess
+        // that hides the real message is worse than no guess.
+        let odd = "mount helper error: unknown option";
+        assert_eq!(friendly_cloud_error(odd), odd);
+    }
+
+    /// Monti's own call to 127.0.0.1 failing is not the cloud failing, and
+    /// the raw text said "Network Error" twice while naming a localhost port.
+    #[test]
+    fn a_stalled_engine_call_reads_as_what_it_is() {
+        let slow = super::friendly_transport_error(
+            "http://127.0.0.1:37185/operations/list: Network Error: Network \
+             Error: Error encountered in the status line: timed out reading \
+             response",
+            60,
+        );
+        assert!(slow.contains("60 seconds"), "{slow}");
+        assert!(!slow.contains("127.0.0.1"), "localhost port leaked: {slow}");
+
+        let dead = super::friendly_transport_error(
+            "http://127.0.0.1:37185/rc/noop: Network Error: connection refused",
+            5,
+        );
+        assert!(dead.contains("Restart engine"), "{dead}");
     }
 }
 
