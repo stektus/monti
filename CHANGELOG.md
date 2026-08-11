@@ -2,6 +2,20 @@
 
 Notable changes per release. Dates are the release date.
 
+## v0.5.2 — 2026-08-11
+
+**arm64 builds.** Every release now carries an AppImage, `.deb` and `.rpm` for
+ARM machines as well, built on an ARM runner rather than cross-compiled, and
+launched on Debian 12, Ubuntu 24.04 and Fedora 42 before publishing. The
+install script picks the file matching your machine.
+
+**A package for the AUR.** `packaging/aur/PKGBUILD` builds `monti-bin` from the
+release `.deb`; see [packaging/](packaging/) for publishing it.
+
+**Flatpak: ruled out, with the reasons written down.** A mount made inside a
+sandbox is invisible to the file manager outside it, which is the one thing
+Monti exists to do.
+
 ## v0.5.1 — 2026-08-10
 
 **Light or dark, your choice.** Monti already followed the desktop's setting;

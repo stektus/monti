@@ -116,7 +116,8 @@ mkdir -p ~/Applications && cd ~/Applications
 tag=$(curl -fsSLI -o /dev/null -w '%{url_effective}' \
       https://github.com/stektus/monti/releases/latest | sed 's|.*/||')
 base=https://github.com/stektus/monti/releases/download/$tag
-curl -fLO "$base/Monti_${tag#v}_amd64.AppImage"
+arch=$([ "$(uname -m)" = x86_64 ] && echo amd64 || echo aarch64)
+curl -fLO "$base/Monti_${tag#v}_${arch}.AppImage"
 curl -fLO "$base/SHA256SUMS"
 sha256sum --ignore-missing -c SHA256SUMS   # must say "…AppImage: OK"
 chmod +x Monti_*.AppImage
@@ -131,7 +132,7 @@ To get it in the application menu, save this as
 Type=Application
 Name=Monti
 Comment=Mount your clouds
-Exec=/home/YOU/Applications/Monti_0.5.0_amd64.AppImage
+Exec=/home/YOU/Applications/Monti_0.5.2_amd64.AppImage
 Icon=monti
 Terminal=false
 Categories=Utility;
@@ -149,7 +150,8 @@ To remove it all: delete the AppImage, that `.desktop` file,
   that never opens.
 - **FUSE3**, which rclone uses to mount drives. Preinstalled on most desktops;
   the installer offers to add it if missing.
-- **x86_64** for the prebuilt packages. On arm64, build from source.
+- **x86_64 or arm64.** Every release carries both; the installer picks the
+  right one.
 
 The AppImage carries its own GTK and WebKit, but takes the C library, the
 graphics stack and fonts from your system — bundling those is exactly what
@@ -246,7 +248,7 @@ self-hosted storage: WebDAV / Nextcloud, S3-compatible, SFTP.
 - [x] Bandwidth limit, transfer history and desktop notifications
 - [ ] AUR package (`monti-bin` — the PKGBUILD is ready, see
       [packaging/](packaging/))
-- [ ] arm64 builds
+- [x] arm64 builds
 - [ ] Two-way sync (bisync) with a conflict-resolution UI
 - [ ] Translations (Ukrainian, Russian, …)
 - [ ] More providers (Proton Drive, Mega, …)
