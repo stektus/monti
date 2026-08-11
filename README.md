@@ -244,10 +244,16 @@ self-hosted storage: WebDAV / Nextcloud, S3-compatible, SFTP.
 - [x] One-command install script with checksum verification
 - [x] Cloud storage quota on each drive card
 - [x] Bandwidth limit, transfer history and desktop notifications
-- [ ] AUR and Flathub packages
+- [ ] AUR package (`monti-bin` — the PKGBUILD is ready, see
+      [packaging/](packaging/))
+- [ ] arm64 builds
 - [ ] Two-way sync (bisync) with a conflict-resolution UI
 - [ ] Translations (Ukrainian, Russian, …)
 - [ ] More providers (Proton Drive, Mega, …)
+
+Not planned: **Flatpak.** A sandboxed app's mounts are invisible to the file
+manager outside it, which is the whole point of Monti —
+[the measurements are in packaging/](packaging/README.md#flatpak--not-supported-and-here-is-why).
 
 ## Building from source
 

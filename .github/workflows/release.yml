@@ -3,17 +3,33 @@ name: Release
 on:
   push:
     tags: ["v*"]
+  # Lets a build be exercised without publishing anything — the release
+  # steps below only run for a tag.
+  workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
   build:
-    runs-on: ubuntu-22.04
+    # One job per architecture. 22.04 on both, because the glibc of the
+    # build machine is the floor every user has to clear (2.35).
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-22.04
+            arch: x86_64
+            appimagetool_sha: ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0
+          - runner: ubuntu-22.04-arm
+            arch: aarch64
+            appimagetool_sha: f0837e7448a0c1e4e650a93bb3e85802546e60654ef287576f46c71c126a9158
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
 
       - name: Tag must match the app version
+        if: startsWith(github.ref, 'refs/tags/')
         run: |
           v=$(python3 -c "import json;print(json.load(open('src-tauri/tauri.conf.json'))['version'])")
           if [ "v$v" != "${{ github.ref_name }}" ]; then
@@ -55,8 +71,8 @@ jobs:
           cd src-tauri/target/release/bundle/appimage
           img=$(ls ./*.AppImage | head -1)
           curl -fsSL -o /tmp/appimagetool \
-            https://github.com/AppImage/appimagetool/releases/download/1.9.1/appimagetool-x86_64.AppImage
-          echo "ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0  /tmp/appimagetool" \
+            "https://github.com/AppImage/appimagetool/releases/download/1.9.1/appimagetool-${{ matrix.arch }}.AppImage"
+          echo "${{ matrix.appimagetool_sha }}  /tmp/appimagetool" \
             | sha256sum -c -
           chmod +x /tmp/appimagetool
           rm -rf squashfs-root
@@ -68,7 +84,7 @@ jobs:
             fi
           done < /tmp/host-libs
           rm -f "$img"
-          APPIMAGE_EXTRACT_AND_RUN=1 ARCH=x86_64 /tmp/appimagetool squashfs-root "$img"
+          APPIMAGE_EXTRACT_AND_RUN=1 ARCH=${{ matrix.arch }} /tmp/appimagetool squashfs-root "$img"
           rm -rf squashfs-root
           # Guard: none of them may survive into the shipped image.
           "$img" --appimage-extract > /dev/null
@@ -97,16 +113,43 @@ jobs:
           git reset
           cp /tmp/build.log ci-build.log || true
           git add -f ci-build.log
-          git commit -m "build log for ${{ github.ref_name }} run ${{ github.run_id }}"
+          git commit -m "build log for ${{ github.ref_name }} (${{ matrix.arch }}) run ${{ github.run_id }}"
           git push -f origin ci-logs
+
+      - name: Hand the packages to the publish job
+        uses: actions/upload-artifact@v4
+        with:
+          name: bundles-${{ matrix.arch }}
+          path: |
+            src-tauri/target/release/bundle/appimage/*.AppImage
+            src-tauri/target/release/bundle/deb/*.deb
+            src-tauri/target/release/bundle/rpm/*.rpm
+          if-no-files-found: error
+
+  # One release carries both architectures, so publishing waits until every
+  # build has drawn its window somewhere other than the machine it was
+  # built on.
+  publish:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: bundle
+          pattern: bundles-*
+          merge-multiple: true
 
       - name: Create the GitHub release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          cd src-tauri/target/release/bundle
-          for f in appimage/*.AppImage deb/*.deb rpm/*.rpm; do
-            (cd "$(dirname "$f")" && sha256sum "$(basename "$f")")
+          cd bundle
+          ls -R
+          for f in *.AppImage *.deb *.rpm; do
+            sha256sum "$f"
           done > SHA256SUMS
           cat SHA256SUMS
           cat > /tmp/notes.md <<'EOF'
@@ -118,14 +161,15 @@ jobs:
           | `.deb` | Debian, Ubuntu, Mint, … |
           | `.rpm` | Fedora, openSUSE, … |
 
-          FUSE3 is required at runtime (preinstalled on most desktop distros).
-          `SHA256SUMS` lists checksums for every package; the install script
-          verifies them automatically.
+          `amd64`/`x86_64` files are for ordinary PCs, `aarch64`/`arm64` for
+          ARM machines. FUSE3 is required at runtime (preinstalled on most
+          desktop distros). `SHA256SUMS` lists checksums for every package;
+          the install script verifies them automatically.
           EOF
           gh release create "${{ github.ref_name }}" \
             --title "Monti ${{ github.ref_name }}" \
             --notes-file /tmp/notes.md \
-            appimage/*.AppImage deb/*.deb rpm/*.rpm SHA256SUMS
+            *.AppImage *.deb *.rpm SHA256SUMS
 
       # House rule: exactly one published release. Once the new one is
       # live, superseded releases (and their tags) go away.

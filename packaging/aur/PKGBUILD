@@ -1,0 +1,30 @@
+# Maintainer: stektus <stektus@users.noreply.github.com>
+# AUR package "monti-bin": repackages the .deb from the GitHub release.
+
+pkgname=monti-bin
+pkgver=0.5.1
+pkgrel=1
+pkgdesc="Mount your clouds — a friendly GUI for rclone (Google Drive, Dropbox, WebDAV, S3, SFTP as local folders)"
+arch=('x86_64')
+url="https://github.com/stektus/monti"
+license=('MIT')
+depends=('webkit2gtk-4.1' 'gtk3' 'fuse3')
+optdepends=(
+  'libayatana-appindicator: close-to-tray support'
+  'rclone: use the system engine instead of the one Monti downloads itself'
+)
+provides=('monti')
+conflicts=('monti')
+options=('!strip' '!debug')
+source=("Monti-$pkgver.deb::$url/releases/download/v$pkgver/Monti_${pkgver}_amd64.deb"
+        "LICENSE-$pkgver::$url/raw/v$pkgver/LICENSE")
+sha256sums=('2c30a1b90ac15f00dc31cc85c4df3acdd27b419ecc301590274a7fe19b50a094'
+            '16fbf90b022ad1dbc88cbcab922023eec51879ce067831b64d18c1bd30fd9339')
+
+package() {
+  # The release .deb already has the right layout: /usr/bin, the .desktop
+  # entry and hicolor icons.
+  bsdtar -xf "$srcdir/data.tar.gz" -C "$pkgdir"
+  install -Dm644 "$srcdir/LICENSE-$pkgver" \
+    "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}

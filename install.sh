@@ -71,7 +71,13 @@ if [ "${1:-}" = "--uninstall" ]; then
 fi
 
 [ "$(uname -s)" = "Linux" ] || die "Monti is Linux-only."
-[ "$(uname -m)" = "x86_64" ] || die "Prebuilt packages are x86_64 only for now — see README 'Building from source'."
+
+# Releases carry one AppImage per architecture; pick this machine's.
+case "$(uname -m)" in
+  x86_64)          asset_arch='(x86_64|amd64)' ;;
+  aarch64 | arm64) asset_arch='(aarch64|arm64)' ;;
+  *) die "no prebuilt package for $(uname -m) — see README 'Building from source'." ;;
+esac
 have curl || die "curl is required."
 
 # --- the AppImage carries its own GTK and WebKit but takes the C library and
@@ -140,7 +146,8 @@ fi
 # --- download the latest release AppImage
 say "Fetching the latest release…"
 url=$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" 2>/dev/null \
-  | grep -o '"browser_download_url": *"[^"]*\.AppImage"' | cut -d'"' -f4 | head -1) || true
+  | grep -o '"browser_download_url": *"[^"]*\.AppImage"' | cut -d'"' -f4 \
+  | grep -E "$asset_arch" | head -1) || true
 
 if [ -z "$url" ]; then
   # The API is rate-limited (60 requests/hour per IP); fall back to plain
@@ -149,8 +156,8 @@ if [ -z "$url" ]; then
     "https://github.com/$REPO/releases/latest" | sed 's|.*/||')
   [ -n "$tag" ] || die "Could not reach GitHub releases — check your connection and try again."
   asset=$(curl -fsSL "https://github.com/$REPO/releases/expanded_assets/$tag" \
-    | grep -o 'href="[^"]*\.AppImage"' | cut -d'"' -f2 | head -1)
-  [ -n "$asset" ] || die "No AppImage found in release $tag."
+    | grep -o 'href="[^"]*\.AppImage"' | cut -d'"' -f2 | grep -E "$asset_arch" | head -1)
+  [ -n "$asset" ] || die "No AppImage for $(uname -m) in release $tag."
   url="https://github.com$asset"
 fi
 

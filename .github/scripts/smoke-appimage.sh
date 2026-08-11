@@ -70,7 +70,13 @@ fail=0
 run_one "Debian 12"    debian:12         "apt-get -qq update && DEBIAN_FRONTEND=noninteractive apt-get -qq install -y libgtk-3-0 $HOST_DEB $TOOLS_DEB >/dev/null" || fail=1
 run_one "Ubuntu 24.04" ubuntu:24.04      "apt-get -qq update && DEBIAN_FRONTEND=noninteractive apt-get -qq install -y libgtk-3-0t64 $HOST_DEB $TOOLS_DEB >/dev/null" || fail=1
 run_one "Fedora 42"    fedora:42         "dnf -y -q install gtk3 $HOST_RPM xorg-x11-server-Xvfb ImageMagick procps-ng >/dev/null" || fail=1
-run_one "Arch"         archlinux:latest  "pacman -Sy --noconfirm --needed --quiet gtk3 $HOST_ARCH xorg-server-xvfb imagemagick procps-ng >/dev/null" || fail=1
+
+# Arch is an x86_64 distribution; there is no official arm64 image, and the
+# ARM fork is a different project with its own mirrors. The other three
+# cover aarch64.
+if [ "$(uname -m)" = "x86_64" ]; then
+  run_one "Arch"       archlinux:latest  "pacman -Sy --noconfirm --needed --quiet gtk3 $HOST_ARCH xorg-server-xvfb imagemagick procps-ng >/dev/null" || fail=1
+fi
 
 if [ "$fail" != 0 ]; then
   echo "smoke test failed — not publishing this build"
