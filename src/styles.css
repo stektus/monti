@@ -601,6 +601,62 @@ dialog select:focus-visible {
 }
 .cache-row .setting-name { margin-bottom: 2px; }
 
+/* ---------- folder picker ---------- */
+
+.tree {
+  max-height: 46vh;
+  overflow-y: auto;
+  margin: 4px 0 10px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface-2);
+  font-size: 13.5px;
+}
+.tree.loading { color: var(--muted); }
+
+.tree-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 2px;
+  border-radius: 8px;
+}
+.tree-row:hover { background: var(--surface); }
+.tree-row label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-weight: 450;
+  min-width: 0;
+  cursor: pointer;
+}
+/* One line per folder, ellipsis rather than a row that grows: the tree is
+   read by scanning down the names. */
+.tree-row label span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tree-row input[type="checkbox"] { flex: none; }
+
+.btn.tree-toggle {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  font-size: 11px;
+  line-height: 1;
+  border-color: transparent;
+  background: none;
+  color: var(--muted);
+}
+.btn.tree-toggle:hover { color: var(--text); }
+
+/* A folder that will not be carried, and everything under it. */
+.tree-item.off > .tree-row label span { color: var(--muted); text-decoration: line-through; }
+
 /* ---------- own API key ---------- */
 
 details#add-advanced {

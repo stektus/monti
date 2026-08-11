@@ -27,6 +27,63 @@ pub const RC_USER: &str = "monti";
 pub struct MountEntry {
     pub mount_point: String,
     pub vfs_opt: Value,
+    /// Folders the person left out of this drive, as paths from the drive
+    /// root ("Photos/2019"). Kept as paths rather than filter rules so the
+    /// picker can tick the boxes back on and the rules stay ours to build.
+    #[serde(default)]
+    pub excludes: Vec<String>,
+}
+
+/// Turn "leave these folders out" into rclone filter rules.
+///
+/// Two things make this less obvious than it looks:
+///
+/// * The rule must be anchored (`/Photos/**`), or `Photos/**` would also
+///   match `Backup/Photos` — a folder the person never touched.
+/// * rclone reads `*?[]{}` as pattern syntax, so a real folder called
+///   "Photos [2024]" produces a rule that matches nothing and silently keeps
+///   showing the folder. Every special character is escaped.
+pub fn exclude_rules(excludes: &[String]) -> Vec<String> {
+    excludes
+        .iter()
+        .filter_map(|path| {
+            let trimmed = path.trim().trim_matches('/');
+            if trimmed.is_empty() {
+                return None;
+            }
+            let mut rule = String::from("/");
+            for ch in trimmed.chars() {
+                if matches!(ch, '*' | '?' | '[' | ']' | '{' | '}' | '\\') {
+                    rule.push('\\');
+                }
+                rule.push(ch);
+            }
+            rule.push_str("/**");
+            Some(rule)
+        })
+        .collect()
+}
+
+/// The `_filter` object for an RC call, or None when nothing is excluded —
+/// sending an empty rule list is not the same as sending none.
+pub fn filter_opt(excludes: &[String]) -> Option<Value> {
+    let rules = exclude_rules(excludes);
+    (!rules.is_empty()).then(|| json!({ "ExcludeRule": rules }))
+}
+
+/// The body of a `mount/mount` call. One place, because a mount made here
+/// must be identical to the one remade after a restart — an excluded folder
+/// that quietly comes back on the next remount is worse than never hiding it.
+pub fn mount_body(fs_name: &str, entry: &MountEntry) -> Value {
+    let mut body = json!({
+        "fs": fs_name,
+        "mountPoint": entry.mount_point,
+        "vfsOpt": entry.vfs_opt,
+    });
+    if let Some(filter) = filter_opt(&entry.excludes) {
+        body["_filter"] = filter;
+    }
+    body
 }
 
 #[derive(Default)]
@@ -470,6 +527,7 @@ pub fn try_adopt_engine(app: &AppHandle, eng: &mut Engine) -> bool {
                                 MountEntry {
                                     mount_point: mp.to_string(),
                                     vfs_opt: json!({ "CacheMode": 3 }),
+                                    excludes: Vec::new(),
                                 },
                             );
                         }
@@ -715,11 +773,7 @@ pub fn remount_saved(app: &AppHandle, eng: &Engine) {
             eng.port,
             &eng.pass,
             "mount/mount",
-            &json!({
-                "fs": fs_name,
-                "mountPoint": entry.mount_point,
-                "vfsOpt": entry.vfs_opt,
-            }),
+            &mount_body(fs_name, entry),
         );
         match result {
             Ok(_) => log_line(
@@ -772,16 +826,7 @@ fn retry_mount(app: &AppHandle, port: u16, pass: &str, fs_name: &str, entry: &Mo
                 }
                 Err(_) => return, // engine gone or replaced; not our mount to fix
             }
-            let result = rc_raw(
-                port,
-                &pass,
-                "mount/mount",
-                &json!({
-                    "fs": fs_name,
-                    "mountPoint": entry.mount_point,
-                    "vfsOpt": entry.vfs_opt,
-                }),
-            );
+            let result = rc_raw(port, &pass, "mount/mount", &mount_body(&fs_name, &entry));
             match result {
                 Ok(_) => {
                     log_line(
@@ -858,6 +903,37 @@ mod port_tests {
         // The lookup accepts any local address, so ownership must still be
         // decided by the fd table alone: a bystander pid never matches.
         assert!(!foreign, "someone else's port reported as ours");
+    }
+}
+
+#[cfg(test)]
+mod filter_tests {
+    use super::{exclude_rules, filter_opt};
+
+    /// A rule built from a folder name must match that folder and nothing
+    /// else. Both properties were measured against rclone v1.75: an
+    /// unanchored rule catches a same-named folder elsewhere, and an
+    /// unescaped "[" turns the rule into a character class that matches
+    /// nothing at all — the folder stays visible and the person is told it
+    /// is hidden.
+    #[test]
+    fn rules_are_anchored_and_escaped() {
+        assert_eq!(exclude_rules(&["Photos".into()]), vec!["/Photos/**"]);
+        assert_eq!(
+            exclude_rules(&["Docs/private".into()]),
+            vec!["/Docs/private/**"]
+        );
+        // Leading and trailing slashes are the picker's, not the person's.
+        assert_eq!(exclude_rules(&["/Photos/".into()]), vec!["/Photos/**"]);
+        assert_eq!(
+            exclude_rules(&["Photos [2024]".into(), "Mix{a,b}".into()]),
+            vec![r"/Photos \[2024\]/**", r"/Mix\{a,b\}/**"]
+        );
+        // Nothing excluded means no filter at all: an empty rule list is a
+        // different thing to rclone than no rules.
+        assert!(filter_opt(&[]).is_none());
+        assert!(filter_opt(&["  ".into()]).is_none());
+        assert!(filter_opt(&["Photos".into()]).is_some());
     }
 }
 

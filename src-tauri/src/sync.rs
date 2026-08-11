@@ -50,6 +50,11 @@ pub struct SyncPair {
     /// so it is a deliberate answer from the person, never a default.
     #[serde(default)]
     pub initialized: bool,
+    /// Folders left out of this pair, as paths under the cloud folder.
+    /// Changing this list forces the pair back through the first run — see
+    /// `sync_pair_save`, which is where the reason is written down.
+    #[serde(default)]
+    pub excludes: Vec<String>,
 }
 
 fn default_schedule() -> String {
@@ -78,15 +83,27 @@ fn save_pairs(app: &AppHandle, pairs: &[SyncPair]) -> Result<(), String> {
     if let Some(dir) = path.parent() {
         fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     }
-    // Same rule as engine.json: write a temp file and rename over the
-    // target, so a crash mid-write cannot leave half a config behind.
+    // Same rule as engine.json: a temp file that is 0600 from birth, renamed
+    // over the target, so a crash mid-write cannot leave half a config behind.
+    // No password lives here, but the folder names someone syncs are their
+    // business and not the rest of the machine's.
+    let data = serde_json::to_vec_pretty(pairs).map_err(|e| e.to_string())?;
     let tmp = path.with_extension("json.tmp");
-    fs::write(
-        &tmp,
-        serde_json::to_vec_pretty(pairs).map_err(|e| e.to_string())?,
-    )
-    .map_err(|e| e.to_string())?;
-    fs::rename(&tmp, &path).map_err(|e| e.to_string())
+    let mut opts = fs::OpenOptions::new();
+    opts.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        opts.mode(0o600);
+    }
+    opts.open(&tmp)
+        .and_then(|mut f| {
+            use std::io::Write;
+            f.write_all(&data)?;
+            f.sync_all()
+        })
+        .and_then(|_| fs::rename(&tmp, &path))
+        .map_err(|e| e.to_string())
 }
 
 /// Reject a pair that would fight Monti itself: syncing a folder that lives
@@ -142,13 +159,25 @@ pub fn sync_pair_save(app: AppHandle, mut pair: SyncPair) -> Result<(), String> 
         Some(old) => {
             let keep_run = old.last_run.clone();
             let keep_result = old.last_result.clone();
-            let keep_init = old.initialized;
             let keep_deletes = old.delete_without_asking;
+            // Excluding a folder that is already synced is the one edit that
+            // can destroy files. bisync compares against its own listing from
+            // last time, so a folder that disappears behind a filter reads as
+            // "deleted here" — and the answer to Monti's delete question
+            // would wipe it from the cloud (measured: "Safety abort: too many
+            // deletes (2 of 4)" after adding one exclusion). Sending the pair
+            // through the first run again rebuilds that listing instead, and
+            // a resync never deletes.
+            let same_filter = old.excludes == pair.excludes;
+            let keep_init = old.initialized && same_filter;
             *old = pair;
             old.last_run = keep_run;
             old.last_result = keep_result;
             old.initialized = keep_init;
             old.delete_without_asking = keep_deletes;
+            if !same_filter {
+                old.last_result = Some("folders changed — needs a first sync".into());
+            }
         }
         None => pairs.push(pair),
     }
@@ -221,6 +250,13 @@ pub async fn sync_run(
     if resync {
         body["resync"] = json!(true);
         body["resyncMode"] = json!(resync_mode.unwrap_or_else(|| "newer".into()));
+    }
+    // Folders the person left out. The filter must be identical on every run
+    // of a pair, including the first one — bisync compares this run's listing
+    // against the last one, so a filter that comes and goes looks like files
+    // appearing and vanishing.
+    if let Some(filter) = crate::engine::filter_opt(&pair.excludes) {
+        body["_filter"] = filter;
     }
 
     let v = rc_raw_with_timeout(port, &pass, "sync/bisync", &body, 20)?;

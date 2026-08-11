@@ -1072,6 +1072,65 @@ fn clear_vfs_cache(app: AppHandle, name: String) -> Result<(), String> {
     Ok(())
 }
 
+/// The drives Monti itself mounted: drive name → folder.
+///
+/// The interface cannot get this from rclone's own listing. `mount/listmounts`
+/// answers with the canonical fs, and that is "gdrive:" for a cloud, "name:."
+/// for a local remote and a bare filesystem path for an alias — the last of
+/// which carries no drive name at all, so the card said "not mounted" while
+/// the folder was mounted and full. Monti's own record always knows.
+#[tauri::command]
+fn own_mounts(state: State<'_, EngineState>) -> HashMap<String, String> {
+    let eng = state.0.lock().unwrap();
+    eng.mounts
+        .iter()
+        .map(|(fs, entry)| {
+            (
+                fs.trim_end_matches(':').to_string(),
+                entry.mount_point.clone(),
+            )
+        })
+        .collect()
+}
+
+/// The folders directly inside `path` of a drive, for the "choose which
+/// folders to keep" picker. Directories only: a picker that lists a
+/// hundred thousand files helps nobody, and only folders can be left out.
+///
+/// Paths come back the way rclone spells them — relative to the drive root,
+/// which is exactly what the exclusion list stores.
+#[tauri::command]
+async fn list_cloud_dirs(
+    state: State<'_, EngineState>,
+    name: String,
+    path: Option<String>,
+) -> Result<Vec<String>, String> {
+    let (port, pass) = {
+        let eng = state.0.lock().unwrap();
+        (eng.port, eng.pass.clone())
+    };
+    let body = json!({
+        "fs": format!("{name}:"),
+        "remote": path.unwrap_or_default(),
+        "opt": { "dirsOnly": true },
+    });
+    // A cold cloud folder can take a while; the caller shows a spinner
+    // rather than a frozen dialog, but it must not hang forever either.
+    let out = engine::rc_raw_with_timeout(port, &pass, "operations/list", &body, 60)?;
+    let mut dirs: Vec<String> = out
+        .get("list")
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|e| e.get("Path").and_then(Value::as_str).map(String::from))
+                .collect()
+        })
+        .unwrap_or_default();
+    dirs.sort_by_key(|d| d.to_lowercase());
+    Ok(dirs)
+}
+
 #[tauri::command]
 async fn mount_remote(
     app: AppHandle,
@@ -1079,6 +1138,7 @@ async fn mount_remote(
     name: String,
     mount_point: Option<String>,
     vfs: Option<Value>,
+    excludes: Option<Vec<String>>,
 ) -> Result<String, String> {
     // Refuse to mount a remote that is already mounted anywhere on the
     // system: two VFS caches over one remote can corrupt files.
@@ -1127,26 +1187,21 @@ async fn mount_remote(
             mount_point.display()
         ));
     }
-    let vfs_opt = build_vfs_opt(&app, vfs.as_ref());
+    let entry = MountEntry {
+        mount_point: mount_point.display().to_string(),
+        vfs_opt: build_vfs_opt(&app, vfs.as_ref()),
+        excludes: excludes.unwrap_or_default(),
+    };
     let mut eng = state.0.lock().unwrap();
+    let fs_name = format!("{name}:");
     rc_raw(
         eng.port,
         &eng.pass,
         "mount/mount",
-        &json!({
-            "fs": format!("{name}:"),
-            "mountPoint": mount_point,
-            "vfsOpt": vfs_opt,
-        }),
+        &engine::mount_body(&fs_name, &entry),
     )
     .map_err(&cleanup)?;
-    eng.mounts.insert(
-        format!("{name}:"),
-        MountEntry {
-            mount_point: mount_point.display().to_string(),
-            vfs_opt,
-        },
-    );
+    eng.mounts.insert(fs_name, entry);
     save_engine_file(&app, &eng);
     log_line(
         &app,
@@ -1486,6 +1541,8 @@ pub fn run() {
             sync::sync_conflicts,
             sync::sync_resolve,
             clear_vfs_cache,
+            list_cloud_dirs,
+            own_mounts,
             mount_remote,
             unmount_remote,
             unmount_external,

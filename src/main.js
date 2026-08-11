@@ -241,6 +241,152 @@ function vfsOptFor(name) {
   return Object.keys(opt).length ? opt : null;
 }
 
+// ---------- choosing which folders a drive or a pair carries ----------
+
+// Folders left out, as paths under the drive root ("Photos/2019"). The
+// backend turns them into rclone filter rules; the picker below ticks them.
+const excludesFor = (name) => prefFor(name).excludes || [];
+
+const joinPath = (base, name) => (base ? `${base}/${name}` : name);
+const relativeTo = (base, full) =>
+  base && full.startsWith(`${base}/`) ? full.slice(base.length + 1) : full;
+const lastSegment = (path) => path.split("/").filter(Boolean).pop() || path;
+
+// One line for the dialogs: what the current choice amounts to.
+function foldersSummary(excluded) {
+  const n = (excluded || []).length;
+  if (!n) return "All folders";
+  return n === 1 ? `1 folder left out: ${excluded[0]}` : `${n} folders left out`;
+}
+
+// State of the open picker. One at a time — it is a modal dialog.
+let picker = null;
+
+const excludedExactly = (rel) => picker.excluded.has(rel);
+const excludedByParent = (rel) =>
+  [...picker.excluded].some((e) => rel.startsWith(`${e}/`));
+
+// Re-read every row from the set, including rows added by a lazy expand.
+// A folder inside one that is already left out cannot be chosen separately:
+// its checkbox says what will happen and takes no orders.
+function refreshPickerRows() {
+  for (const row of picker.rows) {
+    const byParent = excludedByParent(row.rel);
+    row.box.checked = !byParent && !excludedExactly(row.rel);
+    row.box.disabled = byParent;
+    row.wrap.classList.toggle("off", byParent || excludedExactly(row.rel));
+  }
+  $("folders-count").textContent = foldersSummary([...picker.excluded].sort());
+}
+
+async function loadChildren(container, fullPath, depth) {
+  const dirs = await invoke("list_cloud_dirs", {
+    name: picker.remote,
+    path: fullPath,
+  });
+  for (const full of dirs) container.append(folderRow(full, depth));
+  refreshPickerRows();
+  return dirs.length;
+}
+
+function folderRow(full, depth) {
+  const rel = relativeTo(picker.base, full);
+  const wrap = document.createElement("div");
+  wrap.className = "tree-item";
+
+  const row = document.createElement("div");
+  row.className = "tree-row";
+  row.style.paddingInlineStart = `${depth * 20}px`;
+
+  const kids = document.createElement("div");
+  kids.className = "tree-kids hidden";
+
+  // Folders are opened on demand: a cloud with thousands of them must not
+  // be listed in full to answer "which ones do I want".
+  let loaded = false;
+  const toggle = makeBtn("▸", "tree-toggle", async () => {
+    if (!loaded) {
+      toggle.textContent = "⋯";
+      try {
+        await loadChildren(kids, full, depth + 1);
+        loaded = true;
+      } catch (e) {
+        showPickerError(e);
+        toggle.textContent = "▸";
+        return;
+      }
+    }
+    const hidden = kids.classList.toggle("hidden");
+    toggle.textContent = hidden ? "▸" : "▾";
+  });
+  toggle.type = "button";
+
+  const label = document.createElement("label");
+  const box = document.createElement("input");
+  box.type = "checkbox";
+  box.addEventListener("change", () => {
+    if (box.checked) {
+      picker.excluded.delete(rel);
+    } else {
+      picker.excluded.add(rel);
+      // Anything below it is covered by the parent's rule; keeping the
+      // children in the list would only make the rules harder to read.
+      for (const e of [...picker.excluded]) {
+        if (e.startsWith(`${rel}/`)) picker.excluded.delete(e);
+      }
+    }
+    refreshPickerRows();
+  });
+  const text = document.createElement("span");
+  text.textContent = lastSegment(full);
+  label.append(box, text);
+
+  row.append(toggle, label);
+  wrap.append(row, kids);
+  picker.rows.push({ rel, box, wrap });
+  return wrap;
+}
+
+function showPickerError(e) {
+  const el = $("folders-error");
+  el.textContent = String(e);
+  el.classList.remove("hidden");
+}
+
+// Open the picker. Resolves to the new list of excluded folders, or null
+// when the person changed their mind.
+function chooseFolders({ remote, base, excluded, title, hint }) {
+  return new Promise((resolve) => {
+    picker = {
+      remote,
+      base: base || "",
+      excluded: new Set(excluded || []),
+      rows: [],
+      resolve,
+    };
+    $("folders-title").textContent = title;
+    $("folders-hint").textContent = hint;
+    $("folders-error").classList.add("hidden");
+    $("folders-count").textContent = "";
+    const tree = $("folders-tree");
+    tree.innerHTML = "";
+    tree.classList.add("loading");
+    tree.textContent = "Reading the cloud…";
+    $("folders-dialog").showModal();
+    loadChildren(tree, picker.base, 0)
+      .then((n) => {
+        tree.classList.remove("loading");
+        tree.firstChild.remove(); // the "reading" line
+        if (!n) tree.textContent = "This folder has no subfolders.";
+      })
+      .catch((e) => {
+        tree.classList.remove("loading");
+        tree.textContent = "";
+        showPickerError(e);
+      });
+  });
+}
+
 // Where a drive's folder lives, for telling the person what will be removed.
 // Mirrors the backend: a custom mount point wins, otherwise ~/CloudDrives/<name>.
 function mountFolderOf(name, mountPoint) {
@@ -464,15 +610,23 @@ async function pollActivity() {
 // ---------- drives ----------
 
 async function fetchState() {
-  const [remotes, mounts, sysMounts] = await Promise.all([
+  const [remotes, mounts, sysMounts, recorded] = await Promise.all([
     invoke("list_remotes"),
     rc("mount/listmounts"),
     invoke("list_system_mounts"),
+    invoke("own_mounts"),
   ]);
-  // rclone answers with the canonical fs, which is "gdrive:" for a cloud but
-  // "gdrive:." for a local remote — the drive name is what precedes the colon.
+  // What is mounted right now comes from the engine; what each mount is
+  // called comes from Monti's own record of making it. rclone answers with
+  // the canonical fs — "gdrive:" for a cloud, "gdrive:." for a local remote,
+  // a bare path for an alias — and the last one has no drive name in it at
+  // all, which is how a mounted drive ended up labelled "not mounted".
+  const nameOfPoint = new Map(Object.entries(recorded).map(([n, p]) => [p, n]));
   const own = new Map(
-    (mounts.mountPoints || []).map((m) => [m.Fs.split(":")[0], m.MountPoint])
+    (mounts.mountPoints || []).map((m) => [
+      nameOfPoint.get(m.MountPoint) || m.Fs.split(":")[0],
+      m.MountPoint,
+    ])
   );
   const ownPoints = new Set(own.values());
   const external = new Map();
@@ -613,7 +767,12 @@ async function refreshRemotes() {
       actions.append(
         makeBtn("Mount", "primary", async () => {
           const mp = prefFor(name).mountPoint || null;
-          await invoke("mount_remote", { name, mountPoint: mp, vfs: vfsOptFor(name) });
+          await invoke("mount_remote", {
+            name,
+            mountPoint: mp,
+            vfs: vfsOptFor(name),
+            excludes: excludesFor(name),
+          });
           await refreshRemotes();
         }),
         makeBtn("⚙", "icon", () => openRemoteDialog(name), "Drive settings"),
@@ -675,6 +834,7 @@ async function autoRemount() {
         name,
         mountPoint: prefs[name].mountPoint || null,
         vfs: vfsOptFor(name),
+        excludes: excludesFor(name),
       });
     } catch (e) {
       retryAutoMount(name, 0, e);
@@ -710,6 +870,7 @@ function retryAutoMount(name, attempt, lastError) {
         name,
         mountPoint: prefFor(name).mountPoint || null,
         vfs: vfsOptFor(name),
+        excludes: excludesFor(name),
       });
       showError("");
       await refreshRemotes();
@@ -981,6 +1142,8 @@ async function showConflicts(card, name) {
 }
 
 let editingPair = null;
+// Folders left out of the pair being edited, in the picker's hands.
+let pairExcludes = [];
 
 async function openPairDialog(pair = null) {
   editingPair = pair;
@@ -1007,6 +1170,8 @@ async function openPairDialog(pair = null) {
   }
   $("pair-schedule").value = pair ? pair.schedule : "manual";
   $("pair-conflict").value = pair ? pair.conflictResolve : "newer";
+  pairExcludes = pair ? pair.excludes || [] : [];
+  $("pair-folders-status").textContent = foldersSummary(pairExcludes);
   $("pair-dialog").showModal();
 }
 
@@ -1018,6 +1183,26 @@ async function savePairFromDialog() {
     showError("Connect a cloud first — there is nothing to sync with.");
     return;
   }
+  // Changing which folders a working pair carries sends it through the
+  // first run again. That is not a formality: bisync compares this run
+  // against its own listing from last time, so folders that vanish behind
+  // a new filter read as "deleted here" — and answering Monti's delete
+  // question would then remove them from the cloud. The first run rebuilds
+  // the listing instead, and it never deletes anything.
+  const filterChanged =
+    editingPair && JSON.stringify(editingPair.excludes || []) !== JSON.stringify(pairExcludes);
+  if (filterChanged && editingPair.initialized) {
+    const { ok } = await ask({
+      title: `"${name}" will sync from scratch once`,
+      text: "You changed which folders this pair carries.",
+      points: [
+        "The next sync compares both sides fully and merges them, keeping the newer copy of anything that differs.",
+        "Nothing is deleted by that run, and folders you left out are simply not touched again.",
+      ],
+      okLabel: "Save",
+    });
+    if (!ok) return;
+  }
   try {
     await invoke("sync_pair_save", {
       pair: {
@@ -1027,6 +1212,7 @@ async function savePairFromDialog() {
         schedule: $("pair-schedule").value,
         conflictResolve: $("pair-conflict").value,
         initialized: editingPair ? editingPair.initialized : false,
+        excludes: pairExcludes,
       },
     });
   } catch (e) {
@@ -1097,11 +1283,15 @@ let dialogRemote = null;
 // Public half of the key as stored in config when the dialog opened; the
 // secret itself never reaches the webview (list_remotes is sanitized).
 let dialogKey = { id: "" };
+// Folders left out, edited by the picker and written on Save.
+let dialogExcludes = [];
 
 async function openRemoteDialog(name) {
   dialogRemote = name;
   showError("");
   const pref = prefFor(name);
+  dialogExcludes = excludesFor(name);
+  $("remote-folders-status").textContent = foldersSummary(dialogExcludes);
   $("remote-title").textContent = `${name} — settings`;
   $("remote-mountpoint").value = pref.mountPoint || "";
   $("remote-automount").checked = !!pref.automount;
@@ -1391,6 +1581,7 @@ window.addEventListener("DOMContentLoaded", () => {
     "confirm-dialog",
     "remote-dialog",
     "pair-dialog",
+    "folders-dialog",
     "firstsync-dialog",
   ]) {
     closeOnBackdropClick($(id));
@@ -1462,6 +1653,63 @@ window.addEventListener("DOMContentLoaded", () => {
     } finally {
       btn.disabled = false;
     }
+  });
+
+  // --- choosing folders ---
+  $("folders-cancel").addEventListener("click", () => $("folders-dialog").close());
+  $("folders-all").addEventListener("click", () => {
+    picker.excluded.clear();
+    refreshPickerRows();
+  });
+  // Closing by Escape or by clicking beside the dialog means "never mind",
+  // so the promise has to settle either way — a picker nobody answered must
+  // not leave the settings dialog waiting forever.
+  $("folders-dialog").addEventListener("close", () => {
+    if (picker?.resolve) picker.resolve(null);
+    picker = null;
+  });
+  $("folders-form").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const chosen = [...picker.excluded].sort();
+    picker.resolve(chosen);
+    picker.resolve = null;
+    $("folders-dialog").close();
+  });
+
+  $("remote-folders-choose").addEventListener("click", async () => {
+    const chosen = await chooseFolders({
+      remote: dialogRemote,
+      base: "",
+      excluded: dialogExcludes,
+      title: `Folders of "${dialogRemote}"`,
+      hint:
+        "Unticked folders are left out of the mounted drive: they stay in " +
+        "the cloud, they just do not appear on this computer.",
+    });
+    if (!chosen) return;
+    dialogExcludes = chosen;
+    $("remote-folders-status").textContent = foldersSummary(chosen);
+  });
+
+  $("pair-folders-choose").addEventListener("click", async () => {
+    const remote = $("pair-remote").value;
+    if (!remote) {
+      showError("Pick the cloud first — its folders are what you choose from.");
+      return;
+    }
+    const base = $("pair-path").value.trim().replace(/^\/+|\/+$/g, "");
+    const chosen = await chooseFolders({
+      remote,
+      base,
+      excluded: pairExcludes,
+      title: "Folders to sync",
+      hint:
+        "Unticked folders are not synced: they stay as they are on both " +
+        "sides, and Monti stops comparing them.",
+    });
+    if (!chosen) return;
+    pairExcludes = chosen;
+    $("pair-folders-status").textContent = foldersSummary(chosen);
   });
 
   // --- synced folders ---
@@ -1632,9 +1880,13 @@ window.addEventListener("DOMContentLoaded", () => {
       showError(`"${maxAge}" is not a duration — try something like 30m, 24h or 7d.`);
       return;
     }
-    setPref(dialogRemote, {
+    const name = dialogRemote;
+    const foldersChanged =
+      JSON.stringify(excludesFor(name)) !== JSON.stringify(dialogExcludes);
+    setPref(name, {
       mountPoint: $("remote-mountpoint").value.trim() || null,
       automount: $("remote-automount").checked,
+      excludes: dialogExcludes,
       vfs: {
         readOnly: $("remote-readonly").checked,
         maxSize: maxSize || null,
@@ -1672,5 +1924,33 @@ window.addEventListener("DOMContentLoaded", () => {
     }
     $("remote-dialog").close();
     await refreshRemotes();
+    // A mounted drive keeps showing the old set of folders: rclone builds
+    // the filter when the mount is made. Say so, and offer the remount
+    // rather than leaving a setting that appears to have done nothing.
+    if (foldersChanged && ownMounts.has(name)) {
+      const point = ownMounts.get(name);
+      const { ok } = await ask({
+        title: `Remount "${name}" now?`,
+        text: "The folders you chose apply from the next mount on.",
+        points: [
+          "Monti unmounts the drive and mounts it again — a few seconds.",
+          "Files open from that folder right now would lose their connection.",
+        ],
+        okLabel: "Remount",
+      });
+      if (!ok) return;
+      try {
+        await invoke("unmount_remote", { mountPoint: point });
+        await invoke("mount_remote", {
+          name,
+          mountPoint: prefFor(name).mountPoint || null,
+          vfs: vfsOptFor(name),
+          excludes: excludesFor(name),
+        });
+      } catch (e) {
+        showError(String(e));
+      }
+      await refreshRemotes();
+    }
   });
 });

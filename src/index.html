@@ -429,6 +429,14 @@
 
         <div class="cache-row">
           <div>
+            <div class="setting-name">Folders</div>
+            <div class="muted" id="remote-folders-status">All folders</div>
+          </div>
+          <button class="btn" type="button" id="remote-folders-choose">Choose…</button>
+        </div>
+
+        <div class="cache-row">
+          <div>
             <div class="setting-name">Cached on this computer</div>
             <div class="muted" id="remote-cache-used">—</div>
           </div>
@@ -517,11 +525,36 @@
           do with it.
         </p>
 
+        <div class="cache-row">
+          <div>
+            <div class="setting-name">Folders</div>
+            <div class="muted" id="pair-folders-status">All folders</div>
+          </div>
+          <button class="btn" type="button" id="pair-folders-choose">Choose…</button>
+        </div>
+
         <p class="error hidden" id="pair-error"></p>
         <div class="dialog-actions">
           <span class="spacer"></span>
           <button class="btn" type="button" id="pair-cancel">Cancel</button>
           <button class="btn primary" type="submit" id="pair-save">Save</button>
+        </div>
+      </form>
+    </dialog>
+
+    <!-- ============ FOLDER PICKER ============ -->
+    <dialog id="folders-dialog">
+      <form method="dialog" id="folders-form">
+        <h2 id="folders-title">Choose folders</h2>
+        <p class="muted" id="folders-hint"></p>
+        <div class="tree" id="folders-tree"></div>
+        <p class="muted" id="folders-count"></p>
+        <p class="error hidden" id="folders-error"></p>
+        <div class="dialog-actions">
+          <button class="btn" type="button" id="folders-all">Select all</button>
+          <span class="spacer"></span>
+          <button class="btn" type="button" id="folders-cancel">Cancel</button>
+          <button class="btn primary" type="submit" id="folders-save">Save</button>
         </div>
       </form>
     </dialog>
