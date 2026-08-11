@@ -399,7 +399,10 @@
         <h2 id="remote-title">Drive settings</h2>
         <label>
           Mount folder
-          <input id="remote-mountpoint" placeholder="~/CloudDrives/…" />
+          <span class="path-row">
+            <input id="remote-mountpoint" placeholder="~/CloudDrives/…" />
+            <button class="btn" type="button" id="remote-browse">Browse…</button>
+          </span>
         </label>
         <p class="muted">Leave empty for the default. Applies on next mount.</p>
         <label class="check-row">
@@ -483,7 +486,10 @@
         </label>
         <label>
           Folder on this computer
-          <input id="pair-local" class="mono" placeholder="~/Documents" />
+          <span class="path-row">
+            <input id="pair-local" class="mono" placeholder="~/Documents" />
+            <button class="btn" type="button" id="pair-browse">Browse…</button>
+          </span>
         </label>
         <div class="two-col">
           <label>
@@ -542,6 +548,24 @@
       </form>
     </dialog>
 
+    <!-- ============ SHARE LINK ============ -->
+    <dialog id="link-dialog">
+      <form method="dialog" id="link-form">
+        <h2>Link to this file</h2>
+        <p class="muted" id="link-file"></p>
+        <input id="link-url" class="mono" readonly />
+        <p class="muted">
+          Anyone with the link can open the file. Remove the link again in
+          the provider's own web interface.
+        </p>
+        <div class="dialog-actions">
+          <span class="spacer"></span>
+          <button class="btn" type="button" id="link-copy">Copy</button>
+          <button class="btn primary" type="submit" id="link-close">Done</button>
+        </div>
+      </form>
+    </dialog>
+
     <!-- ============ FOLDER PICKER ============ -->
     <dialog id="folders-dialog">
       <form method="dialog" id="folders-form">
@@ -564,6 +588,7 @@
       <form method="dialog" id="firstsync-form">
         <h2>First sync</h2>
         <p class="muted" id="firstsync-text"></p>
+        <p class="muted" id="firstsync-space"></p>
         <label>
           When the same file exists on both sides
           <select id="firstsync-mode">

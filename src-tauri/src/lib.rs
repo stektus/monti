@@ -1072,6 +1072,106 @@ fn clear_vfs_cache(app: AppHandle, name: String) -> Result<(), String> {
     Ok(())
 }
 
+/// Whether this drive's provider can hand out a link to a file. Google
+/// Drive, Dropbox, OneDrive and pCloud can; S3, SFTP and WebDAV cannot, and
+/// a button that fails for half the drives is worse than no button.
+#[tauri::command]
+async fn supports_links(state: State<'_, EngineState>, name: String) -> Result<bool, String> {
+    let (port, pass) = {
+        let eng = state.0.lock().unwrap();
+        (eng.port, eng.pass.clone())
+    };
+    let info = engine::rc_raw_with_timeout(
+        port,
+        &pass,
+        "operations/fsinfo",
+        &json!({ "fs": format!("{name}:") }),
+        20,
+    )?;
+    Ok(info
+        .get("Features")
+        .and_then(|f| f.get("PublicLink"))
+        .and_then(Value::as_bool)
+        .unwrap_or(false))
+}
+
+/// Pick a file inside a mounted drive and ask the provider for a link to it.
+///
+/// The file chooser starts in the drive's own folder, so what comes back is
+/// a path Monti can turn into the remote path the provider expects.
+/// Returns None when the chooser was dismissed.
+#[tauri::command]
+async fn share_link(
+    state: State<'_, EngineState>,
+    name: String,
+) -> Result<Option<String>, String> {
+    let (port, pass, mount_point) = {
+        let eng = state.0.lock().unwrap();
+        let point = eng
+            .mounts
+            .get(&format!("{name}:"))
+            .map(|m| PathBuf::from(&m.mount_point))
+            .ok_or("mount the drive first — links are made from its files")?;
+        (eng.port, eng.pass.clone(), point)
+    };
+    let Some(file) = rfd::FileDialog::new()
+        .set_title("Pick a file to share")
+        .set_directory(&mount_point)
+        .pick_file()
+    else {
+        return Ok(None);
+    };
+    let remote = file
+        .strip_prefix(&mount_point)
+        .map_err(|_| {
+            format!(
+                "pick a file inside {} — that folder is the drive",
+                mount_point.display()
+            )
+        })?
+        .to_string_lossy()
+        .into_owned();
+    let out = engine::rc_raw_with_timeout(
+        port,
+        &pass,
+        "operations/publiclink",
+        &json!({ "fs": format!("{name}:"), "remote": remote }),
+        60,
+    )?;
+    out.get("url")
+        .and_then(Value::as_str)
+        .map(|u| Some(u.to_string()))
+        .ok_or_else(|| "the provider returned no link".into())
+}
+
+/// Ask for a folder with the system's own chooser.
+///
+/// Typing a path is fine until it is not: a typo in a mount folder shows up
+/// as a mount that fails for no visible reason.
+///
+/// The dialog must NOT be opened from the main thread. rfd's GTK backend
+/// runs it on a GTK thread of its own and blocks the caller until it closes,
+/// so asking the main thread to do that deadlocks the whole app — measured,
+/// with the main thread parked in a futex and the window frozen. Commands
+/// declared `async` run off the main thread, which is exactly what is wanted.
+#[tauri::command]
+async fn pick_folder(app: AppHandle, start: Option<String>) -> Result<Option<String>, String> {
+    let home = app.path().home_dir().ok();
+    let mut dialog = rfd::FileDialog::new().set_title("Choose a folder");
+    // Start where the person already is, or at home — never at "/".
+    let start_dir = start
+        .map(|s| match s.strip_prefix("~/") {
+            Some(rest) => home.clone().map(|h| h.join(rest)).unwrap_or(rest.into()),
+            None => PathBuf::from(s),
+        })
+        .filter(|p| p.is_dir())
+        .or(home);
+    if let Some(dir) = start_dir {
+        dialog = dialog.set_directory(dir);
+    }
+    Ok(dialog.pick_folder().map(|p| p.display().to_string()))
+}
+
 /// The drives Monti itself mounted: drive name → folder.
 ///
 /// The interface cannot get this from rclone's own listing. `mount/listmounts`
@@ -1372,25 +1472,108 @@ async fn app_info(app: AppHandle, flags: State<'_, Flags>) -> Result<AppInfo, St
 
 // ---------- tray ----------
 
-fn build_tray(app: &AppHandle) -> tauri::Result<()> {
+/// One drive as the tray shows it.
+#[derive(serde::Deserialize)]
+struct TrayDrive {
+    name: String,
+    mounted: bool,
+}
+
+/// The tray menu: what is going on, and the one action per drive worth
+/// having without opening the window.
+fn tray_menu(
+    app: &AppHandle,
+    engine_running: bool,
+    drives: &[TrayDrive],
+) -> tauri::Result<Menu<tauri::Wry>> {
     let show = MenuItem::with_id(app, "show", "Open Monti", true, None::<&str>)?;
-    let sep = PredefinedMenuItem::separator(app)?;
     let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&show, &sep, &quit])?;
+    // A disabled item is how a menu says something rather than offers it.
+    let status = MenuItem::with_id(
+        app,
+        "status",
+        if engine_running {
+            "Engine running"
+        } else {
+            "Engine stopped"
+        },
+        false,
+        None::<&str>,
+    )?;
+    let menu = Menu::with_items(app, &[&show, &PredefinedMenuItem::separator(app)?, &status])?;
+    for drive in drives {
+        let (id, label) = if drive.mounted {
+            (
+                format!("unmount:{}", drive.name),
+                format!("Unmount “{}”", drive.name),
+            )
+        } else {
+            (
+                format!("mount:{}", drive.name),
+                format!("Mount “{}”", drive.name),
+            )
+        };
+        menu.append(&MenuItem::with_id(
+            app,
+            id,
+            label,
+            engine_running,
+            None::<&str>,
+        )?)?;
+    }
+    menu.append_items(&[&PredefinedMenuItem::separator(app)?, &quit])?;
+    Ok(menu)
+}
+
+/// Redraw the tray. Called by the interface whenever the drive list changes,
+/// because the interface is where mount preferences live: the tray asks it to
+/// act rather than acting itself.
+#[tauri::command]
+fn update_tray(app: AppHandle, engine_running: bool, drives: Vec<TrayDrive>) -> Result<(), String> {
+    let Some(tray) = app.tray_by_id("monti-tray") else {
+        return Ok(()); // no tray on this desktop; the window says it all
+    };
+    let mounted = drives.iter().filter(|d| d.mounted).count();
+    let menu = tray_menu(&app, engine_running, &drives).map_err(|e| e.to_string())?;
+    tray.set_menu(Some(menu)).map_err(|e| e.to_string())?;
+    let tip = match (engine_running, mounted) {
+        (false, _) => "Monti — engine stopped".to_string(),
+        (true, 0) => "Monti — no drives mounted".to_string(),
+        (true, 1) => "Monti — 1 drive mounted".to_string(),
+        (true, n) => format!("Monti — {n} drives mounted"),
+    };
+    tray.set_tooltip(Some(tip)).map_err(|e| e.to_string())
+}
+
+fn build_tray(app: &AppHandle) -> tauri::Result<()> {
     TrayIconBuilder::with_id("monti-tray")
         .icon(app.default_window_icon().expect("bundle has icons").clone())
         .tooltip("Monti — cloud drives")
-        .menu(&menu)
-        .on_menu_event(|app, event| match event.id.as_ref() {
-            "show" => {
-                if let Some(w) = app.get_webview_window("main") {
-                    let _ = w.show();
-                    let _ = w.unminimize();
-                    let _ = w.set_focus();
+        .menu(&tray_menu(app, true, &[])?)
+        .on_menu_event(|app, event| {
+            let id = event.id.as_ref();
+            match id {
+                "show" => {
+                    if let Some(w) = app.get_webview_window("main") {
+                        let _ = w.show();
+                        let _ = w.unminimize();
+                        let _ = w.set_focus();
+                    }
+                }
+                "quit" => app.exit(0),
+                _ => {
+                    // Mounting needs the drive's saved options, and those live
+                    // in the interface — so the tray asks it to do the work,
+                    // window open or not.
+                    for (prefix, action) in [("mount:", "mount"), ("unmount:", "unmount")] {
+                        if let Some(name) = id.strip_prefix(prefix) {
+                            let _ =
+                                app.emit("tray-action", json!({ "action": action, "name": name }));
+                            break;
+                        }
+                    }
                 }
             }
-            "quit" => app.exit(0),
-            _ => {}
         })
         .build(app)?;
     Ok(())
@@ -1534,6 +1717,7 @@ pub fn run() {
             sync::sync_pairs,
             sync::sync_pair_save,
             sync::sync_pair_remove,
+            sync::sync_estimate,
             sync::sync_run,
             sync::sync_progress,
             sync::sync_finished,
@@ -1542,7 +1726,11 @@ pub fn run() {
             sync::sync_resolve,
             clear_vfs_cache,
             list_cloud_dirs,
+            pick_folder,
+            supports_links,
+            share_link,
             own_mounts,
+            update_tray,
             mount_remote,
             unmount_remote,
             unmount_external,

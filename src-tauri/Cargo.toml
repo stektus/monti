@@ -31,4 +31,8 @@ base64 = "0.22"
 zip = { version = "2", default-features = false, features = ["deflate"] }
 sha2 = "0.10"
 libc = "0.2"
+# Native folder chooser. GTK3 rather than the XDG portal on purpose: Monti
+# is a GTK app already, so the dialog needs no portal service running and
+# appears on the app's own display like the rest of it.
+rfd = { version = "0.17", default-features = false, features = ["gtk3"] }
 

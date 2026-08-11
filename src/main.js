@@ -39,9 +39,14 @@ const setPref = (name, patch) => {
 
 // ---------- small helpers ----------
 
+// Whether the engine is up, as last seen. The tray shows it too, and the
+// tray is often the only part of Monti on screen.
+let engineRunning = false;
+
 function setEngine(stateClass, label) {
   $("engine-dot").className = `dot ${stateClass}`;
   $("engine-label").textContent = label;
+  engineRunning = stateClass === "ok";
 }
 
 // Render the message inside the open modal dialog (the page-level banner
@@ -641,6 +646,15 @@ async function fetchState() {
 async function refreshRemotes() {
   const { remotes, own, external } = await fetchState();
   ownMounts = own;
+  // The tray is drawn from the same state, so it never disagrees with the
+  // window about what is mounted.
+  invoke("update_tray", {
+    engineRunning: engineRunning,
+    drives: remotes.map((r) => ({
+      name: r.name,
+      mounted: own.has(r.name) || external.has(r.name),
+    })),
+  }).catch(() => {});
   const list = $("remotes-list");
   list.innerHTML = "";
   $("empty-hint").classList.toggle("hidden", remotes.length > 0);
@@ -740,6 +754,7 @@ async function refreshRemotes() {
         }),
         makeBtn("⚙", "icon", () => openRemoteDialog(name), "Drive settings")
       );
+      addShareButton(actions, name);
     } else if (extPoint) {
       actions.append(
         makeBtn("Open folder", "primary", () => invoke("open_folder", { path: extPoint })),
@@ -840,6 +855,35 @@ async function autoRemount() {
       retryAutoMount(name, 0, e);
     }
   }
+}
+
+// "Share a file" belongs only on drives whose provider makes links —
+// Drive, Dropbox, OneDrive, pCloud. The answer comes from the engine, so
+// the button appears a moment after the card; that beats a button that
+// half the drives answer with an error.
+function addShareButton(actions, name) {
+  invoke("supports_links", { name })
+    .then((can) => {
+      if (!can) return;
+      actions.append(
+        makeBtn("Share a file", "", () => shareFile(name), "Get a link to a file in this drive")
+      );
+    })
+    .catch(() => {});
+}
+
+async function shareFile(name) {
+  let url;
+  try {
+    url = await invoke("share_link", { name });
+  } catch (e) {
+    showError(String(e));
+    return;
+  }
+  if (!url) return; // the chooser was dismissed
+  $("link-url").value = url;
+  $("link-copy").textContent = "Copy";
+  $("link-dialog").showModal();
 }
 
 // Autostart puts Monti on screen before the network is necessarily up, and a
@@ -981,6 +1025,31 @@ function askFirstSync(pair) {
     dlg.addEventListener("close", onClose, { once: true });
     $("firstsync-form").addEventListener("submit", onSubmit, { once: true });
     $("firstsync-cancel").onclick = () => dlg.close();
+    // What this will cost in disk space, measured with the pair's own
+    // folder choices. It arrives while the dialog is already open: walking
+    // a cloud folder takes seconds, and the question is answerable without
+    // it — a sync that runs out of disk halfway is the thing to avoid.
+    const space = $("firstsync-space");
+    space.textContent = "Measuring the cloud folder…";
+    space.classList.remove("warn-text");
+    invoke("sync_estimate", { name: pair.name })
+      .then(({ cloudBytes, cloudFiles, freeBytes }) => {
+        if (cloudBytes == null) {
+          space.textContent = "";
+          return;
+        }
+        const files = cloudFiles === 1 ? "1 file" : `${cloudFiles} files`;
+        space.textContent =
+          `The cloud side holds ${fmtBytes(cloudBytes)} in ${files}` +
+          (freeBytes == null ? "." : `; this computer has ${fmtBytes(freeBytes)} free.`);
+        if (freeBytes != null && cloudBytes > freeBytes) {
+          space.textContent += " It will not all fit — leave some folders out first.";
+          space.classList.add("warn-text");
+        }
+      })
+      .catch(() => {
+        space.textContent = "";
+      });
     dlg.showModal();
   });
 }
@@ -1582,12 +1651,46 @@ window.addEventListener("DOMContentLoaded", () => {
     "remote-dialog",
     "pair-dialog",
     "folders-dialog",
+    "link-dialog",
     "firstsync-dialog",
   ]) {
     closeOnBackdropClick($(id));
   }
   boot();
   initSettings().catch((e) => showError(String(e)));
+
+  // The tray's per-drive actions. They happen with the window hidden, so
+  // anything that goes wrong is said in a notification — an error banner in
+  // a window nobody is looking at is not saying it.
+  listen("tray-action", async (e) => {
+    const { action, name } = e.payload;
+    try {
+      if (action === "mount") {
+        await invoke("mount_remote", {
+          name,
+          mountPoint: prefFor(name).mountPoint || null,
+          vfs: vfsOptFor(name),
+          excludes: excludesFor(name),
+        });
+      } else {
+        const point = ownMounts.get(name);
+        if (!point) return;
+        await invoke("unmount_remote", { mountPoint: point });
+      }
+      await refreshRemotes();
+    } catch (err) {
+      const pending = String(err).match(/UPLOADS_PENDING:(\d+)/);
+      if (pending) {
+        notify(
+          `“${name}” is still uploading`,
+          `${pending[1]} file(s) have not reached the cloud yet. Open Monti to unmount anyway.`
+        );
+      } else {
+        notify(`Could not ${action} “${name}”`, String(err));
+        showError(String(err));
+      }
+    }
+  });
 
   // Live progress for the engine download (first install and reinstall).
   listen("engine-download", (e) => {
@@ -1654,6 +1757,31 @@ window.addEventListener("DOMContentLoaded", () => {
       btn.disabled = false;
     }
   });
+
+  // --- a link to a file ---
+  $("link-copy").addEventListener("click", () => {
+    const field = $("link-url");
+    field.select();
+    // execCommand is old, but the async clipboard API needs a secure origin
+    // and the webview's tauri:// origin is not one of those.
+    const done = document.execCommand("copy");
+    $("link-copy").textContent = done ? "Copied" : "Press Ctrl+C";
+  });
+
+  // --- browsing for a folder on this computer ---
+  for (const [button, field] of [
+    ["remote-browse", "remote-mountpoint"],
+    ["pair-browse", "pair-local"],
+  ]) {
+    $(button).addEventListener("click", async () => {
+      try {
+        const picked = await invoke("pick_folder", { start: $(field).value.trim() || null });
+        if (picked) $(field).value = picked;
+      } catch (e) {
+        showError(String(e));
+      }
+    });
+  }
 
   // --- choosing folders ---
   $("folders-cancel").addEventListener("click", () => $("folders-dialog").close());

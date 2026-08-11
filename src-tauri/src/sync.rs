@@ -193,6 +193,53 @@ pub fn sync_pair_remove(app: AppHandle, name: String) -> Result<(), String> {
     save_pairs(&app, &pairs)
 }
 
+/// What the first run of a pair would cost in disk space.
+///
+/// The cloud side is measured with the pair's own filter, so the number is
+/// what will actually land here, not what the folder holds. Providers that
+/// cannot answer, and folders too large to walk in the time given, return
+/// `None` for the size — a first sync is not worth blocking over a figure
+/// nobody could get.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SyncEstimate {
+    cloud_bytes: Option<u64>,
+    cloud_files: Option<u64>,
+    free_bytes: Option<u64>,
+}
+
+#[tauri::command]
+pub async fn sync_estimate(
+    app: AppHandle,
+    state: State<'_, EngineState>,
+    name: String,
+) -> Result<SyncEstimate, String> {
+    let pair = load_pairs(&app)
+        .into_iter()
+        .find(|p| p.name == name)
+        .ok_or_else(|| format!("no sync pair called \"{name}\""))?;
+    let (port, pass) = {
+        let eng = state.0.lock().unwrap();
+        (eng.port, eng.pass.clone())
+    };
+    let mut body = json!({ "fs": pair.remote });
+    if let Some(filter) = crate::engine::filter_opt(&pair.excludes) {
+        body["_filter"] = filter;
+    }
+    let measured = rc_raw_with_timeout(port, &pass, "operations/size", &body, 30).ok();
+    Ok(SyncEstimate {
+        cloud_bytes: measured
+            .as_ref()
+            .and_then(|v| v.get("bytes"))
+            .and_then(Value::as_u64),
+        cloud_files: measured
+            .as_ref()
+            .and_then(|v| v.get("count"))
+            .and_then(Value::as_u64),
+        free_bytes: crate::engine::free_space(Path::new(&pair.local)),
+    })
+}
+
 /// Start a sync. Returns the daemon's job id: bisync of a real folder takes
 /// minutes, so it runs as an async job and the UI follows `sync_progress`.
 ///

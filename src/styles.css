@@ -601,6 +601,18 @@ dialog select:focus-visible {
 }
 .cache-row .setting-name { margin-bottom: 2px; }
 
+/* A line that has turned into a caution — "it will not all fit". */
+.warn-text { color: var(--warn-text); }
+
+/* A path field with its Browse… button beside it. */
+.path-row {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+.path-row input { flex: 1; min-width: 0; }
+.path-row .btn { flex: none; white-space: nowrap; }
+
 /* ---------- folder picker ---------- */
 
 .tree {
