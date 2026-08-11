@@ -185,9 +185,9 @@ jobs:
           synced folders are kept. Removing Monti later:
           `./install.sh --uninstall`.
 
-          Only the newest release is kept here, so what earlier versions
-          brought is in
-          [CHANGELOG.md](https://github.com/stektus/monti/blob/main/CHANGELOG.md).
+          Every version is in
+          [CHANGELOG.md](https://github.com/stektus/monti/blob/main/CHANGELOG.md),
+          and earlier releases stay on this page if you need to go back.
           EOF
           head -40 /tmp/notes.md
           gh release create "${{ github.ref_name }}" \
@@ -195,18 +195,11 @@ jobs:
             --notes-file /tmp/notes.md \
             *.AppImage *.deb *.rpm SHA256SUMS
 
-      # House rule: exactly one published release. Once the new one is
-      # live, superseded releases (and their tags) go away.
-      - name: Keep only the newest release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh release list --repo "${{ github.repository }}" --json tagName -q '.[].tagName' \
-            | grep -vx "${{ github.ref_name }}" \
-            | while read -r t; do
-                echo "deleting superseded release $t"
-                # --cleanup-tag errors out when the tag is already gone;
-                # delete release and tag separately, tolerating absence.
-                gh release delete "$t" --repo "${{ github.repository }}" --yes || true
-                git push origin --delete "refs/tags/$t" 2>/dev/null || true
-              done
+      # Releases are kept. Deleting the previous one breaks every link that
+      # points at it — a bug report saying "0.6.0 does this", a PKGBUILD
+      # pinned to a version, an install command someone pasted in a forum —
+      # and it takes away the one thing a person can do when a new version
+      # misbehaves: go back to the one that worked. A release that turns out
+      # to be broken is marked as a pre-release by hand, with a line at the
+      # top of its notes saying so; that steers people away without
+      # invalidating anything.
