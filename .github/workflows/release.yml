@@ -157,8 +157,18 @@ jobs:
           ls -l
           sha256sum ./*.AppImage ./*.deb ./*.rpm | sed 's|\./||' > SHA256SUMS
           cat SHA256SUMS
-          cat > /tmp/notes.md <<'EOF'
-          Mount your clouds — download, install, click **Add cloud**.
+          # What changed, taken from the changelog's newest section: the
+          # release page is where someone decides whether this version is
+          # worth their evening, and "download and click Add cloud" does not
+          # answer that. Everything from the first "## v" heading up to the
+          # next one, the headings themselves left out.
+          awk '/^## v/{n++} n==1 && !/^## v/' "$GITHUB_WORKSPACE/CHANGELOG.md" \
+            | sed '/./,$!d' > /tmp/notes.md
+          cat >> /tmp/notes.md <<'EOF'
+
+          ---
+
+          Download, install, click **Add cloud**.
 
           | Package | For |
           |---|---|
@@ -170,7 +180,12 @@ jobs:
           ARM machines. FUSE3 is required at runtime (preinstalled on most
           desktop distros). `SHA256SUMS` lists checksums for every package;
           the install script verifies them automatically.
+
+          Upgrading? Install over the old version — your drives, settings and
+          synced folders are kept. Removing Monti later:
+          `./install.sh --uninstall`.
           EOF
+          head -40 /tmp/notes.md
           gh release create "${{ github.ref_name }}" \
             --title "Monti ${{ github.ref_name }}" \
             --notes-file /tmp/notes.md \
