@@ -367,15 +367,16 @@ npm run tauri dev      # run in development
 npm run tauri build    # .AppImage / .deb / .rpm in src-tauri/target/release/bundle/
 ```
 
-`npm run tauri dev` works without the appindicator library (the tray is simply
-off), but `npm run tauri build` needs it to bundle.
-
 ## Contributing
 
-Issues and pull requests are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md).
-The codebase is deliberately small: `src-tauri/src/engine.rs` (daemon
-lifecycle), `src-tauri/src/lib.rs` (commands and tray) and `src/main.js` (UI).
-If you can read those three files, you understand the whole app.
+The most useful thing anyone can send is a bug report — Monti is early beta,
+and most of what works today works because someone said it did not. "This
+screen confused me" is a report as well; so is trying a provider on hardware or
+a desktop nobody here has.
+
+Want to touch the code? [CONTRIBUTING.md](CONTRIBUTING.md) has the layout, the
+checks to run before a pull request, and the handful of rules that are not up
+for debate — no secrets on a command line being the first of them.
 
 ## License
 

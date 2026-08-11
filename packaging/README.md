@@ -1,50 +1,32 @@
 # Packaging
 
-The `.AppImage`, `.deb` and `.rpm` are built by the
-[release workflow](../.github/workflows/release.yml) on every `v*` tag, run on
-Debian 12, Ubuntu 24.04, Fedora 42 and Arch before publishing, and attached to
-the GitHub release. Everything here is about the channels that need a human.
+`.AppImage`, `.deb` and `.rpm` are built by the
+[release workflow](../.github/workflows/release.yml) on every `v*` tag, launched
+on Debian 12, Ubuntu 24.04, Fedora 42 and Arch, and attached to the GitHub
+release. Nothing here is needed to install Monti — see the
+[README](../README.md) for that.
 
-## Arch — `packaging/aur/PKGBUILD`
+## `aur/PKGBUILD` — the Arch package
 
-Repackages the release `.deb`, so it follows a release within minutes and
-needs no build machine. The checksums in it are the ones from the current
-release, and `makepkg` refuses to build if the download does not match them.
-
-Anyone on Arch can install that package straight from a clone:
-
-```bash
-git clone https://github.com/stektus/monti
-cd monti/packaging/aur && makepkg -si
-```
-
-**The AUR itself is not an option at the moment.** After the mid-2026 flood of
-malicious packages, aur.archlinux.org closed new account registration, and the
-aurweb v6.5.0 announcement (11 August 2026) still says "Registration remains
-closed for now" with no date attached. `monti-bin` is therefore not on the AUR
-yet — the command above is the Arch path until an account can be created.
-
-When registration reopens: create the account, add an SSH key,
-`git clone ssh://aur@aur.archlinux.org/monti-bin.git`, and after each release
+Repackages the release `.deb`, so it needs no build machine and follows a
+release within minutes. `makepkg` refuses to build if the download does not
+match the checksums in it.
 
 ```bash
-cd monti-bin                     # the AUR clone
-cp ../monti/packaging/aur/{PKGBUILD,.SRCINFO} .
-git commit -am "monti-bin <new version>" && git push
+cd packaging/aur && makepkg -si
 ```
 
-The `PKGBUILD` and `.SRCINFO` here are kept release-ready, so that is the whole
-job. Regenerating them for a new version:
+Bumping it to a new release:
 
 ```bash
 sed -i "s/^pkgver=.*/pkgver=<new version>/" PKGBUILD
-updpkgsums                       # real checksums from the release
+updpkgsums                        # checksums from the published release
 makepkg --printsrcinfo > .SRCINFO
-makepkg -si                      # build and install it once, to be sure
+makepkg -si                       # build it once before committing
 ```
 
-`updpkgsums` comes from `pacman-contrib`; the AUR rejects a push whose
-`.SRCINFO` does not match the `PKGBUILD`.
+`updpkgsums` comes from `pacman-contrib`. It is not on the AUR: registration
+for new maintainer accounts is closed there.
 
 ## Flatpak — closed, not open
 

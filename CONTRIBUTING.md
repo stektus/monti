@@ -61,6 +61,9 @@ cd .. && node --check src/main.js
 CI runs the same. Tests that spawn rclone deliberately clear `DISPLAY` so no
 browser window opens during a test run.
 
+`npm run tauri dev` works without the appindicator library (the tray is simply
+off), but `npm run tauri build` needs it to bundle.
+
 For UI changes, run the app and look at it — `npm run tauri dev`. On a headless
 machine, a virtual display works:
 
