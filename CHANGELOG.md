@@ -2,6 +2,14 @@
 
 Notable changes per release. Dates are the release date.
 
+## Unreleased
+
+**Paths read the right way round again.** A drive card shows its folder
+truncated from the left, so the end — the part that says which folder it is —
+always survives. The trick that does the truncating also dragged the leading
+`/` to the other end, so `/home/you/CloudDrives/gdrive` came out as
+`home/you/CloudDrives/gdrive/`. Same for file names in the transfer list.
+
 ## v0.7.0 — 2026-08-11
 
 **Choose which folders a drive carries.** A cloud with 2 TB in it does not

@@ -249,6 +249,17 @@ a:hover { text-decoration: underline; }
   text-align: left;
   min-height: 18px;
 }
+
+/* `direction: rtl` puts the ellipsis at the front, and on its own it also
+   drags the leading "/" to the other end — "/tmp/x" reads as "tmp/x/". The
+   text sits in an explicitly left-to-right inline box (see setPath) so the
+   order survives the truncation. */
+.remote-path > span,
+.transfer-name > span {
+  direction: ltr;
+  unicode-bidi: embed;
+}
+
 .remote-cache { font-size: 12px; margin-top: 3px; min-height: 18px; }
 
 /* Recent transfers: one line per file, name truncated from the left so the

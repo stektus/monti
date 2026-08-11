@@ -181,6 +181,21 @@ function makeBtn(label, extra, onClick, title = "") {
   return b;
 }
 
+// A path is truncated from the left — the tail says which folder this is —
+// which the stylesheet does with `direction: rtl`. That alone reorders the
+// neutral characters at the ends, so "/tmp/x" comes out as "tmp/x/". The
+// text goes into an inline box of its own that is explicitly left-to-right:
+// the ellipsis stays at the front and the slashes stay where they were
+// written. Copying the line still yields the plain path — no invisible
+// control characters are added.
+function setPath(el, text, title = text) {
+  el.textContent = "";
+  const inner = document.createElement("span");
+  inner.textContent = text;
+  el.append(inner);
+  el.title = title;
+}
+
 // ---------- browser-authorization state (shared by both dialogs) ----------
 
 let authInProgress = false;
@@ -712,12 +727,12 @@ async function refreshRemotes() {
     card.querySelector(".remote-name").textContent = name;
     card.querySelector(".provider").textContent = PROVIDER_LABELS[type] || type;
     if (wraps) card.querySelector(".wraps").textContent = `in ${wraps}`;
-    const pathEl = card.querySelector(".remote-path");
-    pathEl.textContent =
-      ownPoint || extPoint || prefFor(name).mountPoint || `~/CloudDrives/${name}`;
     // The line is truncated to keep every card the same shape; the full
     // path is one hover away.
-    pathEl.title = pathEl.textContent;
+    setPath(
+      card.querySelector(".remote-path"),
+      ownPoint || extPoint || prefFor(name).mountPoint || `~/CloudDrives/${name}`,
+    );
     card.querySelector(".remote-name").title = name;
 
     // Measuring walks the cache directory, so do it after the card is on
@@ -979,9 +994,7 @@ async function refreshPairs() {
       : p.initialized
         ? "ready"
         : "not synced yet";
-    const path = card.querySelector(".remote-path");
-    path.textContent = `${p.local}  ⇄  ${p.remote}`;
-    path.title = path.textContent;
+    setPath(card.querySelector(".remote-path"), `${p.local}  ⇄  ${p.remote}`);
 
     const line = card.querySelector(".sync-progress");
     if (p.lastRun) {
@@ -1195,8 +1208,7 @@ async function showConflicts(card, name) {
     row.className = "conflict-row";
     const name_ = document.createElement("span");
     name_.className = "transfer-name mono";
-    name_.textContent = c.loser.split("/").pop();
-    name_.title = c.loser;
+    setPath(name_, c.loser.split("/").pop(), c.loser);
     row.append(name_);
     const settle = (keep, label, title) =>
       makeBtn(
@@ -1502,8 +1514,7 @@ async function refreshTransfers() {
     row.className = "transfer-row";
     const name = document.createElement("span");
     name.className = "transfer-name mono";
-    name.textContent = t.name || "(unnamed)";
-    name.title = t.name || "";
+    setPath(name, t.name || "(unnamed)", t.name || "");
     const meta = document.createElement("span");
     meta.className = t.error ? "transfer-meta failed" : "transfer-meta";
     meta.textContent = t.error
