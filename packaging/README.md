@@ -46,25 +46,18 @@ makepkg -si                      # build and install it once, to be sure
 `updpkgsums` comes from `pacman-contrib`; the AUR rejects a push whose
 `.SRCINFO` does not match the `PKGBUILD`.
 
-## Flatpak — not supported, and here is why
+## Flatpak — closed, not open
 
-A Flatpak Monti cannot do the one thing Monti exists for: put a cloud folder
-where your file manager can open it.
+Tried and rejected, twice; the notes are here so it is not tried a third time.
 
-- A sandboxed app has its own mount namespace. A mount made inside it is
-  invisible to everything outside — measured: a bind mount created in the
-  sandbox is listed in the sandbox's `/proc/mounts` and absent from the
-  host's, and the folder that has files inside the sandbox is empty outside.
-- Mounting does not even get that far: rclone mounts through `fusermount3`,
-  which is setuid root, and a sandbox's user namespace strips that —
-  `fusermount3: mount failed: Operation not permitted`.
+- A sandbox has its own mount namespace: a mount made inside it is invisible
+  to the file manager outside. Measured — the mount is in the sandbox's
+  `/proc/mounts` and absent from the host's.
+- It does not even get that far. `fusermount3` is setuid root and the
+  sandbox's user namespace strips that: `mount failed: Operation not
+  permitted`.
+- The only way out is `flatpak-spawn --host`, which needs
+  `--talk-name=org.freedesktop.Flatpak` — the run of the host. Flathub asks
+  for minimal static permissions, so it would be both rejected and dishonest.
 
-The only way around it is to run the engine outside the sandbox through
-`flatpak-spawn --host`, which needs `--talk-name=org.freedesktop.Flatpak` —
-the permission that hands an app the run of the host. Flathub asks that
-"static permissions must be kept to an absolute minimum" and does not accept
-apps that bypass security mechanisms, and a "sandboxed" app with a hole that
-size would be a lie told to whoever installs it.
-
-So: AppImage, `.deb`, `.rpm` and the PKGBUILD. If FUSE mounts ever become
-delegable to the host through a portal, this is worth revisiting.
+Revisit only if FUSE mounts become delegable through a portal.

@@ -207,19 +207,21 @@ arch=$([ "$(uname -m)" = x86_64 ] && echo amd64 || echo aarch64)
 curl -fLO "$base/Monti_${tag#v}_${arch}.AppImage"
 curl -fLO "$base/SHA256SUMS"
 sha256sum --ignore-missing -c SHA256SUMS   # must say "…AppImage: OK"
-chmod +x Monti_*.AppImage
-./Monti_*.AppImage --version               # prints the version and exits
+mv Monti_*.AppImage Monti.AppImage         # so the next version replaces it
+chmod +x Monti.AppImage
+./Monti.AppImage --version                 # prints the version and exits
 ```
 
 To get it in the application menu, save this as
-`~/.local/share/applications/monti.desktop` (with your own path in `Exec`):
+`~/.local/share/applications/monti.desktop` (with your own user name in
+`Exec`):
 
 ```ini
 [Desktop Entry]
 Type=Application
 Name=Monti
 Comment=Mount your clouds
-Exec=/home/YOU/Applications/Monti_0.7.1_amd64.AppImage
+Exec=/home/YOU/Applications/Monti.AppImage
 Icon=monti
 Terminal=false
 Categories=Utility;
@@ -251,13 +253,9 @@ folder; no root needed.
 
 ## If something goes wrong
 
-**The window is blank / white.** Update to v0.4.5 or later — the AppImage used
-to carry its own `libwayland-client`, which is older than what a current Mesa
-needs, so the renderer could not create an EGL display and aborted with
-`EGL_BAD_PARAMETER`. It is no longer bundled.
-
-If a window is still blank on the current version, try the accelerated path
-either way and report what happens:
+**The window is blank / white.** Every release is launched on four
+distributions before it is published, so this should not happen — if it does,
+these two are worth trying, and either way please report it:
 
 ```bash
 WEBKIT_DISABLE_DMABUF_RENDERER=0 ~/Applications/Monti.AppImage   # accelerated
@@ -356,7 +354,7 @@ both are in the dialog as well:
 
 Not planned: **Flatpak.** A sandboxed app's mounts are invisible to the file
 manager outside it, which is the whole point of Monti —
-[the measurements are in packaging/](packaging/README.md#flatpak--not-supported-and-here-is-why).
+[the measurements are in packaging/](packaging/README.md#flatpak--closed-not-open).
 
 ## Building from source
 

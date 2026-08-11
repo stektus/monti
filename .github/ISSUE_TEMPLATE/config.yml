@@ -1,5 +1,8 @@
 blank_issues_enabled: true
 contact_links:
+  - name: Question, idea, or "am I doing this right?"
+    url: https://github.com/stektus/monti/discussions
+    about: Anything that is not a bug — how-to questions, setups, provider quirks.
   - name: Security issue
     url: https://github.com/stektus/monti/security/advisories/new
     about: Anything involving credentials, tokens or local privilege — report it privately.

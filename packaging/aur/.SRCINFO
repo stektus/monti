@@ -1,6 +1,6 @@
 pkgbase = monti-bin
 	pkgdesc = Mount your clouds — a friendly GUI for rclone (Google Drive, Dropbox, WebDAV, S3, SFTP as local folders)
-	pkgver = 0.7.0
+	pkgver = 0.7.1
 	pkgrel = 1
 	url = https://github.com/stektus/monti
 	arch = x86_64
@@ -14,9 +14,9 @@ pkgbase = monti-bin
 	conflicts = monti
 	options = !strip
 	options = !debug
-	source = Monti-0.7.0.deb::https://github.com/stektus/monti/releases/download/v0.7.0/Monti_0.7.0_amd64.deb
-	source = LICENSE-0.7.0::https://github.com/stektus/monti/raw/v0.7.0/LICENSE
-	sha256sums = 599d8d86f80131bacad89b67c3b79a03b9bc299efd0e12b14a85b9b51f0e4855
+	source = Monti-0.7.1.deb::https://github.com/stektus/monti/releases/download/v0.7.1/Monti_0.7.1_amd64.deb
+	source = LICENSE-0.7.1::https://github.com/stektus/monti/raw/v0.7.1/LICENSE
+	sha256sums = d843006338a53f0ce43fc34a81b93776e9e6f942fc392e514ced80e1cf3b0136
 	sha256sums = 16fbf90b022ad1dbc88cbcab922023eec51879ce067831b64d18c1bd30fd9339
 
 pkgname = monti-bin

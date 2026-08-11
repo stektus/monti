@@ -17,12 +17,13 @@ clouds should need no terminal.** That goal decides most questions here.
 
 ## The codebase
 
-Three files hold nearly everything:
+Four files hold nearly everything:
 
 | File | What lives there |
 |---|---|
 | `src-tauri/src/engine.rs` | the rclone daemon: spawning, identity checks, adoption, mounts |
 | `src-tauri/src/lib.rs` | commands the UI can call, tray, app lifecycle |
+| `src-tauri/src/sync.rs` | synced pairs: bisync runs, conflicts, the pair list on disk |
 | `src/main.js` | the entire interface |
 
 If a change makes those files harder to read end to end, it probably needs a
