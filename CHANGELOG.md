@@ -2,6 +2,21 @@
 
 Notable changes per release. Dates are the release date.
 
+## v0.7.2 — 2026-08-12
+
+**Starting with the session no longer opens a window.** *Start Monti on login*
+existed to get your drives up, and instead it put a window in front of whatever
+you were about to do. The autostart entry now runs Monti with `--hidden`: the
+drives mount, the window stays closed. Opening it afterwards is the tray icon,
+or simply starting Monti again — the second launch shows the window of the one
+already running, as it always did.
+
+**A second Monti no longer loses the engine's mount list.** Two instances that
+overlap for a moment — one starting as another quits — wrote the engine file
+through the same temporary name, and whichever renamed second found it gone:
+`failed to save engine.json: No such file or directory`, leaving a stale list
+of mounts behind. The temporary name now carries the process id.
+
 ## v0.7.1 — 2026-08-11
 
 **Paths read the right way round again.** A drive card shows its folder

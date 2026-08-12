@@ -433,7 +433,12 @@ pub fn save_engine_file(app: &AppHandle, eng: &Engine) {
     // Write a 0600-from-birth temp file and rename over the target: no
     // window where the RC password is world-readable or the file is
     // half-written (the adoption path parses this on every start).
-    let tmp = path.with_extension("json.tmp");
+    // The temp name carries the pid: two Monti processes can overlap for a
+    // moment (a second launch, or one quitting as another starts), and with
+    // one shared temp name whoever renames second finds it already gone and
+    // loses the write — "failed to save engine.json: No such file or
+    // directory", with the mount list left behind stale.
+    let tmp = path.with_extension(format!("json.tmp.{}", std::process::id()));
     let mut opts = fs::OpenOptions::new();
     opts.write(true).create(true).truncate(true);
     #[cfg(unix)]

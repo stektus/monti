@@ -1448,12 +1448,14 @@ fn set_autostart(app: AppHandle, enabled: bool) -> Result<(), String> {
     if let Some(dir) = file.parent() {
         fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     }
+    // --hidden: logging in should bring the drives up, not a window. The
+    // window is one click away — from the tray, or by starting Monti again.
     let entry = format!(
         "[Desktop Entry]\n\
          Type=Application\n\
          Name=Monti\n\
          Comment=Mount your clouds\n\
-         Exec=\"{}\"\n\
+         Exec=\"{}\" --hidden\n\
          Icon=monti\n\
          Terminal=false\n\
          X-GNOME-Autostart-enabled=true\n",
@@ -1637,9 +1639,11 @@ pub fn run() {
                 println!(
                     "monti {}\n\
                      Mount your clouds. Google Drive, Dropbox and more as local folders.\n\n\
-                     Usage: monti [--version] [--help]\n\n\
-                     Monti has no command line of its own; run it without arguments to\n\
-                     open the window. Logs live in ~/.local/share/io.github.stektus.monti/.",
+                     Usage: monti [--hidden] [--version] [--help]\n\n\
+                     --hidden   start without opening the window: drives mount and the\n\
+                                app waits in the tray. Starting Monti again opens it.\n\
+                                This is what the autostart entry uses.\n\n\
+                     Logs live in ~/.local/share/io.github.stektus.monti/.",
                     env!("CARGO_PKG_VERSION")
                 );
                 return;
@@ -1718,6 +1722,28 @@ pub fn run() {
                 );
             }
             app.state::<Flags>().tray_ok.store(ok, Ordering::Relaxed);
+
+            // The window is configured invisible and shown here, so a start
+            // that is meant to be quiet never flashes one. Autostart passes
+            // --hidden: logging in should get the drives mounted, not a
+            // window in the way. Starting Monti again opens it — the
+            // single-instance hook above turns the second launch into
+            // "show" — and with a tray there is also the icon.
+            let hidden = std::env::args().any(|a| a == "--hidden");
+            if let Some(w) = handle.get_webview_window("main") {
+                if hidden {
+                    log_line(
+                        &handle,
+                        if ok {
+                            "started hidden: waiting in the tray"
+                        } else {
+                            "started hidden with no tray: start Monti again to open the window"
+                        },
+                    );
+                } else {
+                    let _ = w.show();
+                }
+            }
             Ok(())
         })
         .on_window_event(|window, event| {

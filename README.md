@@ -63,6 +63,8 @@ a way to use it without becoming an rclone expert. That is Monti.
   provider's error actually means, with its own words kept underneath.
 - **The tray does something.** Engine state at a glance, and one click to
   mount or unmount a drive without opening the window.
+- **Start on login means the drives, not the window.** Monti comes up in the
+  background; open it from the tray, or by starting it again.
 
 ## Screenshots
 
