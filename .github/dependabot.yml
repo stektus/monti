@@ -1,0 +1,18 @@
+# Only the actions the workflows call. Cargo and npm are deliberately absent:
+# Dependabot alerts already report a vulnerable crate or package, and a
+# scheduled bump of all 496 crates would open pull requests every week that
+# say nothing except that a version number moved. Actions are different —
+# they are pinned to a major tag, they move a few times a year, and a release
+# that stops building because a runner dropped an old action version is worse
+# than one monthly pull request.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 1
+    groups:
+      actions:
+        patterns:
+          - "*"
