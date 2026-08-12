@@ -34,7 +34,8 @@ different shape.
 
 Copy `src/locales/uk.js` to `src/locales/<code>.js`, translate the right-hand
 side, and add the language to `LANGUAGES` in `src/i18n.js`. Nothing else is
-needed — no build step, no code.
+needed — no build step, no code. `node scripts/check-translations.mjs` tells
+you what is still missing, and CI runs it too.
 
 Three things worth knowing before you start:
 
@@ -78,7 +79,9 @@ cd src-tauri
 cargo fmt -- --check
 cargo clippy --locked --all-targets -- -D warnings
 cargo test                 # some tests spawn a real rclone daemon
-cd .. && node --check src/main.js
+cd ..
+node --check src/main.js
+node scripts/check-translations.mjs
 ```
 
 CI runs the same. Tests that spawn rclone deliberately clear `DISPLAY` so no

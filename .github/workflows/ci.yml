@@ -33,4 +33,12 @@ jobs:
         run: cargo clippy --locked --all-targets -- -D warnings
 
       - name: JS syntax check
-        run: node --check src/main.js
+        run: |
+          for f in src/main.js src/i18n.js src/locales/*.js; do
+            node --check "$f"
+          done
+
+      # A translation fails quietly — the phrase just stays English — so the
+      # check has to be here rather than in someone's eyes.
+      - name: Translations
+        run: node scripts/check-translations.mjs
