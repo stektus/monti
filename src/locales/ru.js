@@ -223,6 +223,278 @@ export default {
   Encrypted: "Зашифровано",
   OK: "ОК",
 
+  // ---------- строки, которые рисует JavaScript ----------
+
+  // ошибки входа
+  "Google refused the sign-in (403 access_denied): the Google account you signed in with is not on your app's test-user list.\n\nFix: open console.cloud.google.com/auth/audience → Test users → Add users → add your own e-mail → Save, then try again.":
+    "Google отказал во входе (403 access_denied): учётная запись, которой вы вошли, не внесена в список тестовых пользователей вашего приложения.\n\nКак исправить: откройте console.cloud.google.com/auth/audience → Test users → Add users → добавьте свою почту → Save и попробуйте снова.",
+  "Google rejected the API key (invalid_client): the Client ID or Client secret has a typo. Copy both values again from console.cloud.google.com/apis/credentials.":
+    "Google не принял ключ API (invalid_client): в Client ID или Client secret опечатка. Скопируйте оба значения заново с console.cloud.google.com/apis/credentials.",
+  "Another authorization is still waiting in some browser tab (port 53682 is busy). Close old rclone/Google tabs, wait a few seconds and try again.":
+    "В какой-то вкладке браузера ещё ждёт предыдущий вход (порт 53682 занят). Закройте старые вкладки rclone/Google, подождите несколько секунд и попробуйте снова.",
+
+  // выбор папок
+  "1 folder left out: {folder}": "одна папка исключена: {folder}",
+  "{n} folders left out": { one: "{n} папка исключена", few: "{n} папки исключены", many: "{n} папок исключено", other: "{n} папок исключено" },
+  "Reading the cloud…": "Читаем облако…",
+  "This folder has no subfolders.": "В этой папке нет подпапок.",
+  "Folders of \"{name}\"": "Папки диска «{name}»",
+  "Unticked folders are left out of the mounted drive: they stay in the cloud, they just do not appear on this computer.":
+    "Снятые галочки исключают папки из подключённого диска: в облаке они остаются, просто не появляются на этом компьютере.",
+  "Folders to sync": "Папки для синхронизации",
+  "Unticked folders are not synced: they stay as they are on both sides, and Monti stops comparing them.":
+    "Снятые галочки исключают папки из синхронизации: с обеих сторон они остаются как есть, Monti просто перестаёт их сверять.",
+  "Pick the cloud first — its folders are what you choose from.":
+    "Сначала выберите облако — папки берутся именно из него.",
+
+  // движок
+  "engine not installed": "движок не установлен",
+  "engine running": "движок работает",
+  "engine failed": "движок не запустился",
+  "engine stopped": "движок остановился",
+  "restarting…": "перезапускается…",
+  "{which} is no longer mounted — something unmounted it outside Monti. Press Mount on the drive to bring the folder back.":
+    "{which} больше не подключён — что-то отключило диск вне Monti. Нажмите «Подключить» на диске, чтобы вернуть папку.",
+  "Monti: a drive disconnected": "Monti: диск отключён",
+  "{which} is no longer mounted. Open Monti and press Mount.":
+    "{which} больше не подключён. Откройте Monti и нажмите «Подключить».",
+  "The rclone engine stopped unexpectedly — your drives are disconnected. Press “Restart engine” to bring them back.":
+    "Движок rclone неожиданно остановился — диски отключены. Нажмите «Перезапустить движок», чтобы вернуть их.",
+  "Monti: your drives are disconnected": "Monti: диски отключены",
+  "The rclone engine stopped. Open Monti and press “Restart engine”.":
+    "Движок rclone остановился. Откройте Monti и нажмите «Перезапустить движок».",
+  "The engine isn't running.": "Движок не работает.",
+
+  // квота и активность
+  "{used} of {total} used in the cloud": "{used} из {total} занято в облаке",
+  "{used} used in the cloud": "{used} занято в облаке",
+  "{n} files · {speed}": { one: "{n} файл · {speed}", few: "{n} файла · {speed}", many: "{n} файлов · {speed}", other: "{n} файлов · {speed}" },
+
+  // чипы на карточке диска
+  mounted: "подключён",
+  "Uploading changes to the cloud": "Отправляем изменения в облако",
+  syncing: "синхронизация",
+  "Mounted outside Monti (e.g. a systemd service).":
+    "Подключён вне Monti (например, службой systemd).",
+  "mounted · system": "подключён · система",
+  "not mounted": "не подключён",
+  "The encrypted copy is stored here": "Здесь хранится зашифрованная копия",
+  "Connected through your own API key": "Подключён через свой ключ API",
+  "own key": "свой ключ",
+  "Read-only: files cannot be changed": "Только чтение: файлы нельзя изменять",
+  "read-only": "только чтение",
+  "in {name}": "в {name}",
+  encrypted: "зашифрованный",
+  "{size} cached on this computer": "{size} в кэше на этом компьютере",
+
+  // действия с диском
+  "Open folder": "Открыть папку",
+  Unmount: "Отключить",
+  Mount: "Подключить",
+  Remove: "Удалить",
+  "Uploads are still running": "Отправка ещё идёт",
+  "{n} file(s) from \"{name}\" have not reached the cloud yet.":
+    { one: "{n} файл с диска «{name}» ещё не добрался до облака.", few: "{n} файла с диска «{name}» ещё не добрались до облака.", many: "{n} файлов с диска «{name}» ещё не добрались до облака.", other: "{n} файлов с диска «{name}» ещё не добрались до облака." },
+  "Unmounting pauses the upload; it resumes the next time you mount the drive.":
+    "Отключение приостанавливает отправку; она продолжится, когда вы подключите диск снова.",
+  "Until then those changes exist only on this computer.":
+    "До тех пор эти изменения существуют только на этом компьютере.",
+  "Shutting the computer down before the next mount can lose them.":
+    "Если выключить компьютер до следующего подключения, их можно потерять.",
+  "Unmount anyway": "Всё равно отключить",
+  "Unmount \"{name}\"?": "Отключить «{name}»?",
+  "This drive was mounted outside Monti — by a systemd service or a manual rclone mount.":
+    "Этот диск подключён вне Monti — службой systemd или запуском rclone вручную.",
+  "Close any app still using files there first.":
+    "Сначала закройте программы, которые ещё работают с файлами оттуда.",
+  "A service that manages this mount may bring it back, or may need to be disabled separately.":
+    "Служба, которая управляет этим подключением, может вернуть его обратно — тогда её нужно отключить отдельно.",
+  "Unsaved changes in files that are still open would be lost.":
+    "Несохранённые изменения в открытых файлах будут потеряны.",
+  "Files in the cloud are not touched.": "Файлы в облаке остаются нетронутыми.",
+  "The saved sign-in for this drive is removed from the rclone config on this machine.":
+    "Сохранённый вход для этого диска будет убран из настроек rclone на этой машине.",
+  "The empty mount folder {folder} is removed.": "Пустая папка подключения {folder} будет удалена.",
+  "Disconnect \"{name}\" from this computer?": "Отключить «{name}» от этого компьютера?",
+  "The drive disappears from Monti. You can add it back later by signing in again.":
+    "Диск исчезнет из Monti. Позже его можно добавить снова, войдя ещё раз.",
+  Disconnect: "Отключить",
+  "Also delete {size} of cached file copies": "Также удалить {size} кэшированных копий файлов",
+  "Share a file": "Поделиться файлом",
+  "Get a link to a file in this drive": "Получить ссылку на файл с этого диска",
+  Copied: "Скопировано",
+  "Press Ctrl+C": "Нажмите Ctrl+C",
+  "Auto-mount of “{name}” failed: {error}":
+    "Автоподключение «{name}» не удалось: {error}",
+  "“{name}” is not mounted yet — trying again in {wait}s. Right after login this usually means the network is still coming up.":
+    "«{name}» ещё не подключён — попробуем снова через {wait} с. Сразу после входа это обычно значит, что сеть ещё поднимается.",
+
+  // расписание синхронизации
+  manual: "вручную",
+  "when Monti starts": "при запуске Monti",
+  "every 15 minutes": "каждые 15 минут",
+  "every hour": "каждый час",
+
+  // карточка синхронизации
+  ready: "готово",
+  "not synced yet": "ещё не синхронизировано",
+  "last sync {when} UTC": "последняя синхронизация {when} UTC",
+  "last sync failed: {error}": "последняя синхронизация не удалась: {error}",
+  "never synced": "ни разу не синхронизировано",
+  Stop: "Остановить",
+  "Sync now": "Синхронизировать",
+  "Settings for this pair": "Настройки этой пары",
+  "\"{name}\" has not been synced yet. Monti will compare {local} and {remote} and make them match.":
+    "«{name}» ещё не синхронизировалась. Monti сверит {local} и {remote} и сделает их одинаковыми.",
+  "Measuring the cloud folder…": "Измеряем папку в облаке…",
+  "{n} files": { one: "{n} файле", few: "{n} файлах", many: "{n} файлах", other: "{n} файлах" },
+  "The cloud side holds {size} in {files}.": "В облаке — {size} в {files}.",
+  "The cloud side holds {size} in {files}; this computer has {free} free.":
+    "В облаке — {size} в {files}; на этом компьютере свободно {free}.",
+  "It will not all fit — leave some folders out first.":
+    "Всё это не поместится — сначала исключите часть папок.",
+  "Sync of \"{name}\" could not start: {error}":
+    "Синхронизация «{name}» не началась: {error}",
+  "Files were deleted": "Файлы были удалены",
+  "{n} of {total} file(s) are gone from one side of \"{name}\". Syncing will remove them from the other side too.":
+    { one: "{n} из {total} файлов исчез с одной стороны пары «{name}». Синхронизация удалит его и с другой стороны.", few: "{n} из {total} файлов исчезли с одной стороны пары «{name}». Синхронизация удалит их и с другой стороны.", many: "{n} из {total} файлов исчезли с одной стороны пары «{name}». Синхронизация удалит их и с другой стороны.", other: "{n} из {total} файлов исчезли с одной стороны пары «{name}». Синхронизация удалит их и с другой стороны." },
+  "Files are gone from one side of \"{name}\". Syncing will remove them from the other side too.":
+    "С одной стороны пары «{name}» исчезли файлы. Синхронизация удалит их и с другой стороны.",
+  "on this computer: {path}": "на этом компьютере: {path}",
+  "in the cloud: {path}": "в облаке: {path}",
+  "if this is not what you expected, cancel and check both folders first":
+    "если вы такого не ожидали — отмените и сначала проверьте обе папки",
+  "Delete them": "Удалить их",
+  "Stop asking for this pair": "Больше не спрашивать для этой пары",
+  "syncing — {n} file(s), {size}": { one: "синхронизация — {n} файл, {size}", few: "синхронизация — {n} файла, {size}", many: "синхронизация — {n} файлов, {size}", other: "синхронизация — {n} файлов, {size}" },
+  "syncing — checking {n} file(s)": { one: "синхронизация — проверяем {n} файл", few: "синхронизация — проверяем {n} файла", many: "синхронизация — проверяем {n} файлов", other: "синхронизация — проверяем {n} файлов" },
+  "Sync of \"{name}\" failed: {error}": "Синхронизация «{name}» не удалась: {error}",
+  "Monti: sync failed": "Monti: синхронизация не удалась",
+  "\"{name}\" did not finish: {error}": "«{name}» не завершилась: {error}",
+
+  // конфликты
+  "{n} file(s) changed on both sides": { one: "{n} файл изменён с обеих сторон", few: "{n} файла изменены с обеих сторон", many: "{n} файлов изменены с обеих сторон", other: "{n} файлов изменены с обеих сторон" },
+  "keep current": "оставить текущий",
+  "Delete this older copy": "Удалить эту более старую копию",
+  "keep this": "оставить этот",
+  "Put this copy back under the original name": "Вернуть эту копию под исходным именем",
+  "keep both": "оставить оба",
+  "Rename it to “(copy)” and stop calling it a conflict":
+    "Переименовать в «(copy)» и больше не считать конфликтом",
+
+  // окно пары
+  "{name} — sync settings": "{name} — настройки синхронизации",
+  "Connect a cloud first — there is nothing to sync with.":
+    "Сначала подключите облако — синхронизировать пока не с чем.",
+  "\"{name}\" will sync from scratch once": "«{name}» один раз синхронизируется с нуля",
+  "You changed which folders this pair carries.": "Вы изменили набор папок этой пары.",
+  "The next sync compares both sides fully and merges them, keeping the newer copy of anything that differs.":
+    "Следующая синхронизация полностью сверит обе стороны и объединит их, оставляя более новую копию всего, что различается.",
+  "Nothing is deleted by that run, and folders you left out are simply not touched again.":
+    "Тот запуск ничего не удаляет, а исключённые папки просто больше не трогаются.",
+  "Stop syncing \"{name}\"?": "Прекратить синхронизацию «{name}»?",
+  "Monti forgets this pair. Nothing is deleted:": "Monti забудет эту пару. Ничего не удаляется:",
+  "{path} stays exactly as it is": "{path} остаётся как есть",
+  "the two simply stop being kept the same": "их просто перестают держать одинаковыми",
+  "Stop syncing": "Прекратить синхронизацию",
+
+  // окно настроек диска
+  "{name} — settings": "{name} — настройки",
+  "unchanged — enter a new one to replace": "без изменений — введите новый, чтобы заменить",
+  "Using your own API key.": "Используется свой ключ API.",
+  "Using rclone's shared key — it is being retired during 2026, switching to your own key is recommended.":
+    "Используется общий ключ rclone — его сворачивают в течение 2026 года, поэтому советуем перейти на свой.",
+  "{limit} · e.g. 10G": "{limit} · напр. 10G",
+  "counting…": "считаем…",
+  "nothing cached": "кэш пуст",
+  "Unmount the drive first — rclone is using these files right now":
+    "Сначала отключите диск — сейчас rclone работает с этими файлами",
+  "Delete the downloaded copies kept on this computer":
+    "Удалить загруженные копии, лежащие на этом компьютере",
+  "Clear the local cache?": "Очистить локальный кэш?",
+  "{size} of downloaded copies of \"{name}\" will be deleted from this computer.":
+    "{size} загруженных копий диска «{name}» будет удалено с этого компьютера.",
+  "They download again the next time you open them.":
+    "В следующий раз, когда вы их откроете, они загрузятся снова.",
+  "\"{value}\" is not a size — try something like 500M or 10G.":
+    "«{value}» — не размер, попробуйте что-то вроде 500M или 10G.",
+  "\"{value}\" is not a duration — try something like 30m, 24h or 7d.":
+    "«{value}» — не длительность, попробуйте что-то вроде 30m, 24h или 7d.",
+  "Enter the Client secret that pairs with the new Client ID.":
+    "Введите Client secret, который соответствует новому Client ID.",
+  "Enter the Client ID that pairs with this Client secret.":
+    "Введите Client ID, который соответствует этому Client secret.",
+  "Remount \"{name}\" now?": "Переподключить «{name}» сейчас?",
+  "The folders you chose apply from the next mount on.":
+    "Выбранный набор папок действует со следующего подключения.",
+  "Monti unmounts the drive and mounts it again — a few seconds.":
+    "Monti отключит диск и подключит его снова — несколько секунд.",
+  "Files open from that folder right now would lose their connection.":
+    "Файлы, открытые сейчас из этой папки, потеряют связь.",
+  Remount: "Переподключить",
+
+  // хранилище и передачи
+  "Only {left} left on this disk. Clear a drive's cache in its settings, or lower its cache size limit.":
+    "На этом диске осталось {left}. Очистите кэш диска в его настройках или уменьшите ограничение кэша.",
+  "Monti: this disk is nearly full": "Monti: этот диск почти заполнен",
+  "Only {left} left. Clear a drive's cache or lower its limit.":
+    "Осталось {left}. Очистите кэш диска или уменьшите его ограничение.",
+  "Nothing transferred since the engine started.": "С запуска движка ничего не передано.",
+  "(unnamed)": "(без имени)",
+  failed: "не удалось",
+  checked: "проверено",
+  "not installed": "не установлен",
+
+  // установка движка
+  "Downloading rclone… (10–40 MB)": "Загружаем rclone… (10–40 МБ)",
+  "Downloading rclone… {percent}% of {size}": "Загружаем rclone… {percent}% из {size}",
+  "Downloading rclone… {size}": "Загружаем rclone… {size}",
+  "Done — installed to {path}. Takes effect on the next engine restart.":
+    "Готово — установлено в {path}. Подействует после следующего перезапуска движка.",
+  "Done!": "Готово!",
+  "Tray isn't available on this desktop — closing the window quits Monti. (On Arch/Manjaro: install libayatana-appindicator.)":
+    "На этом рабочем столе трея нет — закрытие окна завершает Monti. (На Arch/Manjaro: установите libayatana-appindicator.)",
+
+  // трей
+  "{n} drive(s) are still uploading": { one: "{n} диск ещё отправляет файлы", few: "{n} диска ещё отправляют файлы", many: "{n} дисков ещё отправляют файлы", other: "{n} дисков ещё отправляют файлы" },
+  "{drives} — open Monti to unmount anyway.":
+    "{drives} — откройте Monti, чтобы отключить всё равно.",
+  "“{name}” is still uploading": "«{name}» ещё отправляет файлы",
+  "{n} file(s) have not reached the cloud yet. Open Monti to unmount anyway.":
+    { one: "{n} файл ещё не добрался до облака. Откройте Monti, чтобы отключить всё равно.", few: "{n} файла ещё не добрались до облака. Откройте Monti, чтобы отключить всё равно.", many: "{n} файлов ещё не добрались до облака. Откройте Monti, чтобы отключить всё равно.", other: "{n} файлов ещё не добрались до облака. Откройте Monti, чтобы отключить всё равно." },
+  "Could not mount “{name}”": "Не удалось подключить «{name}»",
+  "Could not unmount “{name}”": "Не удалось отключить «{name}»",
+
+  // добавление облака
+  "⏳ Connecting…": "⏳ Подключаемся…",
+  "Server URL is required.": "Нужен адрес сервера.",
+  "Access key ID and Secret access key are required.":
+    "Нужны Access key ID и Secret access key.",
+  "Endpoint is required for non-Amazon S3 services.":
+    "Для сервисов S3, отличных от Amazon, нужна точка доступа.",
+  "Add a drive first — an encrypted drive lives inside one.":
+    "Сначала добавьте диск — зашифрованный диск живёт внутри обычного.",
+  "A password is required — that is the whole point.":
+    "Нужен пароль — в нём весь смысл.",
+  "The two passwords are not the same.": "Пароли не совпадают.",
+  "Please confirm the password is written down: it cannot be recovered.":
+    "Подтвердите, что пароль записан: восстановить его невозможно.",
+
+  // трей
+  "Open Monti": "Открыть Monti",
+  Quit: "Выйти",
+  "Engine stopped": "Движок остановлен",
+  "Engine running": "Движок работает",
+  "Engine running · {mounted} of {total} mounted":
+    "Движок работает · подключено {mounted} из {total}",
+  "Mount “{name}”": "Подключить «{name}»",
+  "Unmount “{name}”": "Отключить «{name}»",
+  "All {n} drives in Monti…": { one: "Все {n} диск в Monti…", few: "Все {n} диска в Monti…", many: "Все {n} дисков в Monti…", other: "Все {n} дисков в Monti…" },
+  "Unmount all {n} drives": { one: "Отключить {n} диск", few: "Отключить все {n} диска", many: "Отключить все {n} дисков", other: "Отключить все {n} дисков" },
+  "Monti — engine stopped": "Monti — движок остановлен",
+  "Monti — no drives mounted": "Monti — ни один диск не подключён",
+  "Monti — {n} drives mounted": { one: "Monti — подключён {n} диск", few: "Monti — подключено {n} диска", many: "Monti — подключено {n} дисков", other: "Monti — подключено {n} дисков" },
+
   // ---------- единицы ----------
   GB: "ГБ",
   MB: "МБ",

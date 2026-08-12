@@ -54,6 +54,9 @@ a way to use it without becoming an rclone expert. That is Monti.
   something before the cache fills your own disk.
 - **It looks like the rest of your desktop** — light or dark, following your
   system settings, or whichever you pick.
+- **In your language.** English, Ukrainian and Russian; it follows your
+  desktop's locale, or you pick one in Settings. Messages coming straight
+  from the engine stay in English — they are rclone's own words.
 - **A speed limit** so a big transfer does not take the whole connection, and
   a list of what has been transferred.
 - **It notices when a drive goes away** — unmounted from a terminal, or a
@@ -372,7 +375,7 @@ both are in the dialog as well:
 - [x] Two-way sync (bisync) with a conflict-resolution UI
 - [x] Selective folders — choose what a drive or a synced pair carries
 - [x] Encrypted drives (rclone crypt) with an honest warning about the password
-- [ ] Translations — the interface is English-only for now
+- [x] Translations — Ukrainian and Russian, with a place for more
 - [ ] More providers (Proton Drive, Mega, …)
 
 ## Building from source

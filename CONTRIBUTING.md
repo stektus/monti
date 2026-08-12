@@ -25,9 +25,32 @@ Four files hold nearly everything:
 | `src-tauri/src/lib.rs` | commands the UI can call, tray, app lifecycle |
 | `src-tauri/src/sync.rs` | synced pairs: bisync runs, conflicts, the pair list on disk |
 | `src/main.js` | the entire interface |
+| `src/i18n.js` | translation: the dictionary lookup, plurals and number formats |
 
 If a change makes those files harder to read end to end, it probably needs a
 different shape.
+
+## Adding a translation
+
+Copy `src/locales/uk.js` to `src/locales/<code>.js`, translate the right-hand
+side, and add the language to `LANGUAGES` in `src/i18n.js`. Nothing else is
+needed — no build step, no code.
+
+Three things worth knowing before you start:
+
+- **The key is the English sentence.** Leave a key out and that phrase shows in
+  English, which is a working state, not a broken one. Translate what you are
+  sure of and send it.
+- **`{name}`, `{size}` and friends are filled in at runtime.** Keep every
+  placeholder that appears in the key; move it wherever your language wants it.
+- **Counted phrases take an object instead of a string** — `{ one, few, many,
+  other }` — and the form is chosen by `Intl.PluralRules` for your language.
+  English needs two forms, Ukrainian and Russian need four.
+
+Provider names, protocols and sample paths (`Google Drive`, `WebDAV`,
+`~/.ssh/id_ed25519`) are deliberately left in English: people look for them
+exactly as their provider writes them. Messages that come from the engine are
+rclone's own words and are shown as they arrive.
 
 ## Ground rules
 

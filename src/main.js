@@ -226,23 +226,23 @@ async function abortAuth() {
 function friendlyAuthError(err) {
   const s = String(err);
   if (s.includes("access_denied"))
-    return (
+    return t(
       "Google refused the sign-in (403 access_denied): the Google account " +
-      "you signed in with is not on your app's test-user list.\n\n" +
-      "Fix: open console.cloud.google.com/auth/audience → Test users → " +
-      "Add users → add your own e-mail → Save, then try again."
+        "you signed in with is not on your app's test-user list.\n\n" +
+        "Fix: open console.cloud.google.com/auth/audience → Test users → " +
+        "Add users → add your own e-mail → Save, then try again."
     );
   if (s.includes("invalid_client"))
-    return (
+    return t(
       "Google rejected the API key (invalid_client): the Client ID or " +
-      "Client secret has a typo. Copy both values again from " +
-      "console.cloud.google.com/apis/credentials."
+        "Client secret has a typo. Copy both values again from " +
+        "console.cloud.google.com/apis/credentials."
     );
   if (s.includes("address already in use"))
-    return (
+    return t(
       "Another authorization is still waiting in some browser tab " +
-      "(port 53682 is busy). Close old rclone/Google tabs, wait a few " +
-      "seconds and try again."
+        "(port 53682 is busy). Close old rclone/Google tabs, wait a few " +
+        "seconds and try again."
     );
   return s;
 }
@@ -291,8 +291,10 @@ const lastSegment = (path) => path.split("/").filter(Boolean).pop() || path;
 // One line for the dialogs: what the current choice amounts to.
 function foldersSummary(excluded) {
   const n = (excluded || []).length;
-  if (!n) return "All folders";
-  return n === 1 ? `1 folder left out: ${excluded[0]}` : `${n} folders left out`;
+  if (!n) return t("All folders");
+  return n === 1
+    ? t("1 folder left out: {folder}", { folder: excluded[0] })
+    : t("{n} folders left out", { n });
 }
 
 // State of the open picker. One at a time — it is a modal dialog.
@@ -410,13 +412,13 @@ function chooseFolders({ remote, base, excluded, title, hint }) {
     const tree = $("folders-tree");
     tree.innerHTML = "";
     tree.classList.add("loading");
-    tree.textContent = "Reading the cloud…";
+    tree.textContent = t("Reading the cloud…");
     $("folders-dialog").showModal();
     loadChildren(tree, picker.base, 0)
       .then((n) => {
         tree.classList.remove("loading");
         tree.firstChild?.remove(); // the "reading" line
-        if (!n) tree.textContent = "This folder has no subfolders.";
+        if (!n) tree.textContent = t("This folder has no subfolders.");
       })
       .catch((e) => {
         tree.classList.remove("loading");
@@ -501,12 +503,15 @@ async function checkLostMounts() {
   if (!lost.length) return;
   const which = lost.join(", ");
   showError(
-    `${which} is no longer mounted — something unmounted it outside Monti. ` +
-      "Press Mount on the drive to bring the folder back."
+    t(
+      "{which} is no longer mounted — something unmounted it outside Monti. " +
+        "Press Mount on the drive to bring the folder back.",
+      { which }
+    )
   );
   notify(
-    "Monti: a drive disconnected",
-    `${which} is no longer mounted. Open Monti and press Mount.`
+    t("Monti: a drive disconnected"),
+    t("{which} is no longer mounted. Open Monti and press Mount.", { which })
   );
   await refreshRemotes().catch(() => {});
 }
@@ -529,12 +534,14 @@ async function healthTick() {
     setEngine("err", "engine stopped");
     $("engine-restart").classList.remove("hidden");
     showError(
-      "The rclone engine stopped unexpectedly — your drives are disconnected. " +
-        "Press “Restart engine” to bring them back."
+      t(
+        "The rclone engine stopped unexpectedly — your drives are disconnected. " +
+          "Press “Restart engine” to bring them back."
+      )
     );
     notify(
-      "Monti: your drives are disconnected",
-      "The rclone engine stopped. Open Monti and press “Restart engine”."
+      t("Monti: your drives are disconnected"),
+      t("The rclone engine stopped. Open Monti and press “Restart engine”.")
     );
   } else if (alive && engineDown) {
     engineDown = false;
@@ -588,10 +595,15 @@ async function showQuota(el, name) {
     const pct = Math.min(100, Math.round((used / total) * 100));
     fill.style.width = `${pct}%`;
     bar.classList.toggle("full", pct >= 90);
-    text.textContent = `${fmtBytes(used)} of ${fmtBytes(total)} used in the cloud`;
+    text.textContent = t("{used} of {total} used in the cloud", {
+      used: fmtBytes(used),
+      total: fmtBytes(total),
+    });
   } else {
     bar.classList.add("hidden");
-    text.textContent = `${fmtBytes(used ?? total)} used in the cloud`;
+    text.textContent = t("{used} used in the cloud", {
+      used: fmtBytes(used ?? total),
+    });
   }
   el.classList.remove("hidden");
 }
@@ -603,10 +615,11 @@ async function pollActivity() {
     const stats = await rc("core/stats");
     const transfers = stats.transferring || [];
     if (transfers.length) {
-      const speed = transfers.reduce((s, t) => s + (t.speed || 0), 0);
-      $("activity-label").textContent = `${transfers.length} file${
-        transfers.length === 1 ? "" : "s"
-      } · ${fmtSpeed(speed)}`;
+      const speed = transfers.reduce((sum, x) => sum + (x.speed || 0), 0);
+      $("activity-label").textContent = t("{n} files · {speed}", {
+        n: transfers.length,
+        speed: fmtSpeed(speed),
+      });
       pill.classList.remove("hidden");
     } else {
       pill.classList.add("hidden");
@@ -663,17 +676,46 @@ async function fetchState() {
   return { remotes, own, external };
 }
 
+// The tray's words. They are counted and translated here rather than in
+// Rust: "5 drives" has three different endings in Ukrainian, and the rules
+// for that are in the browser's Intl. Rust only fills in {name}, because
+// Rust is what decides which drives fit in the menu.
+function trayLabels(running, drives) {
+  const total = drives.length;
+  const mounted = drives.filter((d) => d.mounted).length;
+  return {
+    open: t("Open Monti"),
+    quit: t("Quit"),
+    status: !running
+      ? t("Engine stopped")
+      : total > 1
+        ? t("Engine running · {mounted} of {total} mounted", { mounted, total })
+        : t("Engine running"),
+    mount: t("Mount “{name}”"),
+    unmount: t("Unmount “{name}”"),
+    allDrives: t("All {n} drives in Monti…", { n: total }),
+    unmountAll: t("Unmount all {n} drives", { n: mounted }),
+    tooltip: !running
+      ? t("Monti — engine stopped")
+      : mounted === 0
+        ? t("Monti — no drives mounted")
+        : t("Monti — {n} drives mounted", { n: mounted }),
+  };
+}
+
 async function refreshRemotes() {
   const { remotes, own, external } = await fetchState();
   ownMounts = own;
   // The tray is drawn from the same state, so it never disagrees with the
   // window about what is mounted.
+  const trayDrives = remotes.map((r) => ({
+    name: r.name,
+    mounted: own.has(r.name) || external.has(r.name),
+  }));
   invoke("update_tray", {
     engineRunning: engineRunning,
-    drives: remotes.map((r) => ({
-      name: r.name,
-      mounted: own.has(r.name) || external.has(r.name),
-    })),
+    drives: trayDrives,
+    labels: trayLabels(engineRunning, trayDrives),
   }).catch(() => {});
   const list = $("remotes-list");
   list.innerHTML = "";
@@ -701,22 +743,22 @@ async function refreshRemotes() {
         <span class="spacer"></span>
         ${
           ownPoint
-            ? '<span class="chip state on">mounted</span>' +
-              '<span class="chip state sync hidden" title="Uploading changes to the cloud">⇅ syncing</span>'
+            ? `<span class="chip state on">${t("mounted")}</span>` +
+              `<span class="chip state sync hidden" title="${t("Uploading changes to the cloud")}">⇅ ${t("syncing")}</span>`
             : extPoint
-              ? '<span class="chip state ext" title="Mounted outside Monti (e.g. a systemd service).">mounted · system</span>'
-              : '<span class="chip state">not mounted</span>'
+              ? `<span class="chip state ext" title="${t("Mounted outside Monti (e.g. a systemd service).")}">${t("mounted · system")}</span>`
+              : `<span class="chip state">${t("not mounted")}</span>`
         }
       </div>
       <div class="remote-tags">
         <span class="chip provider"></span>
         ${
           wraps
-            ? '<span class="chip wraps" title="The encrypted copy is stored here"></span>'
+            ? `<span class="chip wraps" title="${t("The encrypted copy is stored here")}"></span>`
             : ""
         }
-        ${ownKey ? '<span class="chip key" title="Connected through your own API key">own key</span>' : ""}
-        ${readOnly ? '<span class="chip" title="Read-only: files cannot be changed">read-only</span>' : ""}
+        ${ownKey ? `<span class="chip key" title="${t("Connected through your own API key")}">${t("own key")}</span>` : ""}
+        ${readOnly ? `<span class="chip" title="${t("Read-only: files cannot be changed")}">${t("read-only")}</span>` : ""}
       </div>
       <div class="remote-path muted mono"></div>
       <div class="remote-quota hidden">
@@ -726,8 +768,8 @@ async function refreshRemotes() {
       <div class="remote-cache muted hidden"></div>
       <div class="remote-actions"></div>`;
     card.querySelector(".remote-name").textContent = name;
-    card.querySelector(".provider").textContent = PROVIDER_LABELS[type] || type;
-    if (wraps) card.querySelector(".wraps").textContent = `in ${wraps}`;
+    card.querySelector(".provider").textContent = t(PROVIDER_LABELS[type] || type);
+    if (wraps) card.querySelector(".wraps").textContent = t("in {name}", { name: wraps });
     // The line is truncated to keep every card the same shape; the full
     // path is one hover away.
     setPath(
@@ -742,7 +784,9 @@ async function refreshRemotes() {
     invoke("vfs_cache_size", { name })
       .then((used) => {
         if (!used) return;
-        cacheEl.textContent = `${fmtBytes(used)} cached on this computer`;
+        cacheEl.textContent = t("{size} cached on this computer", {
+          size: fmtBytes(used),
+        });
         cacheEl.classList.remove("hidden");
       })
       .catch(() => {});
@@ -753,24 +797,25 @@ async function refreshRemotes() {
 
     if (ownPoint) {
       actions.append(
-        makeBtn("Open folder", "primary", () => invoke("open_folder", { path: ownPoint })),
-        makeBtn("Unmount", "", async () => {
+        makeBtn(t("Open folder"), "primary", () => invoke("open_folder", { path: ownPoint })),
+        makeBtn(t("Unmount"), "", async () => {
           try {
             await invoke("unmount_remote", { mountPoint: ownPoint });
           } catch (e) {
             const m = String(e).match(/UPLOADS_PENDING:(\d+)/);
             if (!m) throw e;
             const { ok } = await ask({
-              title: "Uploads are still running",
-              text:
-                `${m[1]} file(s) from "${name}" have not reached the cloud yet.`,
+              title: t("Uploads are still running"),
+              text: t('{n} file(s) from "{name}" have not reached the cloud yet.', {
+                n: m[1],
+                name,
+              }),
               points: [
-                "Unmounting pauses the upload; it resumes the next time you mount the drive.",
-                "Until then those changes exist only on this computer.",
+                t("Unmounting pauses the upload; it resumes the next time you mount the drive."),
+                t("Until then those changes exist only on this computer."),
               ],
-              warn:
-                "Shutting the computer down before the next mount can lose them.",
-              okLabel: "Unmount anyway",
+              warn: t("Shutting the computer down before the next mount can lose them."),
+              okLabel: t("Unmount anyway"),
               danger: true,
             });
             if (!ok) return;
@@ -778,35 +823,36 @@ async function refreshRemotes() {
           }
           await refreshRemotes();
         }),
-        makeBtn("⚙", "icon", () => openRemoteDialog(name), "Drive settings")
+        makeBtn("⚙", "icon", () => openRemoteDialog(name), t("Drive settings"))
       );
       addShareButton(actions, name);
     } else if (extPoint) {
       actions.append(
-        makeBtn("Open folder", "primary", () => invoke("open_folder", { path: extPoint })),
-        makeBtn("Unmount", "", async () => {
+        makeBtn(t("Open folder"), "primary", () => invoke("open_folder", { path: extPoint })),
+        makeBtn(t("Unmount"), "", async () => {
           const { ok } = await ask({
-            title: `Unmount "${name}"?`,
-            text:
+            title: t('Unmount "{name}"?', { name }),
+            text: t(
               "This drive was mounted outside Monti — by a systemd service or " +
-              "a manual rclone mount.",
+                "a manual rclone mount."
+            ),
             points: [
-              "Close any app still using files there first.",
-              "A service that manages this mount may bring it back, or may need to be disabled separately.",
+              t("Close any app still using files there first."),
+              t("A service that manages this mount may bring it back, or may need to be disabled separately."),
             ],
-            warn: "Unsaved changes in files that are still open would be lost.",
-            okLabel: "Unmount",
+            warn: t("Unsaved changes in files that are still open would be lost."),
+            okLabel: t("Unmount"),
             danger: true,
           });
           if (!ok) return;
           await invoke("unmount_external", { mountPoint: extPoint });
           await refreshRemotes();
         }),
-        makeBtn("⚙", "icon", () => openRemoteDialog(name), "Drive settings")
+        makeBtn("⚙", "icon", () => openRemoteDialog(name), t("Drive settings"))
       );
     } else {
       actions.append(
-        makeBtn("Mount", "primary", async () => {
+        makeBtn(t("Mount"), "primary", async () => {
           const mp = prefFor(name).mountPoint || null;
           await invoke("mount_remote", {
             name,
@@ -816,29 +862,35 @@ async function refreshRemotes() {
           });
           await refreshRemotes();
         }),
-        makeBtn("⚙", "icon", () => openRemoteDialog(name), "Drive settings"),
-        makeBtn("Remove", "danger", async () => {
+        makeBtn("⚙", "icon", () => openRemoteDialog(name), t("Drive settings")),
+        makeBtn(t("Remove"), "danger", async () => {
           // Everything is decided in one dialog, before anything happens:
           // asking about the cache afterwards meant asking a question the
           // person could no longer answer with the drive in front of them.
           const mountPoint = prefFor(name).mountPoint || null;
           const cached = await invoke("vfs_cache_size", { name }).catch(() => 0);
           const points = [
-            "Files in the cloud are not touched.",
-            "The saved sign-in for this drive is removed from the rclone config on this machine.",
+            t("Files in the cloud are not touched."),
+            t("The saved sign-in for this drive is removed from the rclone config on this machine."),
           ];
           if (mountFolderOf(name, mountPoint)) {
-            points.push(`The empty mount folder ${mountFolderOf(name, mountPoint)} is removed.`);
+            points.push(
+              t("The empty mount folder {folder} is removed.", {
+                folder: mountFolderOf(name, mountPoint),
+              })
+            );
           }
           const { ok, extra } = await ask({
-            title: `Disconnect "${name}" from this computer?`,
-            text: "The drive disappears from Monti. You can add it back later by signing in again.",
+            title: t('Disconnect "{name}" from this computer?', { name }),
+            text: t("The drive disappears from Monti. You can add it back later by signing in again."),
             points,
-            okLabel: "Disconnect",
+            okLabel: t("Disconnect"),
             danger: true,
             extra: cached
               ? {
-                  label: `Also delete ${fmtBytes(cached)} of cached file copies`,
+                  label: t("Also delete {size} of cached file copies", {
+                    size: fmtBytes(cached),
+                  }),
                   checked: true,
                 }
               : null,
@@ -892,7 +944,7 @@ function addShareButton(actions, name) {
     .then((can) => {
       if (!can) return;
       actions.append(
-        makeBtn("Share a file", "", () => shareFile(name), "Get a link to a file in this drive")
+        makeBtn(t("Share a file"), "", () => shareFile(name), t("Get a link to a file in this drive"))
       );
     })
     .catch(() => {});
@@ -908,7 +960,7 @@ async function shareFile(name) {
   }
   if (!url) return; // the chooser was dismissed
   $("link-url").value = url;
-  $("link-copy").textContent = "Copy";
+  $("link-copy").textContent = t("Copy");
   $("link-dialog").showModal();
 }
 
@@ -920,13 +972,16 @@ const AUTOMOUNT_RETRIES = [10, 30, 60, 120]; // seconds between attempts
 
 function retryAutoMount(name, attempt, lastError) {
   if (attempt >= AUTOMOUNT_RETRIES.length) {
-    showError(`Auto-mount of “${name}” failed: ${lastError}`);
+    showError(t("Auto-mount of “{name}” failed: {error}", { name, error: lastError }));
     return;
   }
   const wait = AUTOMOUNT_RETRIES[attempt];
   showError(
-    `“${name}” is not mounted yet — trying again in ${wait}s. ` +
-      "Right after login this usually means the network is still coming up."
+    t(
+      "“{name}” is not mounted yet — trying again in {wait}s. " +
+        "Right after login this usually means the network is still coming up.",
+      { name, wait }
+    )
   );
   setTimeout(async () => {
     try {
@@ -984,43 +1039,43 @@ async function refreshPairs() {
         <span class="chip state${running ? " sync" : p.initialized ? " on" : ""}"></span>
       </div>
       <div class="remote-tags">
-        <span class="chip">${SCHEDULE_LABELS[p.schedule] || p.schedule}</span>
+        <span class="chip">${t(SCHEDULE_LABELS[p.schedule] || p.schedule)}</span>
       </div>
       <div class="remote-path muted mono"></div>
       <div class="sync-progress muted"></div>
       <div class="remote-actions"></div>`;
     card.querySelector(".remote-name").textContent = p.name;
     card.querySelector(".chip.state").textContent = running
-      ? "syncing"
+      ? t("syncing")
       : p.initialized
-        ? "ready"
-        : "not synced yet";
+        ? t("ready")
+        : t("not synced yet");
     setPath(card.querySelector(".remote-path"), `${p.local}  ⇄  ${p.remote}`);
 
     const line = card.querySelector(".sync-progress");
     if (p.lastRun) {
       line.textContent =
         p.lastResult === "ok"
-          ? `last sync ${p.lastRun} UTC`
-          : `last sync failed: ${p.lastResult}`;
+          ? t("last sync {when} UTC", { when: p.lastRun })
+          : t("last sync failed: {error}", { error: p.lastResult });
       line.classList.toggle("failed-text", p.lastResult !== "ok");
     } else {
-      line.textContent = "never synced";
+      line.textContent = t("never synced");
     }
 
     const actions = card.querySelector(".remote-actions");
     if (running) {
       actions.append(
-        makeBtn("Stop", "", async () => {
+        makeBtn(t("Stop"), "", async () => {
           const job = syncJobs.get(p.name);
           if (job) await invoke("sync_stop", { jobid: job.jobid }).catch(() => {});
         })
       );
     } else {
       actions.append(
-        makeBtn("Sync now", "primary", () => startSync(p)),
-        makeBtn("⚙", "icon", () => openPairDialog(p), "Settings for this pair"),
-        makeBtn("Remove", "danger", () => removePair(p))
+        makeBtn(t("Sync now"), "primary", () => startSync(p)),
+        makeBtn("⚙", "icon", () => openPairDialog(p), t("Settings for this pair")),
+        makeBtn(t("Remove"), "danger", () => removePair(p))
       );
     }
     list.append(card);
@@ -1033,9 +1088,11 @@ async function refreshPairs() {
 function askFirstSync(pair) {
   return new Promise((resolve) => {
     const dlg = $("firstsync-dialog");
-    $("firstsync-text").textContent =
-      `"${pair.name}" has not been synced yet. Monti will compare ` +
-      `${pair.local} and ${pair.remote} and make them match.`;
+    $("firstsync-text").textContent = t(
+      '"{name}" has not been synced yet. Monti will compare {local} and ' +
+        "{remote} and make them match.",
+      { name: pair.name, local: pair.local, remote: pair.remote }
+    );
     const done = (mode) => {
       dlg.removeEventListener("close", onClose);
       resolve(mode);
@@ -1054,7 +1111,7 @@ function askFirstSync(pair) {
     // a cloud folder takes seconds, and the question is answerable without
     // it — a sync that runs out of disk halfway is the thing to avoid.
     const space = $("firstsync-space");
-    space.textContent = "Measuring the cloud folder…";
+    space.textContent = t("Measuring the cloud folder…");
     space.classList.remove("warn-text");
     invoke("sync_estimate", { name: pair.name })
       .then(({ cloudBytes, cloudFiles, freeBytes }) => {
@@ -1062,12 +1119,20 @@ function askFirstSync(pair) {
           space.textContent = "";
           return;
         }
-        const files = cloudFiles === 1 ? "1 file" : `${cloudFiles} files`;
+        const files = t("{n} files", { n: cloudFiles });
         space.textContent =
-          `The cloud side holds ${fmtBytes(cloudBytes)} in ${files}` +
-          (freeBytes == null ? "." : `; this computer has ${fmtBytes(freeBytes)} free.`);
+          freeBytes == null
+            ? t("The cloud side holds {size} in {files}.", {
+                size: fmtBytes(cloudBytes),
+                files,
+              })
+            : t(
+                "The cloud side holds {size} in {files}; this computer has {free} free.",
+                { size: fmtBytes(cloudBytes), files, free: fmtBytes(freeBytes) }
+              );
         if (freeBytes != null && cloudBytes > freeBytes) {
-          space.textContent += " It will not all fit — leave some folders out first.";
+          space.textContent +=
+            " " + t("It will not all fit — leave some folders out first.");
           space.classList.add("warn-text");
         }
       })
@@ -1095,7 +1160,7 @@ async function startSync(pair, force = false) {
       force,
     });
   } catch (e) {
-    showError(`Sync of "${pair.name}" could not start: ${e}`);
+    showError(t('Sync of "{name}" could not start: {error}', { name: pair.name, error: e }));
     return;
   }
   syncJobs.set(pair.name, { jobid, resync: !pair.initialized, force });
@@ -1109,21 +1174,27 @@ async function startSync(pair, force = false) {
 // stick for this pair.
 async function confirmDeletes(pair, n, total) {
   const { ok, extra } = await ask({
-    title: "Files were deleted",
+    title: t("Files were deleted"),
     text:
       n && total
-        ? `${n} of ${total} file(s) are gone from one side of "${pair.name}". ` +
-          "Syncing will remove them from the other side too."
-        : `Files are gone from one side of "${pair.name}". Syncing will ` +
-          "remove them from the other side too.",
+        ? t(
+            '{n} of {total} file(s) are gone from one side of "{name}". ' +
+              "Syncing will remove them from the other side too.",
+            { n, total, name: pair.name }
+          )
+        : t(
+            'Files are gone from one side of "{name}". Syncing will remove ' +
+              "them from the other side too.",
+            { name: pair.name }
+          ),
     points: [
-      `on this computer: ${pair.local}`,
-      `in the cloud: ${pair.remote}`,
-      "if this is not what you expected, cancel and check both folders first",
+      t("on this computer: {path}", { path: pair.local }),
+      t("in the cloud: {path}", { path: pair.remote }),
+      t("if this is not what you expected, cancel and check both folders first"),
     ],
-    okLabel: "Delete them",
+    okLabel: t("Delete them"),
     danger: true,
-    extra: { label: "Stop asking for this pair", checked: false },
+    extra: { label: t("Stop asking for this pair"), checked: false },
   });
   return { ok, remember: !!extra };
 }
@@ -1146,8 +1217,11 @@ function followSync(name) {
       const line = card && card.querySelector(".sync-progress");
       if (line) {
         line.textContent = p.transfers
-          ? `syncing — ${p.transfers} file(s), ${fmtBytes(p.bytes)}`
-          : `syncing — checking ${p.checks} file(s)`;
+          ? t("syncing — {n} file(s), {size}", {
+              n: p.transfers,
+              size: fmtBytes(p.bytes),
+            })
+          : t("syncing — checking {n} file(s)", { n: p.checks });
       }
       setTimeout(tick, 2000);
       return;
@@ -1182,8 +1256,11 @@ function followSync(name) {
       rememberDeletes: false,
     }).catch(() => {});
     if (!p.success) {
-      showError(`Sync of "${name}" failed: ${p.error}`);
-      notify("Monti: sync failed", `"${name}" did not finish: ${p.error}`);
+      showError(t('Sync of "{name}" failed: {error}', { name, error: p.error }));
+      notify(
+        t("Monti: sync failed"),
+        t('"{name}" did not finish: {error}', { name, error: p.error })
+      );
     }
     await refreshPairs().catch(() => {});
   };
@@ -1202,7 +1279,7 @@ async function showConflicts(card, name) {
   box.className = "conflict-box";
   const head = document.createElement("div");
   head.className = "conflict-head";
-  head.textContent = `${list.length} file(s) changed on both sides`;
+  head.textContent = t("{n} file(s) changed on both sides", { n: list.length });
   box.append(head);
   for (const c of list.slice(0, 8)) {
     const row = document.createElement("div");
@@ -1224,9 +1301,9 @@ async function showConflicts(card, name) {
         title
       );
     row.append(
-      settle("winner", "keep current", "Delete this older copy"),
-      settle("loser", "keep this", "Put this copy back under the original name"),
-      settle("both", "keep both", "Rename it to “(copy)” and stop calling it a conflict")
+      settle("winner", t("keep current"), t("Delete this older copy")),
+      settle("loser", t("keep this"), t("Put this copy back under the original name")),
+      settle("both", t("keep both"), t("Rename it to “(copy)” and stop calling it a conflict"))
     );
     box.append(row);
   }
@@ -1249,7 +1326,9 @@ async function openPairDialog(pair = null) {
     opt.textContent = r.name;
     sel.append(opt);
   }
-  $("pair-title").textContent = pair ? `${pair.name} — sync settings` : "New sync";
+  $("pair-title").textContent = pair
+    ? t("{name} — sync settings", { name: pair.name })
+    : t("New sync");
   $("pair-name").value = pair ? pair.name : "";
   $("pair-name").disabled = !!pair; // the name keys the pair's history
   $("pair-local").value = pair ? pair.local : "";
@@ -1272,7 +1351,7 @@ async function savePairFromDialog() {
   const local = $("pair-local").value.trim(); // "~/..." is expanded by the backend
   const remote = `${$("pair-remote").value}:${$("pair-path").value.trim().replace(/^\/+/, "")}`;
   if (!$("pair-remote").value) {
-    showError("Connect a cloud first — there is nothing to sync with.");
+    showError(t("Connect a cloud first — there is nothing to sync with."));
     return;
   }
   // Changing which folders a working pair carries sends it through the
@@ -1285,13 +1364,13 @@ async function savePairFromDialog() {
     editingPair && JSON.stringify(editingPair.excludes || []) !== JSON.stringify(pairExcludes);
   if (filterChanged && editingPair.initialized) {
     const { ok } = await ask({
-      title: `"${name}" will sync from scratch once`,
-      text: "You changed which folders this pair carries.",
+      title: t('"{name}" will sync from scratch once', { name }),
+      text: t("You changed which folders this pair carries."),
       points: [
-        "The next sync compares both sides fully and merges them, keeping the newer copy of anything that differs.",
-        "Nothing is deleted by that run, and folders you left out are simply not touched again.",
+        t("The next sync compares both sides fully and merges them, keeping the newer copy of anything that differs."),
+        t("Nothing is deleted by that run, and folders you left out are simply not touched again."),
       ],
-      okLabel: "Save",
+      okLabel: t("Save"),
     });
     if (!ok) return;
   }
@@ -1317,14 +1396,14 @@ async function savePairFromDialog() {
 
 async function removePair(pair) {
   const { ok } = await ask({
-    title: `Stop syncing "${pair.name}"?`,
-    text: "Monti forgets this pair. Nothing is deleted:",
+    title: t('Stop syncing "{name}"?', { name: pair.name }),
+    text: t("Monti forgets this pair. Nothing is deleted:"),
     points: [
-      `${pair.local} stays exactly as it is`,
-      `${pair.remote} stays exactly as it is`,
-      "the two simply stop being kept the same",
+      t("{path} stays exactly as it is", { path: pair.local }),
+      t("{path} stays exactly as it is", { path: pair.remote }),
+      t("the two simply stop being kept the same"),
     ],
-    okLabel: "Stop syncing",
+    okLabel: t("Stop syncing"),
     danger: true,
   });
   if (!ok) return;
@@ -1384,7 +1463,7 @@ async function openRemoteDialog(name) {
   const pref = prefFor(name);
   dialogExcludes = excludesFor(name);
   $("remote-folders-status").textContent = foldersSummary(dialogExcludes);
-  $("remote-title").textContent = `${name} — settings`;
+  $("remote-title").textContent = t("{name} — settings", { name });
   $("remote-mountpoint").value = pref.mountPoint || "";
   $("remote-automount").checked = !!pref.automount;
   const vfs = pref.vfs || {};
@@ -1398,17 +1477,21 @@ async function openRemoteDialog(name) {
   $("remote-client-id").value = dialogKey.id;
   $("remote-client-secret").value = "";
   $("remote-client-secret").placeholder = info.hasOwnKey
-    ? "unchanged — enter a new one to replace"
+    ? t("unchanged — enter a new one to replace")
     : "";
   $("remote-key-status").textContent = dialogKey.id
-    ? "Using your own API key."
-    : "Using rclone's shared key — it is being retired during 2026, " +
-      "switching to your own key is recommended.";
+    ? t("Using your own API key.")
+    : t(
+        "Using rclone's shared key — it is being retired during 2026, " +
+          "switching to your own key is recommended."
+      );
 
   // Say what the empty limit field actually means, instead of "unlimited".
   invoke("cache_info")
     .then((c) => {
-      $("remote-cache-size").placeholder = `${fmtLimit(c.defaultLimit)} · e.g. 10G`;
+      $("remote-cache-size").placeholder = t("{limit} · e.g. 10G", {
+        limit: fmtLimit(c.defaultLimit),
+      });
     })
     .catch(() => {});
   refreshDialogCache(name);
@@ -1441,17 +1524,21 @@ let lowDiskTold = false;
 
 function lowDiskWarning(el, free) {
   if (free > 0 && free < LOW_DISK) {
-    el.textContent =
-      `Only ${fmtBytes(free)} left on this disk. Clear a drive's cache ` +
-      `in its settings, or lower its cache size limit.`;
+    el.textContent = t(
+      "Only {left} left on this disk. Clear a drive's cache in its " +
+        "settings, or lower its cache size limit.",
+      { left: fmtBytes(free) }
+    );
     el.classList.remove("hidden");
     // Once per crossing, not once per redraw: this check runs on every
     // refresh, and a notification per refresh would be its own problem.
     if (!lowDiskTold) {
       lowDiskTold = true;
       notify(
-        "Monti: this disk is nearly full",
-        `Only ${fmtBytes(free)} left. Clear a drive's cache or lower its limit.`
+        t("Monti: this disk is nearly full"),
+        t("Only {left} left. Clear a drive's cache or lower its limit.", {
+          left: fmtBytes(free),
+        })
       );
     }
   } else {
@@ -1464,15 +1551,15 @@ function lowDiskWarning(el, free) {
 async function refreshDialogCache(name) {
   const label = $("remote-cache-used");
   const btn = $("remote-cache-clear");
-  label.textContent = "counting…";
+  label.textContent = t("counting…");
   btn.disabled = true;
   const used = await invoke("vfs_cache_size", { name }).catch(() => 0);
   const mounted = ownMounts.has(name);
-  label.textContent = used ? fmtBytes(used) : "nothing cached";
+  label.textContent = used ? fmtBytes(used) : t("nothing cached");
   btn.disabled = !used || mounted;
   btn.title = mounted
-    ? "Unmount the drive first — rclone is using these files right now"
-    : "Delete the downloaded copies kept on this computer";
+    ? t("Unmount the drive first — rclone is using these files right now")
+    : t("Delete the downloaded copies kept on this computer");
 }
 
 // ---------- views ----------
@@ -1502,25 +1589,26 @@ async function refreshTransfers() {
   try {
     list = (await invoke("transfer_history")).transferred || [];
   } catch {
-    box.textContent = "The engine isn't running.";
+    box.textContent = t("The engine isn't running.");
     return;
   }
   if (!list.length) {
-    box.textContent = "Nothing transferred since the engine started.";
+    box.textContent = t("Nothing transferred since the engine started.");
     return;
   }
   box.innerHTML = "";
-  for (const t of list.slice(-12).reverse()) {
+  for (const item of list.slice(-12).reverse()) {
     const row = document.createElement("div");
     row.className = "transfer-row";
     const name = document.createElement("span");
     name.className = "transfer-name mono";
-    setPath(name, t.name || "(unnamed)", t.name || "");
+    setPath(name, item.name || t("(unnamed)"), item.name || "");
     const meta = document.createElement("span");
-    meta.className = t.error ? "transfer-meta failed" : "transfer-meta";
-    meta.textContent = t.error
-      ? "failed"
-      : `${fmtBytes(t.bytes || t.size || 0)}${t.checked ? " · checked" : ""}`;
+    meta.className = item.error ? "transfer-meta failed" : "transfer-meta";
+    meta.textContent = item.error
+      ? t("failed")
+      : fmtBytes(item.bytes || item.size || 0) +
+        (item.checked ? " · " + t("checked") : "");
     row.append(name, meta);
     box.append(row);
   }
@@ -1529,7 +1617,7 @@ async function refreshTransfers() {
 async function initSettings() {
   const info = await invoke("app_info");
   $("about-version").textContent = `v${info.appVersion}`;
-  $("about-rclone").textContent = info.rcloneVersion || "not installed";
+  $("about-rclone").textContent = info.rcloneVersion || t("not installed");
   setPath($("about-rclone-path"), info.rclonePath || "—");
   setPath($("about-config"), info.configPath || "—");
   $("open-config-btn").addEventListener("click", () => {
@@ -1549,15 +1637,21 @@ async function initSettings() {
     const status = $("reinstall-status");
     btn.disabled = true;
     showError("");
-    status.textContent = "Downloading rclone… (10–40 MB)";
+    status.textContent = t("Downloading rclone… (10–40 MB)");
+    status.dataset.downloading = "1";
     status.classList.remove("hidden");
     try {
       const path = await invoke("install_rclone");
-      status.textContent = `Done — installed to ${path}. Takes effect on the next engine restart.`;
+      delete status.dataset.downloading;
+      status.textContent = t(
+        "Done — installed to {path}. Takes effect on the next engine restart.",
+        { path }
+      );
       const fresh = await invoke("app_info");
-      $("about-rclone").textContent = fresh.rcloneVersion || "not installed";
+      $("about-rclone").textContent = fresh.rcloneVersion || t("not installed");
       setPath($("about-rclone-path"), fresh.rclonePath || "—");
     } catch (e) {
+      delete status.dataset.downloading;
       status.classList.add("hidden");
       showError(String(e));
     } finally {
@@ -1592,9 +1686,10 @@ async function initSettings() {
   $("opt-tray").checked = trayOn && info.trayAvailable;
   $("opt-tray").disabled = !info.trayAvailable;
   if (!info.trayAvailable) {
-    $("tray-hint").textContent =
+    $("tray-hint").textContent = t(
       "Tray isn't available on this desktop — closing the window quits Monti. " +
-      "(On Arch/Manjaro: install libayatana-appindicator.)";
+        "(On Arch/Manjaro: install libayatana-appindicator.)"
+    );
   }
   await invoke("set_close_to_tray", {
     enabled: trayOn && info.trayAvailable,
@@ -1703,6 +1798,7 @@ window.addEventListener("DOMContentLoaded", () => {
     closeOnBackdropClick($(id));
   }
 
+
   boot();
   initSettings().catch((e) => showError(String(e)));
 
@@ -1725,8 +1821,10 @@ window.addEventListener("DOMContentLoaded", () => {
         }
         if (busy.length) {
           notify(
-            `${busy.length} drive(s) are still uploading`,
-            `${busy.join(", ")} — open Monti to unmount anyway.`
+            t("{n} drive(s) are still uploading", { n: busy.length }),
+            t("{drives} — open Monti to unmount anyway.", {
+              drives: busy.join(", "),
+            })
           );
         }
         await refreshRemotes();
@@ -1749,11 +1847,20 @@ window.addEventListener("DOMContentLoaded", () => {
       const pending = String(err).match(/UPLOADS_PENDING:(\d+)/);
       if (pending) {
         notify(
-          `“${name}” is still uploading`,
-          `${pending[1]} file(s) have not reached the cloud yet. Open Monti to unmount anyway.`
+          t("“{name}” is still uploading", { name }),
+          t(
+            "{n} file(s) have not reached the cloud yet. Open Monti to " +
+              "unmount anyway.",
+            { n: pending[1] }
+          )
         );
       } else {
-        notify(`Could not ${action} “${name}”`, String(err));
+        notify(
+          action === "mount"
+            ? t("Could not mount “{name}”", { name })
+            : t("Could not unmount “{name}”", { name }),
+          String(err)
+        );
         showError(String(err));
       }
     }
@@ -1763,11 +1870,17 @@ window.addEventListener("DOMContentLoaded", () => {
   listen("engine-download", (e) => {
     const { downloaded, total } = e.payload;
     const text = total
-      ? `Downloading rclone… ${Math.round((downloaded / total) * 100)}% of ${fmtBytes(total)}`
-      : `Downloading rclone… ${fmtBytes(downloaded)}`;
+      ? t("Downloading rclone… {percent}% of {size}", {
+          percent: Math.round((downloaded / total) * 100),
+          size: fmtBytes(total),
+        })
+      : t("Downloading rclone… {size}", { size: fmtBytes(downloaded) });
+    // Which line to write into is a flag on the element, not the text it
+    // happens to hold: the text is translated, "Downloading" is not a
+    // prefix any more.
     for (const id of ["install-status", "reinstall-status"]) {
       const el = $(id);
-      if (el && !el.classList.contains("hidden") && el.textContent.startsWith("Downloading")) {
+      if (el && !el.classList.contains("hidden") && el.dataset.downloading) {
         el.textContent = text;
       }
     }
@@ -1812,12 +1925,15 @@ window.addEventListener("DOMContentLoaded", () => {
   $("install-btn").addEventListener("click", async () => {
     const btn = $("install-btn");
     btn.disabled = true;
-    $("install-status").textContent = "Downloading rclone… (10–40 MB)";
+    $("install-status").textContent = t("Downloading rclone… (10–40 MB)");
+    $("install-status").dataset.downloading = "1";
     try {
       await invoke("install_rclone");
-      $("install-status").textContent = "Done!";
+      delete $("install-status").dataset.downloading;
+      $("install-status").textContent = t("Done!");
       await boot();
     } catch (e) {
+      delete $("install-status").dataset.downloading;
       $("install-status").textContent = "";
       showError(String(e));
     } finally {
@@ -1832,7 +1948,7 @@ window.addEventListener("DOMContentLoaded", () => {
     // execCommand is old, but the async clipboard API needs a secure origin
     // and the webview's tauri:// origin is not one of those.
     const done = document.execCommand("copy");
-    $("link-copy").textContent = done ? "Copied" : "Press Ctrl+C";
+    $("link-copy").textContent = done ? t("Copied") : t("Press Ctrl+C");
   });
 
   // --- browsing for a folder on this computer ---
@@ -1876,10 +1992,11 @@ window.addEventListener("DOMContentLoaded", () => {
       remote: dialogRemote,
       base: "",
       excluded: dialogExcludes,
-      title: `Folders of "${dialogRemote}"`,
-      hint:
+      title: t('Folders of "{name}"', { name: dialogRemote }),
+      hint: t(
         "Unticked folders are left out of the mounted drive: they stay in " +
-        "the cloud, they just do not appear on this computer.",
+          "the cloud, they just do not appear on this computer."
+      ),
     });
     if (!chosen) return;
     dialogExcludes = chosen;
@@ -1889,7 +2006,7 @@ window.addEventListener("DOMContentLoaded", () => {
   $("pair-folders-choose").addEventListener("click", async () => {
     const remote = $("pair-remote").value;
     if (!remote) {
-      showError("Pick the cloud first — its folders are what you choose from.");
+      showError(t("Pick the cloud first — its folders are what you choose from."));
       return;
     }
     const base = $("pair-path").value.trim().replace(/^\/+|\/+$/g, "");
@@ -1897,10 +2014,11 @@ window.addEventListener("DOMContentLoaded", () => {
       remote,
       base,
       excluded: pairExcludes,
-      title: "Folders to sync",
-      hint:
+      title: t("Folders to sync"),
+      hint: t(
         "Unticked folders are not synced: they stay as they are on both " +
-        "sides, and Monti stops comparing them.",
+          "sides, and Monti stops comparing them."
+      ),
     });
     if (!chosen) return;
     pairExcludes = chosen;
@@ -1943,8 +2061,8 @@ window.addEventListener("DOMContentLoaded", () => {
       .querySelectorAll(".params")
       .forEach((d) => d.classList.toggle("hidden", d.id !== `params-${p}`));
     $("add-status").textContent = oauth
-      ? "⏳ Waiting for you to authorize in the browser… Press Cancel to abort."
-      : "⏳ Connecting…";
+      ? t("⏳ Waiting for you to authorize in the browser… Press Cancel to abort.")
+      : t("⏳ Connecting…");
     // An encrypted drive is stored inside a drive that already exists, so
     // the list of those has to be current every time the form is shown.
     if (p === "crypt") {
@@ -1969,7 +2087,7 @@ window.addEventListener("DOMContentLoaded", () => {
   const collectParams = (p) => {
     const v = (id) => $(id).value.trim();
     if (p === "webdav") {
-      if (!v("webdav-url")) return "Server URL is required.";
+      if (!v("webdav-url")) return t("Server URL is required.");
       return {
         url: v("webdav-url"),
         vendor: $("webdav-vendor").value,
@@ -1979,9 +2097,9 @@ window.addEventListener("DOMContentLoaded", () => {
     }
     if (p === "s3") {
       if (!v("s3-access") || !$("s3-secret").value)
-        return "Access key ID and Secret access key are required.";
+        return t("Access key ID and Secret access key are required.");
       if ($("s3-provider").value !== "AWS" && !v("s3-endpoint"))
-        return "Endpoint is required for non-Amazon S3 services.";
+        return t("Endpoint is required for non-Amazon S3 services.");
       return {
         provider: $("s3-provider").value,
         access_key_id: v("s3-access"),
@@ -2003,15 +2121,15 @@ window.addEventListener("DOMContentLoaded", () => {
     }
     if (p === "crypt") {
       const base = $("crypt-remote").value;
-      if (!base) return "Add a drive first — an encrypted drive lives inside one.";
+      if (!base) return t("Add a drive first — an encrypted drive lives inside one.");
       // Both fields are compared as typed, spaces included: the password is
       // sent unchanged, and a mistyped one is only discovered much later,
       // when the files no longer open.
       const pass = $("crypt-pass").value;
-      if (!pass) return "A password is required — that is the whole point.";
-      if (pass !== $("crypt-pass2").value) return "The two passwords are not the same.";
+      if (!pass) return t("A password is required — that is the whole point.");
+      if (pass !== $("crypt-pass2").value) return t("The two passwords are not the same.");
       if (!$("crypt-understood").checked)
-        return "Please confirm the password is written down: it cannot be recovered.";
+        return t("Please confirm the password is written down: it cannot be recovered.");
       const folder = v("crypt-path").replace(/^\/+|\/+$/g, "") || "Encrypted";
       return { remote: `${base}:${folder}`, password: pass };
     }
@@ -2059,13 +2177,16 @@ window.addEventListener("DOMContentLoaded", () => {
     const name = dialogRemote;
     const used = await invoke("vfs_cache_size", { name }).catch(() => 0);
     const { ok } = await ask({
-      title: "Clear the local cache?",
-      text: `${fmtBytes(used)} of downloaded copies of "${name}" will be deleted from this computer.`,
+      title: t("Clear the local cache?"),
+      text: t(
+        '{size} of downloaded copies of "{name}" will be deleted from this computer.',
+        { size: fmtBytes(used), name }
+      ),
       points: [
-        "Files in the cloud are not touched.",
-        "They download again the next time you open them.",
+        t("Files in the cloud are not touched."),
+        t("They download again the next time you open them."),
       ],
-      okLabel: "Clear cache",
+      okLabel: t("Clear cache"),
       danger: true,
     });
     if (!ok) return;
@@ -2098,11 +2219,15 @@ window.addEventListener("DOMContentLoaded", () => {
     const maxSize = $("remote-cache-size").value.trim();
     const maxAge = $("remote-cache-age").value.trim();
     if (maxSize && !SIZE_RE.test(maxSize)) {
-      showError(`"${maxSize}" is not a size — try something like 500M or 10G.`);
+      showError(t('"{value}" is not a size — try something like 500M or 10G.', { value: maxSize }));
       return;
     }
     if (maxAge && !AGE_RE.test(maxAge)) {
-      showError(`"${maxAge}" is not a duration — try something like 30m, 24h or 7d.`);
+      showError(
+        t('"{value}" is not a duration — try something like 30m, 24h or 7d.', {
+          value: maxAge,
+        })
+      );
       return;
     }
     const name = dialogRemote;
@@ -2128,11 +2253,11 @@ window.addEventListener("DOMContentLoaded", () => {
 
     if (keyChanged) {
       if (newId && newId !== dialogKey.id && !newSecret) {
-        showError("Enter the Client secret that pairs with the new Client ID.");
+        showError(t("Enter the Client secret that pairs with the new Client ID."));
         return;
       }
       if (!newId && newSecret) {
-        showError("Enter the Client ID that pairs with this Client secret.");
+        showError(t("Enter the Client ID that pairs with this Client secret."));
         return;
       }
       // Changing the key re-runs the browser authorization in one go.
@@ -2155,13 +2280,13 @@ window.addEventListener("DOMContentLoaded", () => {
     if (foldersChanged && ownMounts.has(name)) {
       const point = ownMounts.get(name);
       const { ok } = await ask({
-        title: `Remount "${name}" now?`,
-        text: "The folders you chose apply from the next mount on.",
+        title: t('Remount "{name}" now?', { name }),
+        text: t("The folders you chose apply from the next mount on."),
         points: [
-          "Monti unmounts the drive and mounts it again — a few seconds.",
-          "Files open from that folder right now would lose their connection.",
+          t("Monti unmounts the drive and mounts it again — a few seconds."),
+          t("Files open from that folder right now would lose their connection."),
         ],
-        okLabel: "Remount",
+        okLabel: t("Remount"),
       });
       if (!ok) return;
       try {

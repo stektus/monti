@@ -1519,30 +1519,58 @@ struct TrayDrive {
     mounted: bool,
 }
 
+/// The words the tray shows. They arrive from the interface already
+/// translated — and already counted, because "5 drives" takes three
+/// different endings in Ukrainian and the rules for that live in the
+/// browser's Intl, not here. Only the drive name is still substituted
+/// below, since Rust is the one that decides which drives fit.
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TrayLabels {
+    open: String,
+    quit: String,
+    status: String,
+    mount: String,
+    unmount: String,
+    all_drives: String,
+    unmount_all: String,
+    tooltip: String,
+}
+
+impl TrayLabels {
+    /// English, for the tray built at startup — the interface has not had a
+    /// chance to say anything yet.
+    fn english(engine_running: bool) -> Self {
+        Self {
+            open: "Open Monti".into(),
+            quit: "Quit".into(),
+            status: if engine_running {
+                "Engine running".into()
+            } else {
+                "Engine stopped".into()
+            },
+            mount: "Mount \u{201c}{name}\u{201d}".into(),
+            unmount: "Unmount \u{201c}{name}\u{201d}".into(),
+            all_drives: "All drives in Monti\u{2026}".into(),
+            unmount_all: "Unmount all drives".into(),
+            tooltip: "Monti \u{2014} cloud drives".into(),
+        }
+    }
+}
+
 /// The tray menu: what is going on, and the one action per drive worth
 /// having without opening the window.
 fn tray_menu(
     app: &AppHandle,
     engine_running: bool,
     drives: &[TrayDrive],
+    labels: &TrayLabels,
 ) -> tauri::Result<Menu<tauri::Wry>> {
-    let show = MenuItem::with_id(app, "show", "Open Monti", true, None::<&str>)?;
-    let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
+    let show = MenuItem::with_id(app, "show", &labels.open, true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, "quit", &labels.quit, true, None::<&str>)?;
     let mounted = drives.iter().filter(|d| d.mounted).count();
     // A disabled item is how a menu says something rather than offers it.
-    let status = MenuItem::with_id(
-        app,
-        "status",
-        if !engine_running {
-            "Engine stopped".to_string()
-        } else if drives.len() > 1 {
-            format!("Engine running · {mounted} of {} mounted", drives.len())
-        } else {
-            "Engine running".to_string()
-        },
-        false,
-        None::<&str>,
-    )?;
+    let status = MenuItem::with_id(app, "status", &labels.status, false, None::<&str>)?;
     let menu = Menu::with_items(app, &[&show, &PredefinedMenuItem::separator(app)?, &status])?;
 
     // A tray menu is a shortcut, not a second interface. Someone with forty
@@ -1560,12 +1588,12 @@ fn tray_menu(
         let (id, label) = if drive.mounted {
             (
                 format!("unmount:{}", drive.name),
-                format!("Unmount “{}”", drive.name),
+                labels.unmount.replace("{name}", &drive.name),
             )
         } else {
             (
                 format!("mount:{}", drive.name),
-                format!("Mount “{}”", drive.name),
+                labels.mount.replace("{name}", &drive.name),
             )
         };
         menu.append(&MenuItem::with_id(
@@ -1580,7 +1608,7 @@ fn tray_menu(
         menu.append(&MenuItem::with_id(
             app,
             "show",
-            format!("All {} drives in Monti…", drives.len()),
+            &labels.all_drives,
             true,
             None::<&str>,
         )?)?;
@@ -1593,7 +1621,7 @@ fn tray_menu(
             &MenuItem::with_id(
                 app,
                 "unmountall",
-                format!("Unmount all {mounted} drives"),
+                &labels.unmount_all,
                 engine_running,
                 None::<&str>,
             )?,
@@ -1607,27 +1635,26 @@ fn tray_menu(
 /// because the interface is where mount preferences live: the tray asks it to
 /// act rather than acting itself.
 #[tauri::command]
-fn update_tray(app: AppHandle, engine_running: bool, drives: Vec<TrayDrive>) -> Result<(), String> {
+fn update_tray(
+    app: AppHandle,
+    engine_running: bool,
+    drives: Vec<TrayDrive>,
+    labels: TrayLabels,
+) -> Result<(), String> {
     let Some(tray) = app.tray_by_id("monti-tray") else {
         return Ok(()); // no tray on this desktop; the window says it all
     };
-    let mounted = drives.iter().filter(|d| d.mounted).count();
-    let menu = tray_menu(&app, engine_running, &drives).map_err(|e| e.to_string())?;
+    let menu = tray_menu(&app, engine_running, &drives, &labels).map_err(|e| e.to_string())?;
     tray.set_menu(Some(menu)).map_err(|e| e.to_string())?;
-    let tip = match (engine_running, mounted) {
-        (false, _) => "Monti — engine stopped".to_string(),
-        (true, 0) => "Monti — no drives mounted".to_string(),
-        (true, 1) => "Monti — 1 drive mounted".to_string(),
-        (true, n) => format!("Monti — {n} drives mounted"),
-    };
-    tray.set_tooltip(Some(tip)).map_err(|e| e.to_string())
+    tray.set_tooltip(Some(&labels.tooltip))
+        .map_err(|e| e.to_string())
 }
 
 fn build_tray(app: &AppHandle) -> tauri::Result<()> {
     TrayIconBuilder::with_id("monti-tray")
         .icon(app.default_window_icon().expect("bundle has icons").clone())
         .tooltip("Monti — cloud drives")
-        .menu(&tray_menu(app, true, &[])?)
+        .menu(&tray_menu(app, true, &[], &TrayLabels::english(true))?)
         .on_menu_event(|app, event| {
             let id = event.id.as_ref();
             match id {
