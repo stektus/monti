@@ -1,6 +1,6 @@
 [package]
 name = "monti"
-version = "0.7.5"
+version = "0.8.0"
 description = "Mount your clouds. Google Drive, Dropbox and more as local folders on Linux."
 authors = ["Monti contributors"]
 license = "MIT"

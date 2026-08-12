@@ -2,6 +2,24 @@
 
 Notable changes per release. Dates are the release date.
 
+## v0.8.0 — 2026-08-13
+
+**Monti speaks Ukrainian and Russian.** It follows your desktop's language, or
+you pick one in Settings — the whole interface, not the menus only: drive
+cards, dialogs, notifications and the tray. Sizes and speeds are formatted the
+way your language writes them, so a drive reads 15,5 ГБ, and counted phrases
+take the right ending — one file, two files, five files are three different
+words in both new languages.
+
+Messages that come straight from the engine stay in English. They are rclone's
+own words, and the provider's error is what you search for when something
+breaks; the Language setting says so rather than leaving you to notice.
+
+**Adding a language needs no code.** A translation is one file of English
+sentence → your sentence, and `scripts/check-translations.mjs` says what is
+still missing. CONTRIBUTING.md has the details; CI runs the same check, so a
+dictionary that lost a placeholder or a plural form cannot land quietly.
+
 ## v0.7.5 — 2026-08-12
 
 **Settings reads like a page again on a wide window.** Maximised, the four
