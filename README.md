@@ -61,8 +61,13 @@ a way to use it without becoming an rclone expert. That is Monti.
 - **It tells you the truth.** How much disk the cache is using, what a button
   is about to delete, when something is still uploading — and what the
   provider's error actually means, with its own words kept underneath.
+- **A drive's folder is not a trap when the drive is away.** Save something
+  into it while the drive is unmounted and it would land on your disk instead
+  of the cloud — and block the next mount. Monti leaves that folder read-only
+  until the drive is back, so the save fails instead of disappearing.
 - **The tray does something.** Engine state at a glance, and one click to
-  mount or unmount a drive without opening the window.
+  mount or unmount a drive without opening the window — plus *Unmount all*
+  before you undock or suspend.
 - **Start on login means the drives, not the window.** Monti comes up in the
   background; open it from the tray, or by starting it again.
 
@@ -126,6 +131,10 @@ Monti was built around the things that actually go wrong with rclone mounts:
   seconds and restores every mount, with its exact options, on one click.
 - **Two mounts of one remote corrupting files.** Monti refuses to double-mount,
   and shows mounts made outside itself instead of ignoring them.
+- **Saving into a cloud folder that is not mounted.** The file goes to the
+  local disk without a word, and the drive then refuses to mount over the
+  folder it is sitting in. Monti keeps that folder read-only while the drive
+  is away, so the save fails at the moment you make it.
 - **rclone's shared API key being retired during 2026.** Monti walks you through
   creating your own key, including the test-user step that trips up most people.
 

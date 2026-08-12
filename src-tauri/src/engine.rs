@@ -811,6 +811,12 @@ pub fn stop_engine_locked(app: &AppHandle, eng: &mut Engine) {
         // Unmount everything first so FUSE mounts don't go stale.
         let _ = rc_raw(eng.port, &eng.pass, "mount/unmountall", &json!({}));
         let _ = rc_raw(eng.port, &eng.pass, "core/quit", &json!({}));
+        // Every one of those folders is an ordinary empty directory again,
+        // and a save into one would go to the local disk instead of the
+        // cloud — this is the moment to close them.
+        for entry in eng.mounts.values() {
+            close_mount_folder(&entry.mount_point);
+        }
     }
     // Give the daemon a moment to exit on its own; killing it mid-write
     // is what the VFS cache protects against, but no need to test that.
@@ -874,6 +880,66 @@ fn is_fuse_mounted(mount_point: &str) -> bool {
         .unwrap_or(false)
 }
 
+/// Mount a drive, leaving the folder underneath closed to writing.
+///
+/// While a drive is mounted that folder is unreachable — everything at the
+/// path belongs to rclone. It becomes reachable again the moment the drive
+/// is not mounted, and then a save into what still looks like the cloud
+/// folder lands on the local disk: no error, nothing in the cloud, and the
+/// next mount refused outright, because FUSE will not mount over a folder
+/// with anything in it. `r-x` turns that save into "permission denied",
+/// where the person can still do something about it.
+///
+/// Two measured details decide the shape of this:
+/// * `fusermount3` rejects a mount point it cannot write to
+///   ("user has no write access to mountpoint"), so the folder has to be
+///   opened up for the moment of mounting;
+/// * after the mount, the path leads into rclone's filesystem, so the mode
+///   has to be set through a handle opened *before* it — that handle still
+///   refers to the directory underneath.
+pub fn mount_guarded(
+    port: u16,
+    pass: &str,
+    fs_name: &str,
+    entry: &MountEntry,
+) -> Result<Value, String> {
+    #[cfg(unix)]
+    let under = fs::File::open(&entry.mount_point).ok();
+    #[cfg(unix)]
+    if under.is_some() {
+        set_mode(&entry.mount_point, 0o700);
+    }
+    let result = rc_raw(port, pass, "mount/mount", &mount_body(fs_name, entry));
+    #[cfg(unix)]
+    if let Some(dir) = under {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = dir.set_permissions(fs::Permissions::from_mode(0o500));
+    }
+    result
+}
+
+#[cfg(unix)]
+fn set_mode(path: &str, mode: u32) {
+    use std::os::unix::fs::PermissionsExt;
+    let _ = fs::set_permissions(path, fs::Permissions::from_mode(mode));
+}
+
+/// Close an unmounted folder against stray writes — the other half of
+/// [`mount_guarded`], for the moment a drive is taken away.
+///
+/// A folder that still has something in it is left alone: it is either not
+/// ours, or it holds exactly what this is meant to save — something written
+/// while the drive was away, which the person still has to see.
+pub fn close_mount_folder(path: &str) {
+    #[cfg(unix)]
+    if fs::read_dir(path)
+        .map(|mut d| d.next().is_none())
+        .unwrap_or(false)
+    {
+        set_mode(path, 0o500);
+    }
+}
+
 /// Mount everything recorded in eng.mounts with the exact options the
 /// user chose — used after an engine restart or recovery. Stale FUSE
 /// leftovers of a dead daemon are lazily unmounted first.
@@ -884,12 +950,7 @@ pub fn remount_saved(app: &AppHandle, eng: &Engine) {
                 .args(["-uz", &entry.mount_point])
                 .output();
         }
-        let result = rc_raw(
-            eng.port,
-            &eng.pass,
-            "mount/mount",
-            &mount_body(fs_name, entry),
-        );
+        let result = mount_guarded(eng.port, &eng.pass, fs_name, entry);
         match result {
             Ok(_) => log_line(
                 app,
@@ -941,7 +1002,7 @@ fn retry_mount(app: &AppHandle, port: u16, pass: &str, fs_name: &str, entry: &Mo
                 }
                 Err(_) => return, // engine gone or replaced; not our mount to fix
             }
-            let result = rc_raw(port, &pass, "mount/mount", &mount_body(&fs_name, &entry));
+            let result = mount_guarded(port, &pass, &fs_name, &entry);
             match result {
                 Ok(_) => {
                     log_line(
@@ -1078,6 +1139,54 @@ mod error_tests {
             5,
         );
         assert!(dead.contains("Restart engine"), "{dead}");
+    }
+}
+
+#[cfg(test)]
+mod mount_folder_tests {
+    use super::close_mount_folder;
+    use std::{fs, os::unix::fs::PermissionsExt, path::PathBuf};
+
+    fn scratch(tag: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("monti-test-{}-{tag}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn mode(p: &PathBuf) -> u32 {
+        fs::metadata(p).unwrap().permissions().mode() & 0o777
+    }
+
+    /// An empty mount folder is closed against writing: a save into it while
+    /// the drive is away would go to the local disk instead of the cloud,
+    /// and would then keep the drive from mounting at all.
+    #[test]
+    fn an_empty_mount_folder_is_closed() {
+        let dir = scratch("empty");
+        fs::set_permissions(&dir, fs::Permissions::from_mode(0o700)).unwrap();
+        close_mount_folder(dir.to_str().unwrap());
+        assert_eq!(mode(&dir), 0o500, "an empty folder should end up read-only");
+        assert!(
+            fs::write(dir.join("nope.txt"), b"x").is_err(),
+            "writing into a closed folder must fail"
+        );
+        fs::set_permissions(&dir, fs::Permissions::from_mode(0o700)).unwrap();
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// A folder with something in it is left alone. Those files are either
+    /// not ours, or they are exactly what this protects — something saved
+    /// while the drive was away, which the person still has to be able to
+    /// reach and move somewhere real.
+    #[test]
+    fn a_folder_with_files_is_left_alone() {
+        let dir = scratch("full");
+        fs::set_permissions(&dir, fs::Permissions::from_mode(0o700)).unwrap();
+        fs::write(dir.join("stray.txt"), b"written while unmounted").unwrap();
+        close_mount_folder(dir.to_str().unwrap());
+        assert_eq!(mode(&dir), 0o700, "a folder with files must stay writable");
+        fs::remove_dir_all(&dir).unwrap();
     }
 }
 

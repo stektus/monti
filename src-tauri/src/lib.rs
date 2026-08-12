@@ -1335,13 +1335,7 @@ async fn mount_remote(
     };
     let mut eng = state.0.lock().unwrap();
     let fs_name = format!("{name}:");
-    rc_raw(
-        eng.port,
-        &eng.pass,
-        "mount/mount",
-        &engine::mount_body(&fs_name, &entry),
-    )
-    .map_err(&cleanup)?;
+    engine::mount_guarded(eng.port, &eng.pass, &fs_name, &entry).map_err(&cleanup)?;
     eng.mounts.insert(fs_name, entry);
     save_engine_file(&app, &eng);
     log_line(
@@ -1385,6 +1379,9 @@ async fn unmount_remote(
         let _ = e_key;
         e.mount_point != mount_point
     });
+    // The folder is a plain empty directory again, and a save into it would
+    // now land on the local disk instead of the cloud. Close it.
+    engine::close_mount_folder(&mount_point);
     save_engine_file(&app, &eng);
     log_line(&app, &format!("unmounted {mount_point}"));
     Ok(())
@@ -1531,20 +1528,35 @@ fn tray_menu(
 ) -> tauri::Result<Menu<tauri::Wry>> {
     let show = MenuItem::with_id(app, "show", "Open Monti", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
+    let mounted = drives.iter().filter(|d| d.mounted).count();
     // A disabled item is how a menu says something rather than offers it.
     let status = MenuItem::with_id(
         app,
         "status",
-        if engine_running {
-            "Engine running"
+        if !engine_running {
+            "Engine stopped".to_string()
+        } else if drives.len() > 1 {
+            format!("Engine running · {mounted} of {} mounted", drives.len())
         } else {
-            "Engine stopped"
+            "Engine running".to_string()
         },
         false,
         None::<&str>,
     )?;
     let menu = Menu::with_items(app, &[&show, &PredefinedMenuItem::separator(app)?, &status])?;
-    for drive in drives {
+
+    // A tray menu is a shortcut, not a second interface. Someone with forty
+    // drives cannot pick one out of a forty-item list hanging off their
+    // panel — and the menu is rebuilt on every state change, so the list
+    // costs something every time. Show a handful and let the window do what
+    // the window is for. Mounted drives come first: with a long list, the
+    // action worth having in one click is unmounting the one that is up.
+    const SHOWN: usize = 8;
+    let ordered = drives
+        .iter()
+        .filter(|d| d.mounted)
+        .chain(drives.iter().filter(|d| !d.mounted));
+    for drive in ordered.take(SHOWN) {
         let (id, label) = if drive.mounted {
             (
                 format!("unmount:{}", drive.name),
@@ -1563,6 +1575,29 @@ fn tray_menu(
             engine_running,
             None::<&str>,
         )?)?;
+    }
+    if drives.len() > SHOWN {
+        menu.append(&MenuItem::with_id(
+            app,
+            "show",
+            format!("All {} drives in Monti…", drives.len()),
+            true,
+            None::<&str>,
+        )?)?;
+    }
+    // Before undocking, before suspending, before pulling the cable: the one
+    // bulk action that is worth a click, and only when it would do anything.
+    if mounted > 1 {
+        menu.append_items(&[
+            &PredefinedMenuItem::separator(app)?,
+            &MenuItem::with_id(
+                app,
+                "unmountall",
+                format!("Unmount all {mounted} drives"),
+                engine_running,
+                None::<&str>,
+            )?,
+        ])?;
     }
     menu.append_items(&[&PredefinedMenuItem::separator(app)?, &quit])?;
     Ok(menu)
@@ -1604,6 +1639,9 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
                     }
                 }
                 "quit" => app.exit(0),
+                "unmountall" => {
+                    let _ = app.emit("tray-action", json!({ "action": "unmountall" }));
+                }
                 _ => {
                     // Mounting needs the drive's saved options, and those live
                     // in the interface — so the tray asks it to do the work,

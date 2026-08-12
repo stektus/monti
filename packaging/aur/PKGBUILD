@@ -8,9 +8,12 @@ pkgdesc="Mount your clouds — a friendly GUI for rclone (Google Drive, Dropbox,
 arch=('x86_64')
 url="https://github.com/stektus/monti"
 license=('MIT')
-depends=('webkit2gtk-4.1' 'gtk3' 'fuse3')
+# libayatana-appindicator is a dependency, not an option: without it there is
+# no tray icon at all, and "install this library, then you get a tray" is
+# exactly the kind of homework this app exists to spare people. The .deb and
+# .rpm require it for the same reason; it is under a megabyte.
+depends=('webkit2gtk-4.1' 'gtk3' 'fuse3' 'libayatana-appindicator')
 optdepends=(
-  'libayatana-appindicator: close-to-tray support'
   'rclone: use the system engine instead of the one Monti downloads itself'
 )
 provides=('monti')

@@ -2,6 +2,29 @@
 
 Notable changes per release. Dates are the release date.
 
+## v0.7.3 — 2026-08-12
+
+**A drive's folder is no longer a trap when the drive is away.** Save a
+document into `~/CloudDrives/gdrive` while Monti is not running and, until
+now, nothing objected: the file went to the local disk, never reached the
+cloud, and the next mount failed outright — FUSE will not mount over a folder
+with anything in it, so one stray file took the drive out of service. The
+folder is now left read-only whenever the drive is not mounted, so that save
+fails where it can still be acted on. Looking inside it still works, and
+Monti opens it up again for the moment of mounting.
+
+**The tray stays a menu, not a second window.** With more than eight drives
+it shows the first eight — mounted ones first, since unmounting is what a
+click is worth — then *All N drives in Monti…*. The status line counts
+(*Engine running · 3 of 50 mounted*), and when several drives are up there is
+one **Unmount all** — the thing worth having before undocking or suspending.
+A drive still uploading refuses and says so; the rest come down.
+
+**The Arch package installs the tray library.** `libayatana-appindicator` was
+an optional dependency, which meant the tray silently did not exist unless the
+person knew to install it. The `.deb` and `.rpm` always required it; now the
+`PKGBUILD` does too, and the AppImage carries its own copy.
+
 ## v0.7.2 — 2026-08-12
 
 **Starting with the session no longer opens a window.** *Start Monti on login*

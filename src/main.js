@@ -1686,6 +1686,26 @@ window.addEventListener("DOMContentLoaded", () => {
   listen("tray-action", async (e) => {
     const { action, name } = e.payload;
     try {
+      if (action === "unmountall") {
+        // One click before undocking or suspending. A drive still writing
+        // refuses, says which one, and the rest still come down — the point
+        // is to leave nothing half-uploaded, not to force everything off.
+        const busy = [];
+        for (const [drive, point] of [...ownMounts]) {
+          await invoke("unmount_remote", { mountPoint: point }).catch((err) => {
+            if (String(err).includes("UPLOADS_PENDING")) busy.push(drive);
+            else throw err;
+          });
+        }
+        if (busy.length) {
+          notify(
+            `${busy.length} drive(s) are still uploading`,
+            `${busy.join(", ")} — open Monti to unmount anyway.`
+          );
+        }
+        await refreshRemotes();
+        return;
+      }
       if (action === "mount") {
         await invoke("mount_remote", {
           name,
