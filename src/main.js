@@ -1529,8 +1529,8 @@ async function initSettings() {
   const info = await invoke("app_info");
   $("about-version").textContent = `v${info.appVersion}`;
   $("about-rclone").textContent = info.rcloneVersion || "not installed";
-  $("about-rclone-path").textContent = info.rclonePath || "—";
-  $("about-config").textContent = info.configPath || "—";
+  setPath($("about-rclone-path"), info.rclonePath || "—");
+  setPath($("about-config"), info.configPath || "—");
   $("open-config-btn").addEventListener("click", () => {
     if (info.configPath) {
       const dir = info.configPath.slice(0, info.configPath.lastIndexOf("/"));
@@ -1555,7 +1555,7 @@ async function initSettings() {
       status.textContent = `Done — installed to ${path}. Takes effect on the next engine restart.`;
       const fresh = await invoke("app_info");
       $("about-rclone").textContent = fresh.rcloneVersion || "not installed";
-      $("about-rclone-path").textContent = fresh.rclonePath || "—";
+      setPath($("about-rclone-path"), fresh.rclonePath || "—");
     } catch (e) {
       status.classList.add("hidden");
       showError(String(e));

@@ -2,6 +2,19 @@
 
 Notable changes per release. Dates are the release date.
 
+## v0.7.5 — 2026-08-12
+
+**Settings reads like a page again on a wide window.** Maximised, the four
+groups were laid out in a grid, and a grid lines its cards up in rows: a short
+card next to a tall one left a hole underneath it. They now flow into columns
+that pack tight and balance themselves, capped at a reading width and centred
+— a switch three feet from the sentence explaining it helped nobody. Below
+1160 px it is one column, wide enough to keep every setting on one line.
+
+**About stops wrapping paths into three ragged lines.** The engine and config
+paths are cut at the front now, the way the drive cards do it, with the whole
+path on hover.
+
 ## v0.7.4 — 2026-08-12
 
 **The window stops locking up while Monti does its housekeeping.** A command

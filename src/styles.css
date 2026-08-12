@@ -190,20 +190,32 @@ a:hover { text-decoration: underline; }
   box-shadow: var(--shadow);
 }
 
-/* Settings used to be one column you scrolled through; on any normal window
-   the four groups now sit side by side and the whole page fits on screen.
-   Columns are capped at reading width, not at whatever the monitor allows. */
+/* Settings is a page to read, so it is capped at a reading width and centred
+   rather than stretched across the monitor — a switch three feet from the
+   sentence explaining it helps nobody.
+   Columns come from `columns` rather than a grid on purpose: a grid lines
+   its cards up in rows, so a short card next to a tall one leaves a hole
+   underneath it, which is what a maximised window used to look like. Column
+   flow packs them tight and balances the two sides itself. */
 .settings-grid {
-  display: grid;
-  /* The max has to stay flexible: with a fixed one, auto-fit counts columns
-     using that maximum and a 960px window ends up with a single 620px
-     column. The reading width is capped by the grid instead. */
-  grid-template-columns: repeat(auto-fit, minmax(380px, 1fr));
-  justify-content: center;
-  align-items: start;
-  gap: 14px;
-  max-width: 1280px;
+  columns: 1;
+  column-gap: 14px;
+  max-width: 760px;
   margin: 0 auto;
+}
+.settings-grid > .card {
+  /* A card must never be split down the middle of a column break. */
+  break-inside: avoid;
+  -webkit-column-break-inside: avoid;
+  margin: 0 0 14px;
+}
+/* Two columns only once each one is still wide enough to keep a setting and
+   its switch on one line. */
+@media (min-width: 1160px) {
+  .settings-grid {
+    columns: 2;
+    max-width: 1180px;
+  }
 }
 #view-settings h2 { margin: 0 0 6px; font-size: 17px; }
 
@@ -484,7 +496,21 @@ a:hover { text-decoration: underline; }
   font-size: 13.5px;
 }
 .about-row:first-child { border-top: 0; }
-.about-row span:last-child { text-align: right; word-break: break-all; }
+/* Paths here are long enough to wrap into three ragged lines and push the
+   label out of the way. One line, cut at the front — the end of a path is
+   the part that identifies it — and the whole of it on hover. */
+.about-row span:last-child { text-align: right; }
+.about-row .path-value {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+}
+.about-row .path-value > span {
+  direction: ltr;
+  unicode-bidi: embed;
+}
 .about-actions { display: flex; gap: 8px; margin-bottom: 10px; }
 
 /* ---------- misc ---------- */
