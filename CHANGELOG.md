@@ -2,7 +2,7 @@
 
 Notable changes per release. Dates are the release date.
 
-## v0.8.0 — 2026-08-13
+## v0.8.0 — 2026-08-12
 
 **Monti speaks Ukrainian and Russian.** It follows your desktop's language, or
 you pick one in Settings — the whole interface, not the menus only: drive
