@@ -50,9 +50,20 @@ jobs:
 
       - name: cargo test
         working-directory: src-tauri
-        # Every test that gives up says why, so a silent skip cannot pass for
-        # a pass.
-        run: cargo test -- --nocapture
+        # Every test that gives up says why. A skip is a legitimate result on
+        # a machine without FUSE, but it must not read as a pass: whatever was
+        # skipped is raised as an annotation on the run, where it is visible
+        # without opening the log.
+        run: |
+          set -euo pipefail
+          cargo test -- --nocapture 2>&1 | tee /tmp/test.log
+          if grep -q "skipped —" /tmp/test.log; then
+            grep "skipped —" /tmp/test.log | while read -r line; do
+              echo "::warning::$line"
+            done
+          else
+            echo "::notice::every provider round trip ran, mounts included"
+          fi
 
       - name: JS syntax check
         run: |
