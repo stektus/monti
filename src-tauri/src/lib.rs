@@ -629,6 +629,35 @@ fn drive_state_machine(
     Err("authorization did not finish (too many configuration steps)".into())
 }
 
+/// The fields a form may send, per provider. Anything else is dropped: the
+/// webview must not be able to set arbitrary rclone options, and a name the
+/// backend does not have would be stored and then quietly ignored.
+///
+/// `None` means Monti does not offer this provider. Adding one to the dialog
+/// without adding it here is exactly the mistake a test below looks for.
+fn allowed_params(provider: &str) -> Option<&'static [&'static str]> {
+    Some(match provider {
+        // An encrypted drive is a drive on top of another one. rclone stores
+        // the password obscured (reversible, not encrypted) in its config, so
+        // what this protects is the copy in the cloud — the dialog says so.
+        "crypt" => &["remote", "password", "password2"],
+        "webdav" => &["url", "vendor", "user", "pass"],
+        "s3" => &[
+            "provider",
+            "access_key_id",
+            "secret_access_key",
+            "endpoint",
+            "region",
+        ],
+        "b2" => &["account", "key"],
+        "sftp" => &["host", "port", "user", "pass", "key_file"],
+        _ => return None,
+    })
+}
+
+/// Providers whose sign-in is a browser round trip rather than a form.
+const OAUTH_PROVIDERS: &[&str] = &["drive", "dropbox", "onedrive", "box", "pcloud", "yandex"];
+
 /// Create a remote through the daemon's RC config API. For OAuth
 /// providers the daemon opens the browser and runs the callback server;
 /// optional client_id/client_secret let the user connect through their
@@ -666,9 +695,8 @@ async fn create_remote(
             ));
         }
     }
-    const OAUTH: &[&str] = &["drive", "dropbox", "onedrive", "box", "pcloud", "yandex"];
     let allowed_params: &[&str] = match provider.as_str() {
-        p if OAUTH.contains(&p) => {
+        p if OAUTH_PROVIDERS.contains(&p) => {
             let (port, pass) = {
                 let eng = state.0.lock().unwrap();
                 (eng.port, eng.pass.clone())
@@ -698,20 +726,7 @@ async fn create_remote(
             }
             return Ok(());
         }
-        // An encrypted drive is a drive on top of another one. rclone stores
-        // the password obscured (reversible, not encrypted) in its config, so
-        // what this protects is the copy in the cloud — the dialog says so.
-        "crypt" => &["remote", "password", "password2"],
-        "webdav" => &["url", "vendor", "user", "pass"],
-        "s3" => &[
-            "provider",
-            "access_key_id",
-            "secret_access_key",
-            "endpoint",
-            "region",
-        ],
-        "sftp" => &["host", "port", "user", "pass", "key_file"],
-        _ => return Err(format!("unsupported provider: {provider}")),
+        p => allowed_params(p).ok_or_else(|| format!("unsupported provider: {p}"))?,
     };
 
     let mut parameters = serde_json::Map::new();
@@ -2208,15 +2223,36 @@ mod tests {
         }
     }
 
+    /// Every provider the Add-cloud dialog offers has to be one the backend
+    /// will accept. They live in different files and different languages, and
+    /// the first time they disagreed the dialog said "unsupported provider"
+    /// after the person had already pasted their keys in.
+    #[test]
+    fn every_provider_in_the_dialog_reaches_the_backend() {
+        let html = include_str!("../../src/index.html");
+        let select = html
+            .split_once(r#"id="add-provider""#)
+            .and_then(|(_, rest)| rest.split_once("</select>"))
+            .map(|(inside, _)| inside)
+            .expect("the dialog should have a provider list");
+
+        let mut seen = 0;
+        for chunk in select.split(r#"<option value=""#).skip(1) {
+            let provider = chunk.split('"').next().unwrap_or("");
+            seen += 1;
+            assert!(
+                OAUTH_PROVIDERS.contains(&provider) || allowed_params(provider).is_some(),
+                "the dialog offers {provider}, which create_remote() refuses"
+            );
+        }
+        assert!(seen > 5, "the provider list did not parse: {seen} found");
+    }
+
     /// Backblaze cannot be served on localhost, and neither can any provider
     /// that needs an account — so what is checked for all of them is the one
     /// mistake that is easy to make and invisible until someone signs in:
     /// a field name the backend does not have. rclone publishes the option
-    /// names of every backend, so the forms are held against that list.
-    ///
-    /// The table mirrors collectParams() in src/main.js. A provider added
-    /// there and forgotten here is not caught by anything — which is why the
-    /// list is short enough to keep in step by reading it.
+    /// names of every backend, so what Monti allows is held against that list.
     #[test]
     fn every_form_sends_option_names_rclone_knows() {
         let Some(d) = spawn_test_rcd() else {
@@ -2228,26 +2264,20 @@ mod tests {
             .as_array()
             .expect("providers should be a list");
 
-        let forms: &[(&str, &[&str])] = &[
-            ("webdav", &["url", "vendor", "user", "pass"]),
-            (
-                "s3",
-                &[
-                    "provider",
-                    "access_key_id",
-                    "secret_access_key",
-                    "endpoint",
-                    "region",
-                    "env_auth",
-                ],
-            ),
-            ("b2", &["account", "key"]),
-            ("sftp", &["host", "port", "user", "pass", "key_file"]),
-            ("crypt", &["remote", "password"]),
-            ("drive", &["client_id", "client_secret"]),
-        ];
+        // Taken from the backend itself rather than a copy of it, so a
+        // provider added there is checked without anyone remembering to.
+        let mut forms: Vec<(&str, &[&str])> = ["crypt", "webdav", "s3", "b2", "sftp"]
+            .iter()
+            .map(|k| (*k, allowed_params(k).expect("known provider")))
+            .collect();
+        // The browser providers send only their own key, if the person has one.
+        for oauth in OAUTH_PROVIDERS {
+            forms.push((oauth, &["client_id", "client_secret"]));
+        }
+        // s3 additionally pins env_auth off, so keys can only come from the form.
+        forms.push(("s3", &["env_auth"]));
 
-        for (kind, fields) in forms {
+        for (kind, fields) in &forms {
             let backend = providers
                 .iter()
                 .find(|p| p["Name"].as_str() == Some(kind))
