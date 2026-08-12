@@ -1474,7 +1474,16 @@ async function openRemoteDialog(name) {
 
   const remotes = await invoke("list_remotes");
   const info = remotes.find((r) => r.name === name) || {};
-  dialogKey = { id: info.clientId || "" };
+
+  // An API key and a browser sign-in belong to the providers that have one.
+  // A Backblaze or WebDAV drive is reached with the credentials already in
+  // the config, so the section and the Re-authorize button would offer
+  // something that cannot happen.
+  const oauth = OAUTH_PROVIDERS.has(info.type);
+  $("remote-key-section").classList.toggle("hidden", !oauth);
+  $("remote-reconnect").classList.toggle("hidden", !oauth);
+
+  dialogKey = { id: info.clientId || "", oauth };
   $("remote-client-id").value = dialogKey.id;
   $("remote-client-secret").value = "";
   $("remote-client-secret").placeholder = info.hasOwnKey
@@ -1798,6 +1807,7 @@ window.addEventListener("DOMContentLoaded", () => {
   ]) {
     closeOnBackdropClick($(id));
   }
+
 
 
 
@@ -2258,7 +2268,10 @@ window.addEventListener("DOMContentLoaded", () => {
     // An empty secret field means "keep the stored secret" — the stored
     // value is never shown here. A key update happens when the ID changes
     // or a new secret was typed.
-    const keyChanged = newId !== dialogKey.id || newSecret !== "";
+    // Only where a key means anything: the fields are hidden for the rest,
+    // and a hidden field must never decide to re-run an authorization.
+    const keyChanged =
+      dialogKey.oauth && (newId !== dialogKey.id || newSecret !== "");
 
     if (keyChanged) {
       if (newId && newId !== dialogKey.id && !newSecret) {
