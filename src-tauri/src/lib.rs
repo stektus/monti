@@ -2208,6 +2208,67 @@ mod tests {
         }
     }
 
+    /// Backblaze cannot be served on localhost, and neither can any provider
+    /// that needs an account — so what is checked for all of them is the one
+    /// mistake that is easy to make and invisible until someone signs in:
+    /// a field name the backend does not have. rclone publishes the option
+    /// names of every backend, so the forms are held against that list.
+    ///
+    /// The table mirrors collectParams() in src/main.js. A provider added
+    /// there and forgotten here is not caught by anything — which is why the
+    /// list is short enough to keep in step by reading it.
+    #[test]
+    fn every_form_sends_option_names_rclone_knows() {
+        let Some(d) = spawn_test_rcd() else {
+            return skipped("forms", "no rclone daemon");
+        };
+        let answer = rc_raw(d.port, &d.pass, "config/providers", &json!({}))
+            .expect("rclone should list its providers");
+        let providers = answer["providers"]
+            .as_array()
+            .expect("providers should be a list");
+
+        let forms: &[(&str, &[&str])] = &[
+            ("webdav", &["url", "vendor", "user", "pass"]),
+            (
+                "s3",
+                &[
+                    "provider",
+                    "access_key_id",
+                    "secret_access_key",
+                    "endpoint",
+                    "region",
+                    "env_auth",
+                ],
+            ),
+            ("b2", &["account", "key"]),
+            ("sftp", &["host", "port", "user", "pass", "key_file"]),
+            ("crypt", &["remote", "password"]),
+            ("drive", &["client_id", "client_secret"]),
+        ];
+
+        for (kind, fields) in forms {
+            let backend = providers
+                .iter()
+                .find(|p| p["Name"].as_str() == Some(kind))
+                .unwrap_or_else(|| panic!("rclone has no backend called {kind}"));
+            let empty = Vec::new();
+            let known: HashSet<&str> = backend["Options"]
+                .as_array()
+                .unwrap_or(&empty)
+                .iter()
+                .filter_map(|o| o["Name"].as_str())
+                .collect();
+            for field in *fields {
+                assert!(
+                    known.contains(field),
+                    "the {kind} form sends {field}, which rclone's {kind} backend \
+                     has no option for"
+                );
+            }
+        }
+    }
+
     #[test]
     fn webdav_drive_mounts_and_carries_files() {
         let Some(server) = serve("webdav", &[]) else {

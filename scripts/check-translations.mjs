@@ -22,6 +22,7 @@ const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const KEEP_ENGLISH = new Set([
   "Monti", "GitHub", "Google Drive", "Dropbox", "OneDrive", "Box", "pCloud",
   "Yandex Disk", "WebDAV", "S3", "SFTP", "Nextcloud", "ownCloud", "Amazon S3",
+  "Backblaze B2",
   "Cloudflare R2", "MinIO", "Client ID", "Client secret", "rclone",
   "https://cloud.example.com/remote.php/webdav/", "https://…",
   "server.example.com", "~/.ssh/id_ed25519", "~/CloudDrives/…",
@@ -149,7 +150,7 @@ const TABLE_KEYS = [
   "engine not installed", "engine running", "engine failed", "engine stopped",
   "starting…", "restarting…",
   "Google Drive", "Dropbox", "OneDrive", "Box", "pCloud", "Yandex Disk",
-  "WebDAV", "S3", "SFTP", "encrypted",
+  "WebDAV", "S3", "SFTP", "Backblaze B2", "encrypted",
   "manual", "when Monti starts", "every 15 minutes", "every hour",
 ];
 

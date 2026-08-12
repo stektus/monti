@@ -21,6 +21,7 @@ const PROVIDER_LABELS = {
   yandex: "Yandex Disk",
   webdav: "WebDAV",
   s3: "S3",
+  b2: "Backblaze B2",
   sftp: "SFTP",
   crypt: "encrypted",
 };
@@ -1799,6 +1800,7 @@ window.addEventListener("DOMContentLoaded", () => {
   }
 
 
+
   boot();
   initSettings().catch((e) => showError(String(e)));
 
@@ -2107,6 +2109,13 @@ window.addEventListener("DOMContentLoaded", () => {
         endpoint: v("s3-endpoint"),
         region: v("s3-region"),
       };
+    }
+    if (p === "b2") {
+      // rclone calls them account and key; Backblaze calls them keyID and
+      // applicationKey on the page they are copied from.
+      if (!v("b2-account") || !$("b2-key").value)
+        return t("Key ID and Application key are required.");
+      return { account: v("b2-account"), key: $("b2-key").value };
     }
     if (p === "sftp") {
       if (!v("sftp-host") || !v("sftp-user"))

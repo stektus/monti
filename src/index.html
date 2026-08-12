@@ -276,6 +276,7 @@
             <optgroup label="Servers">
               <option value="webdav">WebDAV / Nextcloud</option>
               <option value="s3">S3-compatible storage</option>
+              <option value="b2">Backblaze B2</option>
               <option value="sftp">SFTP</option>
             </optgroup>
             <optgroup label="On top of a drive you already have">
@@ -326,6 +327,17 @@
             Region <span class="muted">(optional)</span>
             <input id="s3-region" placeholder="e.g. eu-central-1" spellcheck="false" />
           </label>
+        </div>
+
+        <div id="params-b2" class="params hidden">
+          <label>Key ID <input id="b2-account" class="mono" autocomplete="off" spellcheck="false" /></label>
+          <label>Application key <input id="b2-key" class="mono" type="password" autocomplete="new-password" /></label>
+          <p class="muted" data-i18n="b2.where">
+            Both come from
+            <a href="https://secure.backblaze.com/app_keys.htm" class="ext">Application Keys</a>
+            in your Backblaze account — create a key, and copy the two values it
+            shows once. A key made for one bucket only sees that bucket.
+          </p>
         </div>
 
         <div id="params-sftp" class="params hidden">

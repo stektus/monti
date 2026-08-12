@@ -2,6 +2,20 @@
 
 Notable changes per release. Dates are the release date.
 
+## Unreleased
+
+**Backblaze B2.** Key ID and application key from your Backblaze account, no
+browser step — 10 GB of storage there costs nothing, which makes it a
+reasonable place to keep a backup drive.
+
+**The providers are tested against servers that answer.** rclone can serve the
+protocols Monti connects to, so WebDAV, S3 and SFTP now get a real round trip
+in the test suite: a server on localhost, the same call the Add-cloud dialog
+makes, a mount, a file written through that mount and found on the other side.
+Field names for every provider — the B2 and OAuth ones included — are held
+against rclone's own list of options, which is the mistake that otherwise
+shows up only when somebody signs in.
+
 ## v0.8.0 — 2026-08-12
 
 **Monti speaks Ukrainian and Russian.** It follows your desktop's language, or

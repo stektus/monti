@@ -159,6 +159,16 @@ export default {
   Cancel: "Скасувати",
   Connect: "Підключити",
 
+  "b2.where": `Обидва значення беруться зі сторінки
+    <a href="https://secure.backblaze.com/app_keys.htm" class="ext">Application Keys</a>
+    у вашому обліковому записі Backblaze: створіть ключ і скопіюйте дві
+    величини, які він покаже один раз. Ключ, зроблений для одного відра,
+    бачить лише його.`,
+  "Key ID": "Ідентифікатор ключа",
+  "Application key": "Ключ застосунку",
+  "Key ID and Application key are required.":
+    "Потрібні ідентифікатор ключа і ключ застосунку.",
+
   // ---------- налаштування диска ----------
   "Drive settings": "Налаштування диска",
   "Mount folder": "Тека підключення",
