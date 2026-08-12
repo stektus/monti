@@ -16,6 +16,11 @@ Field names for every provider — the B2 and OAuth ones included — are held
 against rclone's own list of options, which is the mistake that otherwise
 shows up only when somebody signs in.
 
+**A drive's settings stop offering an API key it cannot use.** The Client ID,
+Client secret and Re-authorize button showed on every drive, Backblaze and
+WebDAV included, where there is no browser sign-in to re-run and the
+credentials already sit in the config.
+
 ## v0.8.0 — 2026-08-12
 
 **Monti speaks Ukrainian and Russian.** It follows your desktop's language, or
