@@ -2200,6 +2200,12 @@ window.addEventListener("DOMContentLoaded", () => {
       setPref(name, { automount: true });
       $("add-dialog").close();
       await refreshRemotes();
+    } else if (provider === "protondrive" && $("proton-2fa").value.trim()) {
+      // A code dies the moment it is tried, right or wrong. Clear that one
+      // field and put the cursor in it: everything else the person typed
+      // stays, so a second attempt is six digits of work.
+      $("proton-2fa").value = "";
+      $("proton-2fa").focus();
     }
   });
 

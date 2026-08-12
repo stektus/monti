@@ -23,6 +23,10 @@ time somebody presses Mount. If it is refused, the half-made drive is removed
 instead of waiting in the list to fail later, and Proton's two answers are
 told apart: a stale code asks for a fresh one, a bad password says so.
 
+The refusal is shown in the dialog, which stays open with everything still
+typed. A code is spent whether it was accepted or not, so that one field is
+emptied and handed back the cursor: a second attempt is six digits of work.
+
 **The providers are tested against servers that answer.** rclone can serve the
 protocols Monti connects to, so WebDAV, S3 and SFTP now get a real round trip
 in the test suite: a server on localhost, the same call the Add-cloud dialog

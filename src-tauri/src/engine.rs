@@ -614,7 +614,7 @@ pub fn friendly_cloud_error(raw: &str) -> String {
         return explain(
             "The two-factor code was not accepted. A code is only good for \
              about half a minute — take a fresh one from your authenticator \
-             and add the drive again.",
+             and press Connect again. The rest of the form is still filled in.",
         );
     }
     if low.contains("the password is not correct") {
