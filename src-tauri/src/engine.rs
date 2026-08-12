@@ -571,6 +571,8 @@ pub fn rc_raw(port: u16, pass: &str, path: &str, body: &Value) -> Result<Value, 
     rc_raw_with_timeout(port, pass, path, body, 120)
 }
 
+const PROVIDER_SAID: &str = "\n\nThe provider said: ";
+
 /// Turn what the provider said into what it means.
 ///
 /// rclone reports the API's own words — `googleapi: Error 403: The user's
@@ -579,8 +581,15 @@ pub fn rc_raw(port: u16, pass: &str, path: &str, body: &Value) -> Result<Value, 
 /// of the sentence, because a bug report needs it and because guessing wrong
 /// must not hide the truth.
 pub fn friendly_cloud_error(raw: &str) -> String {
+    // Explaining an explanation reads as the same paragraph three times: the
+    // sentence, then "The provider said:" and the sentence again, then the
+    // raw text. rc_raw already runs everything it returns through here, so a
+    // caller that helpfully does it once more gets nothing done.
+    if raw.contains(PROVIDER_SAID) {
+        return raw.to_string();
+    }
     let low = raw.to_lowercase();
-    let explain = |what: &str| format!("{what}\n\nThe provider said: {raw}");
+    let explain = |what: &str| format!("{what}{PROVIDER_SAID}{raw}");
 
     // Google answers 403 for both "you are out of space" and "you are going
     // too fast", and the word "quota" appears in both — so decide which one
@@ -1151,6 +1160,12 @@ mod error_tests {
             bad_password.contains("password was not accepted"),
             "{bad_password}"
         );
+
+        // Every rc_raw error is explained already, so a caller explaining it
+        // again must change nothing. It did once: the dialog showed the same
+        // paragraph twice before the raw text.
+        assert_eq!(friendly_cloud_error(&stale_code), stale_code);
+        assert_eq!(friendly_cloud_error(&full), full);
 
         // Anything unrecognised must come through untouched: a wrong guess
         // that hides the real message is worse than no guess.

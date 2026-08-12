@@ -812,7 +812,7 @@ async fn create_remote(
             &json!({ "fs": format!("{name}:"), "remote": "" }),
         ) {
             let _ = rc_raw(port, &pass, "config/delete", &json!({ "name": name }));
-            return Err(engine::friendly_cloud_error(&e));
+            return Err(e);
         }
         // The code is spent. Leaving it behind would make a session that
         // expires months from now fail as "incorrect credentials" instead of
