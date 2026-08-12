@@ -116,13 +116,13 @@ fn inside_a_mount(local: &Path) -> Option<String> {
         .map(|m| m.mount_point)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn sync_pairs(app: AppHandle) -> Vec<SyncPair> {
     load_pairs(&app)
 }
 
 /// Add a pair, or replace the one with the same name.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn sync_pair_save(app: AppHandle, mut pair: SyncPair) -> Result<(), String> {
     if pair.name.trim().is_empty() {
         return Err("give this pair a name".into());
@@ -186,7 +186,7 @@ pub fn sync_pair_save(app: AppHandle, mut pair: SyncPair) -> Result<(), String> 
 
 /// Forget a pair. Files on both sides are left exactly as they are — this
 /// removes a Monti setting, not anyone's documents.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn sync_pair_remove(app: AppHandle, name: String) -> Result<(), String> {
     let mut pairs = load_pairs(&app);
     pairs.retain(|p| p.name != name);
@@ -405,7 +405,7 @@ pub async fn sync_progress(
 
 /// Record how a run ended, so a card can say "synced 10 minutes ago" instead
 /// of nothing at all.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn sync_finished(
     app: AppHandle,
     name: String,
@@ -496,7 +496,7 @@ fn walk_conflicts(dir: &Path, out: &mut Vec<Conflict>, depth: usize) {
     }
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn sync_conflicts(app: AppHandle, name: String) -> Result<Vec<Conflict>, String> {
     let pair = load_pairs(&app)
         .into_iter()
@@ -513,7 +513,7 @@ pub fn sync_conflicts(app: AppHandle, name: String) -> Result<Vec<Conflict>, Str
 /// - `winner`: throw the renamed copy away, keep what is there now.
 /// - `loser`: put the renamed copy back under the original name.
 /// - `both`: leave both files, just stop calling it a conflict.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn sync_resolve(app: AppHandle, loser: String, keep: String) -> Result<(), String> {
     settle_conflict(Path::new(&loser), &keep)?;
     log_line(&app, &format!("conflict settled ({keep})"));

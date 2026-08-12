@@ -2,6 +2,23 @@
 
 Notable changes per release. Dates are the release date.
 
+## v0.7.4 — 2026-08-12
+
+**The window stops locking up while Monti does its housekeeping.** A command
+that Tauri runs synchronously runs on the thread that draws the window, and
+sixteen of Monti's did: measuring a drive's cache walks every file in it,
+clearing it deletes them, and the window could do nothing at all meanwhile —
+buttons included. They now run on a worker thread, where they belong.
+
+Two things people hit that are *not* Monti, written down under
+[If something goes wrong](README.md#if-something-goes-wrong) rather than left
+to be rediscovered: the title-bar buttons that ignore clicks on Wayland (a
+bug one layer down, already fixed upstream in tao 0.36 and waiting for a
+Tauri release that carries it), and the file manager freezing for seconds
+inside a cloud folder — that is the provider answering "how much space is
+free", and on Google Drive through rclone's shared API key it was measured at
+17 seconds against 0.3 with an own key.
+
 ## v0.7.3 — 2026-08-12
 
 **A drive's folder is no longer a trap when the drive is away.** Save a

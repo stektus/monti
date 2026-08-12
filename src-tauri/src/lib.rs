@@ -85,7 +85,7 @@ fn read_proc_mounts() -> Vec<SystemMount> {
         .collect()
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn list_system_mounts() -> Vec<SystemMount> {
     read_proc_mounts()
 }
@@ -200,7 +200,7 @@ fn spawn_opener(target: &str) -> Result<(), String> {
 
 /// Open a folder in the file manager. Directories only: pointing xdg-open
 /// at a file would let a `.desktop` file execute instead of being shown.
-#[tauri::command]
+#[tauri::command(async)]
 fn open_folder(path: String) -> Result<(), String> {
     let p = PathBuf::from(&path);
     if !p.is_dir() {
@@ -211,7 +211,7 @@ fn open_folder(path: String) -> Result<(), String> {
 
 /// Open an https link in the browser. Only https, so a crafted link can't
 /// reach file:// or a custom scheme handler.
-#[tauri::command]
+#[tauri::command(async)]
 fn open_link(url: String) -> Result<(), String> {
     if !url.starts_with("https://") {
         return Err("only https links can be opened".into());
@@ -970,7 +970,7 @@ async fn remote_about(state: State<'_, EngineState>, name: String) -> Result<Abo
 }
 
 /// Bytes of cached file copies a remote keeps under ~/.cache/rclone.
-#[tauri::command]
+#[tauri::command(async)]
 fn vfs_cache_size(app: AppHandle, name: String) -> Result<u64, String> {
     Ok(vfs_cache_dirs(&app, &name)?
         .iter()
@@ -1046,7 +1046,7 @@ async fn bandwidth_limit(
 /// rest, absent on a bare window manager without dunst or mako. A missing
 /// daemon must be as harmless as a missing tray icon, so failure is logged
 /// and swallowed — the same event is always on screen inside the app too.
-#[tauri::command]
+#[tauri::command(async)]
 fn notify_user(app: AppHandle, title: String, body: String) {
     // Showing a notification is a D-Bus round trip; on a session bus with no
     // daemon it fails, and either way it has no business blocking a command.
@@ -1065,7 +1065,7 @@ fn notify_user(app: AppHandle, title: String, body: String) {
 
 /// Free space on the disk holding the cache — one statvfs, no directory
 /// walk, so the drives screen can ask for it every time it redraws.
-#[tauri::command]
+#[tauri::command(async)]
 fn disk_free(app: AppHandle) -> Result<u64, String> {
     let root = app
         .path()
@@ -1078,7 +1078,7 @@ fn disk_free(app: AppHandle) -> Result<u64, String> {
 }
 
 /// Cache totals for the Settings screen and the low-disk warning.
-#[tauri::command]
+#[tauri::command(async)]
 fn cache_info(app: AppHandle) -> Result<CacheInfo, String> {
     let root = app
         .path()
@@ -1099,7 +1099,7 @@ fn cache_info(app: AppHandle) -> Result<CacheInfo, String> {
 /// Refuses while the remote is mounted: rclone keeps open handles into
 /// these files, and pulling them out from under a live mount can fail
 /// reads and drop writes that were still queued for upload.
-#[tauri::command]
+#[tauri::command(async)]
 fn clear_vfs_cache(app: AppHandle, name: String) -> Result<(), String> {
     if let Some(m) = read_proc_mounts().into_iter().find(|m| m.remote == name) {
         return Err(format!(
@@ -1421,13 +1421,13 @@ fn autostart_file(app: &AppHandle) -> Result<PathBuf, String> {
         .join("monti.desktop"))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn get_autostart(app: AppHandle) -> bool {
     autostart_file(&app).map(|p| p.is_file()).unwrap_or(false)
 }
 
 /// Start Monti on login via the XDG autostart spec (KDE, GNOME, XFCE, …).
-#[tauri::command]
+#[tauri::command(async)]
 fn set_autostart(app: AppHandle, enabled: bool) -> Result<(), String> {
     let file = autostart_file(&app)?;
     if !enabled {

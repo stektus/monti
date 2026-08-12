@@ -270,6 +270,23 @@ WEBKIT_DISABLE_DMABUF_RENDERER=0 ~/Applications/Monti.AppImage   # accelerated
 WEBKIT_DISABLE_COMPOSITING_MODE=1 ~/Applications/Monti.AppImage  # last resort
 ```
 
+**The window's close / minimise / maximise buttons do nothing.** A Wayland
+bug in the windowing layer Monti is built on, not in Monti — double-clicking
+the title bar usually wakes the buttons up, and starting Monti with
+`GDK_BACKEND=x11 monti` avoids it entirely. It is fixed upstream
+([tao#1218](https://github.com/tauri-apps/tao/pull/1218)); Monti picks the fix
+up as soon as a Tauri release carries it.
+
+**The file manager freezes for several seconds in a cloud folder.** It is
+asking how much space is free, and that question goes to the provider. On
+Google Drive through rclone's shared API key the answer can take fifteen
+seconds or more, because that key is rate-limited for everyone using it —
+measured on the same machine, the same provider: 0.3 s with an own key,
+17 s with the shared one. Give the drive its own key (drive settings →
+*Use my own API key*), which it needs before 2026 is out anyway. Turning off
+*Show space information* in Dolphin's status bar settings stops the question
+being asked at all.
+
 **No tray icon.** Monti needs a StatusNotifier host and the appindicator
 library. On Arch/Manjaro: `sudo pacman -S libayatana-appindicator`. Without it
 the app still works — closing the window simply quits instead of hiding.
