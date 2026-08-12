@@ -20,6 +20,7 @@ const PROVIDER_LABELS = {
   pcloud: "pCloud",
   yandex: "Yandex Disk",
   mega: "MEGA",
+  protondrive: "Proton Drive",
   webdav: "WebDAV",
   s3: "S3",
   b2: "Backblaze B2",
@@ -1813,6 +1814,7 @@ window.addEventListener("DOMContentLoaded", () => {
 
 
 
+
   boot();
   initSettings().catch((e) => showError(String(e)));
 
@@ -2121,6 +2123,16 @@ window.addEventListener("DOMContentLoaded", () => {
         endpoint: v("s3-endpoint"),
         region: v("s3-region"),
       };
+    }
+    if (p === "protondrive") {
+      if (!v("proton-user") || !$("proton-pass").value)
+        return t("E-mail and password are required.");
+      const params = { username: v("proton-user"), password: $("proton-pass").value };
+      // Sent only when there is one: an empty code is not the same as no
+      // second factor, and rclone treats it as a failed one.
+      const code = v("proton-2fa");
+      if (code) params["2fa"] = code;
+      return params;
     }
     if (p === "mega") {
       if (!v("mega-user") || !$("mega-pass").value)

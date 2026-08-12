@@ -13,6 +13,10 @@ MEGA has no application passwords, so an account with two-factor
 authentication cannot be reached this way — the form says so rather than
 letting the sign-in fail with something unhelpful.
 
+**Proton Drive**, with two-factor accounts included. The code goes in the last
+field, right above Connect, because it is good for thirty seconds; Proton
+trades it for a session once and signs Monti in on its own afterwards.
+
 **The providers are tested against servers that answer.** rclone can serve the
 protocols Monti connects to, so WebDAV, S3 and SFTP now get a real round trip
 in the test suite: a server on localhost, the same call the Add-cloud dialog

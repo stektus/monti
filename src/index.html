@@ -273,6 +273,7 @@
               <option value="pcloud">pCloud</option>
               <option value="yandex">Yandex Disk</option>
               <option value="mega">MEGA</option>
+              <option value="protondrive">Proton Drive</option>
             </optgroup>
             <optgroup label="Servers">
               <option value="webdav">WebDAV / Nextcloud</option>
@@ -337,6 +338,23 @@
             The account password itself, not a recovery key. MEGA has no
             app passwords: if your account uses two-factor authentication,
             rclone cannot sign in to it.
+          </p>
+        </div>
+
+        <div id="params-protondrive" class="params hidden">
+          <label>E-mail <input id="proton-user" autocomplete="off" spellcheck="false" /></label>
+          <label>Password <input id="proton-pass" type="password" autocomplete="new-password" /></label>
+          <p class="muted" data-i18n="proton.password">
+            The account password. Proton's two-password mode, where the mailbox
+            has a second one, is not supported.
+          </p>
+          <label>
+            Two-factor code <span class="muted">(only if your account asks for one)</span>
+            <input id="proton-2fa" class="mono" inputmode="numeric" autocomplete="one-time-code" spellcheck="false" placeholder="123456" />
+          </label>
+          <p class="muted" data-i18n="proton.2fa">
+            The code is used once, right now — press Connect while it is still
+            valid. After that Proton signs Monti in on its own.
           </p>
         </div>
 

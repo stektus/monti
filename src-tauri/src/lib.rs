@@ -651,6 +651,9 @@ fn allowed_params(provider: &str) -> Option<&'static [&'static str]> {
         ],
         "b2" => &["account", "key"],
         "mega" => &["user", "pass"],
+        // Proton exchanges the one-time code for session tokens and writes
+        // those itself; the form only ever sends these three.
+        "protondrive" => &["username", "password", "2fa"],
         "sftp" => &["host", "port", "user", "pass", "key_file"],
         _ => return None,
     })
