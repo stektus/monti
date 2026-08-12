@@ -1,6 +1,17 @@
 const { invoke } = window.__TAURI__.core;
 const { listen } = window.__TAURI__.event;
 
+import {
+  t,
+  applyDom,
+  setLang,
+  getLang,
+  onLangChange,
+  LANGUAGES,
+  fmtBytes,
+  fmtSpeed,
+} from "./i18n.js";
+
 const PROVIDER_LABELS = {
   drive: "Google Drive",
   dropbox: "Dropbox",
@@ -43,10 +54,14 @@ const setPref = (name, patch) => {
 // Whether the engine is up, as last seen. The tray shows it too, and the
 // tray is often the only part of Monti on screen.
 let engineRunning = false;
+// Kept so the pill can be redrawn in another language without waiting for
+// the next health tick to say the same thing again.
+let lastEngine = null;
 
 function setEngine(stateClass, label) {
+  lastEngine = [stateClass, label];
   $("engine-dot").className = `dot ${stateClass}`;
-  $("engine-label").textContent = label;
+  $("engine-label").textContent = t(label);
   engineRunning = stateClass === "ok";
 }
 
@@ -535,17 +550,10 @@ async function healthTick() {
 let ownMounts = new Map(); // remote name -> mount point, kept fresh by refreshRemotes
 let activityTimer = null;
 
-const fmtBytes = (n) =>
-  n >= 1073741824
-    ? `${(n / 1073741824).toFixed(1)} GB`
-    : n >= 1048576
-      ? `${Math.round(n / 1048576)} MB`
-      : `${Math.max(1, Math.round(n / 1024))} kB`;
-
 // rclone size strings ("20480M") are for rclone, not for people.
 const fmtLimit = (s) =>
   String(s).replace(/^(\d+)M$/, (_, m) =>
-    m >= 1024 ? `${Math.round(m / 1024)} GB` : `${m} MB`
+    m >= 1024 ? `${Math.round(m / 1024)} ${t("GB")}` : `${m} ${t("MB")}`
   );
 
 // Cloud quota per remote. Asking the provider costs a network round trip,
@@ -587,13 +595,6 @@ async function showQuota(el, name) {
   }
   el.classList.remove("hidden");
 }
-
-const fmtSpeed = (bps) =>
-  bps >= 1048576
-    ? `${(bps / 1048576).toFixed(1)} MB/s`
-    : bps >= 1024
-      ? `${Math.round(bps / 1024)} kB/s`
-      : `${Math.round(bps)} B/s`;
 
 async function pollActivity() {
   if (document.hidden) return;
@@ -1609,6 +1610,18 @@ async function initSettings() {
     localStorage.setItem(NOTIFY_KEY, e.target.checked ? "on" : "off");
   });
 
+  // Language. Switching redraws the page instead of restarting the app, so
+  // whatever is on screen — a mounted drive, a running transfer — stays.
+  const langSel = $("opt-lang");
+  for (const { code, label } of LANGUAGES) {
+    const opt = document.createElement("option");
+    opt.value = code;
+    opt.textContent = label;
+    langSel.append(opt);
+  }
+  langSel.value = getLang();
+  langSel.addEventListener("change", (e) => setLang(e.target.value));
+
   // Appearance
   const theme = $("opt-theme");
   theme.value = savedTheme();
@@ -1666,6 +1679,18 @@ async function boot() {
 
 window.addEventListener("DOMContentLoaded", () => {
   applyTheme(); // before anything is painted, so there is no flash
+  applyDom(); // and the same for the language, for the same reason
+
+  // Everything drawn from JavaScript has to be drawn again in the new
+  // language; the static markup is handled inside setLang().
+  onLangChange(() => {
+    if (lastEngine) setEngine(...lastEngine);
+    refreshRemotes().catch(() => {});
+    refreshPairs().catch(() => {});
+    refreshCacheInfo().catch(() => {});
+    refreshTransfers().catch(() => {});
+  });
+
   for (const id of [
     "add-dialog",
     "confirm-dialog",
@@ -1677,6 +1702,7 @@ window.addEventListener("DOMContentLoaded", () => {
   ]) {
     closeOnBackdropClick($(id));
   }
+
   boot();
   initSettings().catch((e) => showError(String(e)));
 

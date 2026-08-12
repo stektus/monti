@@ -59,7 +59,7 @@
         <!-- Shown only when rclone is missing -->
         <section class="card install-card hidden" id="install-card">
           <h2>One more step</h2>
-          <p>
+          <p data-i18n="install.intro">
             Monti uses the open-source
             <a href="https://rclone.org" target="_blank" rel="noreferrer">rclone</a>
             engine to talk to cloud providers. It isn't installed yet — click
@@ -80,7 +80,7 @@
           <div class="empty hidden" id="empty-hint">
             <div class="empty-cloud">☁️</div>
             <h3>No clouds connected yet</h3>
-            <p class="muted">
+            <p class="muted" data-i18n="drives.empty.hint">
               Click <b>Add cloud</b>, sign in through your browser, and your
               files will appear as a regular folder on this computer.
             </p>
@@ -127,6 +127,16 @@
               <option value="light">Light</option>
               <option value="dark">Dark</option>
             </select>
+          </div>
+          <div class="setting-row">
+            <div>
+              <div class="setting-name">Language</div>
+              <div class="muted">
+                Follows your desktop unless you pick one here. Messages coming
+                from the engine stay in English.
+              </div>
+            </div>
+            <select id="opt-lang"></select>
           </div>
           <div class="setting-row">
             <div>
@@ -237,7 +247,7 @@
             <a class="btn" href="https://github.com/stektus/monti" target="_blank" rel="noreferrer" id="about-github">GitHub</a>
           </div>
           <p class="muted hidden" id="reinstall-status"></p>
-          <p class="muted">
+          <p class="muted" data-i18n="about.license">
             Free and open source, MIT license. Powered by
             <a href="https://rclone.org" target="_blank" rel="noreferrer">rclone</a>.
           </p>
@@ -376,14 +386,14 @@
               one time:
             </p>
             <ol>
-              <li><a href="https://console.cloud.google.com/projectcreate" class="ext">Create a project</a> in Google Cloud (any name).</li>
-              <li><a href="https://console.cloud.google.com/apis/library/drive.googleapis.com" class="ext">Enable the Google Drive API</a> for it.</li>
-              <li><a href="https://console.cloud.google.com/auth/branding" class="ext">Configure the consent screen</a>: choose External.</li>
-              <li><b><a href="https://console.cloud.google.com/auth/audience" class="ext">Add yourself as a test user</a></b> (Audience → Test users → your own e-mail). <b>Skipping this is the #1 mistake</b> — Google will refuse to sign you in with “403 access_denied”.</li>
-              <li><a href="https://console.cloud.google.com/apis/credentials" class="ext">Create credentials</a> → OAuth client ID → type “Desktop app”.</li>
+              <li data-i18n="key.step.project"><a href="https://console.cloud.google.com/projectcreate" class="ext">Create a project</a> in Google Cloud (any name).</li>
+              <li data-i18n="key.step.api"><a href="https://console.cloud.google.com/apis/library/drive.googleapis.com" class="ext">Enable the Google Drive API</a> for it.</li>
+              <li data-i18n="key.step.consent"><a href="https://console.cloud.google.com/auth/branding" class="ext">Configure the consent screen</a>: choose External.</li>
+              <li data-i18n="key.step.tester"><b><a href="https://console.cloud.google.com/auth/audience" class="ext">Add yourself as a test user</a></b> (Audience → Test users → your own e-mail). <b>Skipping this is the #1 mistake</b> — Google will refuse to sign you in with “403 access_denied”.</li>
+              <li data-i18n="key.step.credentials"><a href="https://console.cloud.google.com/apis/credentials" class="ext">Create credentials</a> → OAuth client ID → type “Desktop app”.</li>
               <li>Copy the Client ID and Client secret below.</li>
             </ol>
-            <p>
+            <p data-i18n="key.unverified">
               During sign-in Google will warn “Google hasn’t verified this
               app” — that's expected for a personal key: click
               <b>Advanced&nbsp;→ Go&nbsp;to&nbsp;… (unsafe)</b> and continue.
@@ -567,7 +577,7 @@
             </select>
           </label>
         </div>
-        <p class="muted">
+        <p class="muted" data-i18n="sync.conflict.kept">
           The other version is never deleted: it is kept beside the winner
           with <code>.conflict</code> in its name, and Monti asks you what to
           do with it.
