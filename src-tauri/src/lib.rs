@@ -650,6 +650,7 @@ fn allowed_params(provider: &str) -> Option<&'static [&'static str]> {
             "region",
         ],
         "b2" => &["account", "key"],
+        "mega" => &["user", "pass"],
         "sftp" => &["host", "port", "user", "pass", "key_file"],
         _ => return None,
     })
@@ -2227,25 +2228,35 @@ mod tests {
     /// will accept. They live in different files and different languages, and
     /// the first time they disagreed the dialog said "unsupported provider"
     /// after the person had already pasted their keys in.
-    #[test]
-    fn every_provider_in_the_dialog_reaches_the_backend() {
+    /// What the Add-cloud dialog offers, read out of the markup so a
+    /// provider cannot be added to the interface and missed by the tests.
+    fn providers_in_dialog() -> Vec<&'static str> {
         let html = include_str!("../../src/index.html");
         let select = html
             .split_once(r#"id="add-provider""#)
             .and_then(|(_, rest)| rest.split_once("</select>"))
             .map(|(inside, _)| inside)
             .expect("the dialog should have a provider list");
+        let found: Vec<&str> = select
+            .split(r#"<option value=""#)
+            .skip(1)
+            .filter_map(|chunk| chunk.split('"').next())
+            .collect();
+        assert!(
+            found.len() > 5,
+            "the provider list did not parse: {found:?}"
+        );
+        found
+    }
 
-        let mut seen = 0;
-        for chunk in select.split(r#"<option value=""#).skip(1) {
-            let provider = chunk.split('"').next().unwrap_or("");
-            seen += 1;
+    #[test]
+    fn every_provider_in_the_dialog_reaches_the_backend() {
+        for provider in providers_in_dialog() {
             assert!(
                 OAUTH_PROVIDERS.contains(&provider) || allowed_params(provider).is_some(),
                 "the dialog offers {provider}, which create_remote() refuses"
             );
         }
-        assert!(seen > 5, "the provider list did not parse: {seen} found");
     }
 
     /// Backblaze cannot be served on localhost, and neither can any provider
@@ -2264,16 +2275,20 @@ mod tests {
             .as_array()
             .expect("providers should be a list");
 
-        // Taken from the backend itself rather than a copy of it, so a
-        // provider added there is checked without anyone remembering to.
-        let mut forms: Vec<(&str, &[&str])> = ["crypt", "webdav", "s3", "b2", "sftp"]
-            .iter()
-            .map(|k| (*k, allowed_params(k).expect("known provider")))
+        // The list comes from the dialog and the fields from the backend, so
+        // a provider added to both is checked without anyone remembering to.
+        let mut forms: Vec<(&str, &[&str])> = providers_in_dialog()
+            .into_iter()
+            .map(|kind| {
+                let fields: &[&str] = if OAUTH_PROVIDERS.contains(&kind) {
+                    // A browser provider sends only its own key, if there is one.
+                    &["client_id", "client_secret"]
+                } else {
+                    allowed_params(kind).expect("the other test proves this exists")
+                };
+                (kind, fields)
+            })
             .collect();
-        // The browser providers send only their own key, if the person has one.
-        for oauth in OAUTH_PROVIDERS {
-            forms.push((oauth, &["client_id", "client_secret"]));
-        }
         // s3 additionally pins env_auth off, so keys can only come from the form.
         forms.push(("s3", &["env_auth"]));
 

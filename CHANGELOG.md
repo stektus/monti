@@ -4,9 +4,14 @@ Notable changes per release. Dates are the release date.
 
 ## v0.9.0 — unreleased
 
-**Backblaze B2.** Key ID and application key from your Backblaze account, no
-browser step — 10 GB of storage there costs nothing, which makes it a
-reasonable place to keep a backup drive.
+**Backblaze B2 and MEGA.** Both sign in from the dialog rather than the
+browser: B2 takes a key ID and an application key, MEGA takes the account's
+own e-mail and password. Ten free gigabytes at Backblaze and twenty at MEGA,
+which makes either a reasonable place to keep a backup drive.
+
+MEGA has no application passwords, so an account with two-factor
+authentication cannot be reached this way — the form says so rather than
+letting the sign-in fail with something unhelpful.
 
 **The providers are tested against servers that answer.** rclone can serve the
 protocols Monti connects to, so WebDAV, S3 and SFTP now get a real round trip

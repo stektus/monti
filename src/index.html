@@ -272,6 +272,7 @@
               <option value="box">Box</option>
               <option value="pcloud">pCloud</option>
               <option value="yandex">Yandex Disk</option>
+              <option value="mega">MEGA</option>
             </optgroup>
             <optgroup label="Servers">
               <option value="webdav">WebDAV / Nextcloud</option>
@@ -327,6 +328,16 @@
             Region <span class="muted">(optional)</span>
             <input id="s3-region" placeholder="e.g. eu-central-1" spellcheck="false" />
           </label>
+        </div>
+
+        <div id="params-mega" class="params hidden">
+          <label>E-mail <input id="mega-user" autocomplete="off" spellcheck="false" /></label>
+          <label>Password <input id="mega-pass" type="password" autocomplete="new-password" /></label>
+          <p class="muted" data-i18n="mega.password">
+            The account password itself, not a recovery key. MEGA has no
+            app passwords: if your account uses two-factor authentication,
+            rclone cannot sign in to it.
+          </p>
         </div>
 
         <div id="params-b2" class="params hidden">

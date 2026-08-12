@@ -19,6 +19,7 @@ const PROVIDER_LABELS = {
   box: "Box",
   pcloud: "pCloud",
   yandex: "Yandex Disk",
+  mega: "MEGA",
   webdav: "WebDAV",
   s3: "S3",
   b2: "Backblaze B2",
@@ -1811,6 +1812,7 @@ window.addEventListener("DOMContentLoaded", () => {
 
 
 
+
   boot();
   initSettings().catch((e) => showError(String(e)));
 
@@ -2119,6 +2121,11 @@ window.addEventListener("DOMContentLoaded", () => {
         endpoint: v("s3-endpoint"),
         region: v("s3-region"),
       };
+    }
+    if (p === "mega") {
+      if (!v("mega-user") || !$("mega-pass").value)
+        return t("E-mail and password are required.");
+      return { user: v("mega-user"), pass: $("mega-pass").value };
     }
     if (p === "b2") {
       // rclone calls them account and key; Backblaze calls them keyID and
