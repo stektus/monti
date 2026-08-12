@@ -87,6 +87,13 @@ node scripts/check-translations.mjs
 CI runs the same. Tests that spawn rclone deliberately clear `DISPLAY` so no
 browser window opens during a test run.
 
+Three of them go further: `rclone serve` stands up a WebDAV, S3 and SFTP
+server on localhost, and the test connects to it the way the Add-cloud dialog
+does, mounts it, writes a file through the mount and looks for that file in
+the server's own directory. Real protocols, no account, no network. Anywhere
+FUSE is missing the mount half says so and stops — the run still passes, but
+a skip is never silent.
+
 `npm run tauri dev` works without the appindicator library (the tray is simply
 off), but `npm run tauri build` needs it to bundle.
 

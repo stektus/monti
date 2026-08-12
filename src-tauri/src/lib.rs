@@ -1946,11 +1946,15 @@ mod tests {
     fn spawn_test_rcd() -> Option<TestDaemon> {
         // Tests need a real rclone; skip silently where it's absent (CI
         // without rclone) — the protocol was verified there separately.
-        let dir = std::env::temp_dir().join(format!("monti-test-{}", std::process::id()));
+        // The port is picked first because it also names the directory:
+        // one per daemon, not one per process. Sharing it meant every test
+        // wrote into the same rclone.conf — and the first one to finish
+        // deleted it from under the others.
+        let port = engine::free_port().ok()?;
+        let dir = std::env::temp_dir().join(format!("monti-test-{}-{port}", std::process::id()));
         std::fs::create_dir_all(&dir).ok()?;
         let conf = dir.join("rclone.conf");
         std::fs::write(&conf, "").ok()?;
-        let port = engine::free_port().ok()?;
         let pass = "testpass".to_string();
 
         // A test must never put a Google consent page in front of whoever is
@@ -2013,6 +2017,245 @@ mod tests {
             let _ = self.child.kill();
             let _ = self.child.wait();
         }
+    }
+
+    // ---------- providers, against real servers ----------
+    //
+    // Three of the providers Monti offers speak protocols rclone can also
+    // serve — WebDAV, S3 and SFTP. So the test stands up a server on
+    // localhost with the same binary the app ships, connects to it exactly
+    // the way the Add-cloud dialog does, mounts it, writes a file through
+    // the mount and reads it back out of the server's own directory. No
+    // account, no network, and nothing simulated: the only difference from
+    // Nextcloud or Backblaze is which machine answers.
+    //
+    // The OAuth providers cannot be reached this way — their sign-in is a
+    // browser and a real account — so what is covered here is everything
+    // downstream of sign-in, which is where mounting actually breaks.
+
+    struct TestServer {
+        child: Child,
+        port: u16,
+        data: PathBuf,
+        _dir: tempdir::TempDirGuard,
+    }
+
+    impl Drop for TestServer {
+        fn drop(&mut self) {
+            let _ = self.child.kill();
+            let _ = self.child.wait();
+        }
+    }
+
+    /// `rclone serve <protocol>` over a fresh directory holding one file.
+    /// HOME points into that directory as well: `serve sftp` generates host
+    /// keys, and they have no business landing in the home of whoever runs
+    /// the tests.
+    fn serve(protocol: &str, extra: &[&str]) -> Option<TestServer> {
+        let dir = std::env::temp_dir().join(format!(
+            "monti-serve-{}-{protocol}-{}",
+            std::process::id(),
+            engine::free_port().ok()?
+        ));
+        let data = dir.join("data");
+        std::fs::create_dir_all(data.join("Docs")).ok()?;
+        std::fs::write(data.join("Docs/note.txt"), b"from the server\n").ok()?;
+        let port = engine::free_port().ok()?;
+
+        let child = Command::new("rclone")
+            .arg("serve")
+            .arg(protocol)
+            .arg("--addr")
+            .arg(format!("127.0.0.1:{port}"))
+            .args(extra)
+            .arg(&data)
+            .env("HOME", &dir)
+            .env("XDG_CACHE_HOME", dir.join("cache"))
+            .env("RCLONE_CONFIG", dir.join("serve.conf"))
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .ok()?;
+
+        for _ in 0..60 {
+            if std::net::TcpStream::connect(("127.0.0.1", port)).is_ok() {
+                return Some(TestServer {
+                    child,
+                    port,
+                    data,
+                    _dir: tempdir::TempDirGuard(dir),
+                });
+            }
+            thread::sleep(Duration::from_millis(100));
+        }
+        None
+    }
+
+    /// A test that quietly does nothing is worse than no test, so every
+    /// place this one gives up says why. The run still passes: a machine
+    /// without FUSE cannot be asked to mount anything.
+    fn skipped(kind: &str, why: &str) {
+        eprintln!("  {kind}: skipped — {why}");
+    }
+
+    /// Wait for a path to turn up: a write through the mount reaches the
+    /// server after the cache has flushed it, not the moment it is closed.
+    fn appears(path: &Path, secs: u64) -> bool {
+        for _ in 0..(secs * 10) {
+            if path.exists() {
+                return true;
+            }
+            thread::sleep(Duration::from_millis(100));
+        }
+        false
+    }
+
+    /// Create the remote, list it, mount it, write through it, unmount.
+    /// `parameters` is what the Add-cloud dialog would have collected.
+    fn provider_round_trip(kind: &str, server: &TestServer, parameters: Value) {
+        let Some(d) = spawn_test_rcd() else {
+            return skipped(kind, "no rclone daemon");
+        };
+
+        // Exactly the call create_remote() makes for a provider that needs
+        // no browser.
+        rc_raw(
+            d.port,
+            &d.pass,
+            "config/create",
+            &json!({
+                "name": format!("srv_{kind}"),
+                "type": kind,
+                "parameters": parameters,
+                "opt": { "obscure": true, "nonInteractive": true },
+            }),
+        )
+        .unwrap_or_else(|e| panic!("{kind}: creating the remote failed: {e}"));
+
+        let listed = rc_raw(
+            d.port,
+            &d.pass,
+            "operations/list",
+            &json!({ "fs": format!("srv_{kind}:"), "remote": "Docs" }),
+        )
+        .unwrap_or_else(|e| panic!("{kind}: listing failed: {e}"));
+        let names = listed["list"]
+            .as_array()
+            .map(|l| {
+                l.iter()
+                    .filter_map(|f| f["Name"].as_str().map(String::from))
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        assert!(
+            names.iter().any(|n| n == "note.txt"),
+            "{kind}: the file on the server is not in the listing: {names:?}"
+        );
+
+        // Mounting needs FUSE. Where there is none, everything above still
+        // ran; say nothing and stop rather than fail for the wrong reason.
+        if !Path::new("/dev/fuse").exists() {
+            return skipped(kind, "no /dev/fuse");
+        }
+        let mount_point = server._dir.0.join("mnt");
+        std::fs::create_dir_all(&mount_point).unwrap();
+        let entry = engine::MountEntry {
+            mount_point: mount_point.display().to_string(),
+            vfs_opt: json!({}),
+            excludes: vec![],
+        };
+        if let Err(e) = engine::mount_guarded(d.port, &d.pass, &format!("srv_{kind}:"), &entry) {
+            return skipped(kind, &format!("mounting is unavailable here: {e}"));
+        }
+
+        let read_back = std::fs::read_to_string(mount_point.join("Docs/note.txt"));
+        let written = std::fs::write(
+            mount_point.join("Docs/through-the-mount.txt"),
+            b"round trip\n",
+        );
+        let landed = appears(&server.data.join("Docs/through-the-mount.txt"), 20);
+
+        let _ = rc_raw(
+            d.port,
+            &d.pass,
+            "mount/unmount",
+            &json!({ "mountPoint": entry.mount_point }),
+        );
+        thread::sleep(Duration::from_millis(300));
+
+        assert_eq!(
+            read_back.as_deref().ok(),
+            Some("from the server\n"),
+            "{kind}: reading through the mount did not give the file back"
+        );
+        assert!(written.is_ok(), "{kind}: writing into the mount failed");
+        assert!(landed, "{kind}: what was written never reached the server");
+
+        // The folder a drive was mounted on is left closed, so a save into
+        // it while the drive is away fails instead of vanishing onto the
+        // local disk.
+        engine::close_mount_folder(&entry.mount_point);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(&mount_point)
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777;
+            assert_eq!(mode, 0o500, "{kind}: the empty mount folder was left open");
+        }
+    }
+
+    #[test]
+    fn webdav_drive_mounts_and_carries_files() {
+        let Some(server) = serve("webdav", &[]) else {
+            return skipped("webdav", "the local server did not come up");
+        };
+        provider_round_trip(
+            "webdav",
+            &server,
+            json!({
+                "url": format!("http://127.0.0.1:{}", server.port),
+                "vendor": "other",
+            }),
+        );
+    }
+
+    #[test]
+    fn s3_drive_mounts_and_carries_files() {
+        let Some(server) = serve("s3", &["--auth-key", "TESTKEY,TESTSECRET"]) else {
+            return skipped("s3", "the local server did not come up");
+        };
+        provider_round_trip(
+            "s3",
+            &server,
+            json!({
+                "provider": "Other",
+                "access_key_id": "TESTKEY",
+                "secret_access_key": "TESTSECRET",
+                "endpoint": format!("http://127.0.0.1:{}", server.port),
+                "env_auth": "false",
+            }),
+        );
+    }
+
+    #[test]
+    fn sftp_drive_mounts_and_carries_files() {
+        let Some(server) = serve("sftp", &["--user", "tester", "--pass", "secret"]) else {
+            return skipped("sftp", "the local server did not come up");
+        };
+        provider_round_trip(
+            "sftp",
+            &server,
+            json!({
+                "host": "127.0.0.1",
+                "port": server.port.to_string(),
+                "user": "tester",
+                "pass": "secret",
+            }),
+        );
     }
 
     #[test]

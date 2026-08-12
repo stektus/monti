@@ -32,6 +32,28 @@ jobs:
         working-directory: src-tauri
         run: cargo clippy --locked --all-targets -- -D warnings
 
+      # The tests talk to a real rclone: they spawn the daemon, and three of
+      # them stand up a WebDAV, S3 and SFTP server on localhost and mount it.
+      # Ubuntu's package is years behind (no `rclone serve s3`), so the
+      # release build is pinned by checksum instead.
+      - name: Install rclone and FUSE for the tests
+        run: |
+          set -euo pipefail
+          sudo apt-get install -y fuse3 unzip
+          curl -fsSL -o /tmp/rclone.zip \
+            https://downloads.rclone.org/v1.75.0/rclone-v1.75.0-linux-amd64.zip
+          echo "aa2804e08f48250e71009c727124b6341cd0288465804a9a09d14663cabafbaa  /tmp/rclone.zip" \
+            | sha256sum -c -
+          unzip -q -d /tmp /tmp/rclone.zip
+          sudo install -m755 /tmp/rclone-v1.75.0-linux-amd64/rclone /usr/local/bin/rclone
+          rclone version | head -1
+
+      - name: cargo test
+        working-directory: src-tauri
+        # Every test that gives up says why, so a silent skip cannot pass for
+        # a pass.
+        run: cargo test -- --nocapture
+
       - name: JS syntax check
         run: |
           for f in src/main.js src/i18n.js src/locales/*.js; do
