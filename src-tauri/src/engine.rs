@@ -608,6 +608,22 @@ pub fn friendly_cloud_error(raw: &str) -> String {
              in Settings → Transfers makes it much less likely.",
         );
     }
+    // Proton answers 422 for both halves of the sign-in, with different
+    // words. Which half failed is the whole of what the person needs to know.
+    if low.contains("/auth/v4/2fa") || low.contains("incorrect login credentials") {
+        return explain(
+            "The two-factor code was not accepted. A code is only good for \
+             about half a minute — take a fresh one from your authenticator \
+             and add the drive again.",
+        );
+    }
+    if low.contains("the password is not correct") {
+        return explain(
+            "The password was not accepted. Check it, and note that Proton's \
+             two-password mode — where the mailbox has a second password — \
+             cannot be used here.",
+        );
+    }
     if low.contains("invalid_grant")
         || low.contains("token expired")
         || low.contains("cannot fetch token")
@@ -1114,6 +1130,27 @@ mod error_tests {
              lookup www.googleapis.com: no such host",
         );
         assert!(offline.contains("could not be reached"), "{offline}");
+
+        // Proton says 422 for both halves of the sign-in, and the two need
+        // opposite answers: take a fresh code, or check the password. These
+        // are the messages the log showed when a code went stale.
+        let stale_code = friendly_cloud_error(
+            "couldn't initialize a new proton drive instance: 422 POST \
+             https://drive-api.proton.me/auth/v4/2fa: Incorrect login \
+             credentials. Please try again. (Code=8002, Status=422)",
+        );
+        assert!(stale_code.contains("two-factor code"), "{stale_code}");
+
+        let bad_password = friendly_cloud_error(
+            "couldn't initialize a new proton drive instance: 422 POST \
+             https://drive-api.proton.me/auth/v4: The password is not \
+             correct. Please try again with a different password. \
+             (Code=8002, Status=422)",
+        );
+        assert!(
+            bad_password.contains("password was not accepted"),
+            "{bad_password}"
+        );
 
         // Anything unrecognised must come through untouched: a wrong guess
         // that hides the real message is worse than no guess.

@@ -17,6 +17,12 @@ letting the sign-in fail with something unhelpful.
 field, right above Connect, because it is good for thirty seconds; Proton
 trades it for a session once and signs Monti in on its own afterwards.
 
+Signing in happens as the drive is added rather than the first time it is
+mounted — a one-time code written into a config file is already dead by the
+time somebody presses Mount. If it is refused, the half-made drive is removed
+instead of waiting in the list to fail later, and Proton's two answers are
+told apart: a stale code asks for a fresh one, a bad password says so.
+
 **The providers are tested against servers that answer.** rclone can serve the
 protocols Monti connects to, so WebDAV, S3 and SFTP now get a real round trip
 in the test suite: a server on localhost, the same call the Add-cloud dialog

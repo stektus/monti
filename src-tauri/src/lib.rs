@@ -777,10 +777,13 @@ async fn create_remote(
         // Keys come from the form, never from env vars / IAM profiles.
         parameters.insert("env_auth".into(), Value::String("false".into()));
     }
-    let eng = state.0.lock().unwrap();
+    let (port, pass) = {
+        let eng = state.0.lock().unwrap();
+        (eng.port, eng.pass.clone())
+    };
     rc_raw(
-        eng.port,
-        &eng.pass,
+        port,
+        &pass,
         "config/create",
         &json!({
             "name": name,
@@ -791,6 +794,40 @@ async fn create_remote(
             "opt": { "obscure": true, "nonInteractive": true },
         }),
     )?;
+
+    // A one-time code is good for half a minute, and writing it into the
+    // config does not use it: rclone signs in the first time the drive is
+    // actually touched, which is when someone presses Mount — by then the
+    // code is long dead and Proton answers "Incorrect login credentials".
+    //
+    // So sign in here, while the code is still the one that was just typed.
+    // rclone caches the session in the config and never needs the code
+    // again; if the sign-in fails, the half-made drive goes away rather than
+    // sitting in the list waiting to fail later.
+    if provider == "protondrive" {
+        if let Err(e) = rc_raw(
+            port,
+            &pass,
+            "operations/list",
+            &json!({ "fs": format!("{name}:"), "remote": "" }),
+        ) {
+            let _ = rc_raw(port, &pass, "config/delete", &json!({ "name": name }));
+            return Err(engine::friendly_cloud_error(&e));
+        }
+        // The code is spent. Leaving it behind would make a session that
+        // expires months from now fail as "incorrect credentials" instead of
+        // saying the drive needs signing in again.
+        let _ = rc_raw(
+            port,
+            &pass,
+            "config/update",
+            &json!({
+                "name": name,
+                "parameters": { "2fa": "" },
+                "opt": { "nonInteractive": true },
+            }),
+        );
+    }
     Ok(())
 }
 
