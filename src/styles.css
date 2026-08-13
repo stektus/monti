@@ -75,18 +75,29 @@ a:hover { text-decoration: underline; }
 
 /* ---------- top bar ---------- */
 
+/* The bar itself spans the window, so its background and border do; what
+   sits in it lines up with the cards below instead of drifting to the far
+   corner of a wide monitor. */
 .topbar {
   position: sticky;
   top: 0;
   z-index: 10;
+  padding: 12px 0;
+  background: color-mix(in srgb, var(--surface) 82%, transparent);
+  backdrop-filter: blur(20px) saturate(180%);
+  border-bottom: 1px solid var(--border);
+}
+
+.topbar-inner {
   display: flex;
   justify-content: space-between;
   align-items: center;
   gap: 16px;
-  padding: 12px 22px;
-  background: color-mix(in srgb, var(--surface) 82%, transparent);
-  backdrop-filter: blur(20px) saturate(180%);
-  border-bottom: 1px solid var(--border);
+  /* The same cap and the same side padding as the cards below, so the
+     logo starts exactly where the first card does. */
+  max-width: 1800px;
+  margin: 0 auto;
+  padding: 0 22px;
 }
 
 .brand { display: flex; align-items: center; gap: 11px; min-width: 0; }
@@ -193,27 +204,39 @@ a:hover { text-decoration: underline; }
 /* Settings is a page to read, so it is capped at a reading width and centred
    rather than stretched across the monitor — a switch three feet from the
    sentence explaining it helps nobody.
-   Columns come from `columns` rather than a grid on purpose: a grid lines
-   its cards up in rows, so a short card next to a tall one leaves a hole
-   underneath it, which is what a maximised window used to look like. Column
-   flow packs them tight and balances the two sides itself. */
+
+   The two columns hold different kinds of card and are sized accordingly:
+   General and Transfers are settings, where a name, a sentence explaining it
+   and a control have to fit on one line; Storage and About are panels of
+   "label — value" rows, which at half the page put five centimetres of
+   nothing between the label and its value. So the second column is narrow,
+   and the grouping is written down here rather than left to column flow,
+   which decided it by counting pixels and left the right side ending
+   half a screen above the left. */
 .settings-grid {
-  columns: 1;
-  column-gap: 14px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+  gap: 14px;
   max-width: 760px;
   margin: 0 auto;
 }
-.settings-grid > .card {
-  /* A card must never be split down the middle of a column break. */
-  break-inside: avoid;
-  -webkit-column-break-inside: avoid;
-  margin: 0 0 14px;
+.settings-col {
+  display: grid;
+  align-content: start;
+  gap: 14px;
+  min-width: 0;
 }
+/* A grid item is as wide as its widest unbreakable thing unless told
+   otherwise, and About holds a file path on one line: without this the card
+   pushes its column past the edge of the window instead of shortening the
+   path to fit. */
+.settings-col > .card { min-width: 0; }
 /* Two columns only once each one is still wide enough to keep a setting and
    its switch on one line. */
 @media (min-width: 1160px) {
   .settings-grid {
-    columns: 2;
+    grid-template-columns: minmax(0, 1fr) minmax(320px, 380px);
     max-width: 1180px;
   }
 }
@@ -511,7 +534,11 @@ a:hover { text-decoration: underline; }
   direction: ltr;
   unicode-bidi: embed;
 }
-.about-actions { display: flex; gap: 8px; margin-bottom: 10px; }
+/* Three buttons that fit side by side in a wide card and stop fitting in a
+   narrow one, where a row of them turns into three squeezed columns of
+   stacked words. Wrapping keeps each button as wide as its own label. */
+.about-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
+.about-actions .btn { flex: 0 1 auto; white-space: nowrap; }
 
 /* ---------- misc ---------- */
 

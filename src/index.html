@@ -10,6 +10,7 @@
 
   <body>
     <header class="topbar">
+      <div class="topbar-inner">
       <div class="brand">
         <svg class="brand-logo" viewBox="0 0 64 64" aria-hidden="true">
           <defs>
@@ -50,6 +51,7 @@
           <span class="dot" id="engine-dot"></span>
           <span id="engine-label">starting…</span>
         </div>
+      </div>
       </div>
     </header>
 
@@ -113,6 +115,7 @@
       <!-- ============ SETTINGS VIEW ============ -->
       <div id="view-settings" class="hidden">
        <div class="settings-grid">
+        <div class="settings-col">
         <section class="card">
           <h2>General</h2>
           <div class="setting-row">
@@ -218,6 +221,9 @@
           <div id="transfer-list" class="transfer-list muted">—</div>
         </section>
 
+        </div>
+
+        <div class="settings-col settings-col-side">
         <section class="card">
           <h2>Storage</h2>
           <div class="about-rows">
@@ -252,6 +258,7 @@
             <a href="https://rclone.org" target="_blank" rel="noreferrer">rclone</a>.
           </p>
         </section>
+        </div>
        </div>
       </div>
 

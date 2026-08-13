@@ -46,6 +46,19 @@ password rather than the account one, which is the reason it is worth having:
 unlike MEGA, a Koofr account with two-factor authentication can be reached, and
 the password can be revoked on its own without touching the account.
 
+**Settings stops leaving a hole in the corner.** The four cards were placed by
+column flow, which balances by counting pixels: it put General and Transfers on
+the left, Storage and About on the right, and the right side ended half a screen
+above the left. They are now grouped by what they are — settings on one side,
+the "label — value" panels on the other — and the panel column is narrow,
+because a row like "Free on this disk … 15.5 GB" at half the page width is
+mostly the gap in the middle.
+
+**The window's header lines up with what is under it.** The logo sat in the far
+corner of a wide monitor while the cards started a hand's width to the right;
+the bar still spans the window, but its contents keep to the same column the
+cards do.
+
 **Storj**, both ways in: an access grant, which is one long string carrying
 everything including the encryption passphrase, or the satellite, API key and
 passphrase it is made from. The form shows one or the other, never both, so
