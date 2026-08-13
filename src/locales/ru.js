@@ -169,6 +169,20 @@ export default {
   "Key ID and Application key are required.":
     "Нужны идентификатор ключа и ключ приложения.",
 
+  "storj.where": `Оба берутся в
+    <a href="https://storj.io/login" class="ext">консоли Storj</a> — грант
+    доступа короче, потому что уже содержит парольную фразу шифрования. Storj
+    шифрует файлы на этом компьютере, поэтому именно эта фраза делает их
+    читаемыми: записанная в надёжном месте, она единственная, что важно.`,
+  "Sign-in method": "Способ входа",
+  "Access grant": "Грант доступа",
+  "Satellite, API key and passphrase": "Сателлит, ключ API и парольная фраза",
+  Satellite: "Сателлит",
+  "Encryption passphrase": "Парольная фраза шифрования",
+  "An access grant is required.": "Нужен грант доступа.",
+  "An API key and an encryption passphrase are required.":
+    "Нужны ключ API и парольная фраза шифрования.",
+
   "koofr.password": `Не тот пароль, которым вы входите: Koofr нужен пароль,
     сделанный для приложений, — в
     <a href="https://app.koofr.net/app/admin/preferences/password" class="ext">Настройках → Пароль</a>.

@@ -275,6 +275,7 @@
               <option value="mega">MEGA</option>
               <option value="protondrive">Proton Drive</option>
               <option value="koofr">Koofr</option>
+              <option value="storj">Storj</option>
             </optgroup>
             <optgroup label="Servers">
               <option value="webdav">WebDAV / Nextcloud</option>
@@ -380,6 +381,44 @@
             <a href="https://app.koofr.net/app/admin/preferences/password" class="ext">Preferences → Password</a>.
             Two-factor accounts work this way, and the password can be revoked
             on its own.
+          </p>
+        </div>
+
+        <div id="params-storj" class="params hidden">
+          <label>
+            Sign-in method
+            <select id="storj-provider">
+              <option value="existing">Access grant</option>
+              <option value="new">Satellite, API key and passphrase</option>
+            </select>
+          </label>
+          <div id="storj-grant-rows">
+            <label>
+              Access grant
+              <input id="storj-grant" type="password" class="mono" autocomplete="new-password" spellcheck="false" />
+            </label>
+          </div>
+          <div id="storj-key-rows" class="hidden">
+            <label>
+              Satellite
+              <input id="storj-satellite" class="mono" placeholder="us1.storj.io" autocomplete="off" spellcheck="false" />
+            </label>
+            <label>
+              API key
+              <input id="storj-key" type="password" class="mono" autocomplete="new-password" spellcheck="false" />
+            </label>
+            <label>
+              Encryption passphrase
+              <input id="storj-passphrase" type="password" autocomplete="new-password" />
+            </label>
+          </div>
+          <p class="muted" data-i18n="storj.where">
+            Both come from the
+            <a href="https://storj.io/login" class="ext">Storj console</a> —
+            an access grant is the shorter route, because it already carries
+            the encryption passphrase. Storj encrypts files on this computer,
+            so that passphrase is what makes them readable: written down
+            somewhere safe, it is the only copy that matters.
           </p>
         </div>
 

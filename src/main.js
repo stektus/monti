@@ -22,6 +22,7 @@ const PROVIDER_LABELS = {
   mega: "MEGA",
   protondrive: "Proton Drive",
   koofr: "Koofr",
+  storj: "Storj",
   webdav: "WebDAV",
   s3: "S3",
   b2: "Backblaze B2",
@@ -48,19 +49,22 @@ const FIELD_INPUT = {
   mega: { user: "mega-user" },
   protondrive: { username: "proton-user" },
   koofr: { provider: "koofr-provider", endpoint: "koofr-endpoint", user: "koofr-user" },
+  storj: { provider: "storj-provider", satellite_address: "storj-satellite" },
   sftp: { host: "sftp-host", port: "sftp-port", user: "sftp-user", key_file: "sftp-key" },
 };
 
 // The one box per provider that holds the secret. Left empty it means
 // "keep what is saved", and the placeholder says so.
 const SECRET_INPUT = {
-  webdav: "webdav-pass",
-  s3: "s3-secret",
-  b2: "b2-key",
-  mega: "mega-pass",
-  protondrive: "proton-pass",
-  koofr: "koofr-pass",
-  sftp: "sftp-pass",
+  webdav: ["webdav-pass"],
+  s3: ["s3-secret"],
+  b2: ["b2-key"],
+  mega: ["mega-pass"],
+  protondrive: ["proton-pass"],
+  koofr: ["koofr-pass"],
+  sftp: ["sftp-pass"],
+  // Storj holds more than one: an access grant, or a key and a passphrase.
+  storj: ["storj-grant", "storj-key", "storj-passphrase"],
 };
 
 const $ = (id) => document.getElementById(id);
@@ -2128,7 +2132,8 @@ window.addEventListener("DOMContentLoaded", () => {
     showError("");
     $("add-status").classList.add("hidden");
     $("add-advanced").open = false;
-    for (const id of Object.values(SECRET_INPUT)) $(id).placeholder = "";
+    for (const ids of Object.values(SECRET_INPUT))
+      for (const id of ids) $(id).placeholder = "";
     addDialogMode(null, null);
     updateAddForm();
     $("add-dialog").showModal();
@@ -2156,8 +2161,7 @@ window.addEventListener("DOMContentLoaded", () => {
     }
     // Short on purpose: some of these boxes are half a row wide, and a
     // placeholder that gets cut off mid-word says less than one word does.
-    const secret = $(SECRET_INPUT[info.type] || "");
-    if (secret) secret.placeholder = t("unchanged");
+    for (const id of SECRET_INPUT[info.type] || []) $(id).placeholder = t("unchanged");
     $("add-dialog").showModal();
   };
   $("add-cancel").addEventListener("click", async () => {
@@ -2178,6 +2182,7 @@ window.addEventListener("DOMContentLoaded", () => {
     document
       .querySelectorAll(".params")
       .forEach((d) => d.classList.toggle("hidden", d.id !== `params-${p}`));
+    if (p === "storj") updateStorjForm();
     $("add-status").textContent = oauth
       ? t("⏳ Waiting for you to authorize in the browser… Press Cancel to abort.")
       : t("⏳ Connecting…");
@@ -2199,6 +2204,15 @@ window.addEventListener("DOMContentLoaded", () => {
     }
   };
   $("add-provider").addEventListener("change", updateAddForm);
+
+  // Storj takes either an access grant or the three values it is made from.
+  // Showing both at once asks for one of them to be filled in by mistake.
+  const updateStorjForm = () => {
+    const grant = $("storj-provider").value === "existing";
+    $("storj-grant-rows").classList.toggle("hidden", !grant);
+    $("storj-key-rows").classList.toggle("hidden", grant);
+  };
+  $("storj-provider").addEventListener("change", updateStorjForm);
 
   // Non-OAuth providers: collect their form fields and check the required
   // ones (native `required` can't be used — the fields are often hidden).
@@ -2237,6 +2251,22 @@ window.addEventListener("DOMContentLoaded", () => {
       const code = v("proton-2fa");
       if (code) params["2fa"] = code;
       return params;
+    }
+    if (p === "storj") {
+      // An access grant already carries the passphrase; the other route
+      // spells the same thing out in three fields.
+      if ($("storj-provider").value === "existing") {
+        if (!editing && !$("storj-grant").value) return t("An access grant is required.");
+        return { provider: "existing", access_grant: $("storj-grant").value };
+      }
+      if (!editing && (!$("storj-key").value || !$("storj-passphrase").value))
+        return t("An API key and an encryption passphrase are required.");
+      return {
+        provider: "new",
+        satellite_address: v("storj-satellite") || "us1.storj.io",
+        api_key: $("storj-key").value,
+        passphrase: $("storj-passphrase").value,
+      };
     }
     if (p === "koofr") {
       const service = $("koofr-provider").value;

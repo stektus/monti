@@ -650,6 +650,15 @@ fn allowed_params(provider: &str) -> Option<&'static [&'static str]> {
             "region",
         ],
         "b2" => &["account", "key"],
+        // Storj takes either an access grant, which carries the encryption
+        // passphrase inside it, or the three values one is made from.
+        "storj" => &[
+            "provider",
+            "access_grant",
+            "satellite_address",
+            "api_key",
+            "passphrase",
+        ],
         // Koofr and Digi Storage know their own endpoint; "other" is the
         // one variant that has to be told where to connect.
         "koofr" => &["provider", "endpoint", "user", "password"],
@@ -675,6 +684,7 @@ fn public_params(provider: &str) -> &'static [&'static str] {
         // The access key id names the key; the secret access key is the key.
         "s3" => &["provider", "access_key_id", "endpoint", "region"],
         "b2" => &["account"],
+        "storj" => &["provider", "satellite_address"],
         "koofr" => &["provider", "endpoint", "user"],
         "mega" => &["user"],
         "protondrive" => &["username"],
@@ -759,7 +769,8 @@ async fn create_remote(
         // A password is taken exactly as typed. Trimming one changes it
         // silently, and with an encrypted drive nobody would find out until
         // the files no longer open.
-        let is_password = provider == "crypt" && key.starts_with("password");
+        let is_password = (provider == "crypt" && key.starts_with("password"))
+            || (provider == "storj" && key == "passphrase");
         let value = if is_password {
             value
         } else {
@@ -826,7 +837,15 @@ async fn create_remote(
 /// and listing the root then fails for a key that is perfectly good.
 /// Neither is crypt — the folder it encrypts into does not have to exist
 /// yet, so "not found" is the normal answer for a new one.
-const VERIFY_ON_CREATE: &[&str] = &["b2", "koofr", "mega", "protondrive", "sftp", "webdav"];
+const VERIFY_ON_CREATE: &[&str] = &[
+    "b2",
+    "koofr",
+    "mega",
+    "protondrive",
+    "sftp",
+    "storj",
+    "webdav",
+];
 
 /// The mistake each provider is usually refusing about, said before the
 /// person starts checking fields that are fine. Every one of these is a

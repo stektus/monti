@@ -46,6 +46,15 @@ password rather than the account one, which is the reason it is worth having:
 unlike MEGA, a Koofr account with two-factor authentication can be reached, and
 the password can be revoked on its own without touching the account.
 
+**Storj**, both ways in: an access grant, which is one long string carrying
+everything including the encryption passphrase, or the satellite, API key and
+passphrase it is made from. The form shows one or the other, never both, so
+there is nothing to fill in by mistake.
+
+The passphrase is taken exactly as typed, spaces included — it is not a
+password that a server checks but the key the files are encrypted with, and
+trimming one would leave a drive that opens nothing.
+
 **A drive that cannot sign in is no longer added.** Writing a password into a
 config file checks nothing — rclone signs in the first time the drive is used —
 so a mistyped key produced a drive that looked added and failed minutes later
