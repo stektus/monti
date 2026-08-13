@@ -169,6 +169,13 @@ export default {
   "Key ID and Application key are required.":
     "Потрібні ідентифікатор ключа і ключ застосунку.",
 
+  "jotta.token": `Створюється на сторінці безпеки вашого облікового запису —
+    <a href="https://www.jottacloud.com/web/secure" class="ext">jottacloud.com → Security</a>
+    → Generate personal login token. Він використовується один раз, щоб
+    впустити цей комп'ютер; далі Jottacloud тримає Monti в системі сам.`,
+  "Personal login token": "Персональний токен входу",
+  "A personal login token is required.": "Потрібен персональний токен входу.",
+
   "storj.where": `Обидва беруться в
     <a href="https://storj.io/login" class="ext">консолі Storj</a> — грант
     доступу коротший шлях, бо вже містить парольну фразу шифрування. Storj

@@ -23,7 +23,7 @@ const KEEP_ENGLISH = new Set([
   "Monti", "GitHub", "Google Drive", "Dropbox", "OneDrive", "Box", "pCloud",
   "Yandex Disk", "WebDAV", "S3", "SFTP", "Nextcloud", "ownCloud", "Amazon S3",
   "Backblaze B2", "MEGA", "Proton Drive", "Koofr", "Koofr (app.koofr.net)",
-  "Digi Storage", "Storj", "us1.storj.io",
+  "Digi Storage", "Storj", "us1.storj.io", "Jottacloud",
   "https://app.koofr.net/api/v2",
   "Cloudflare R2", "MinIO", "Client ID", "Client secret", "rclone",
   "https://cloud.example.com/remote.php/webdav/", "https://…",
@@ -153,7 +153,7 @@ const TABLE_KEYS = [
   "starting…", "restarting…",
   "Google Drive", "Dropbox", "OneDrive", "Box", "pCloud", "Yandex Disk",
   "WebDAV", "S3", "SFTP", "Backblaze B2", "MEGA", "Proton Drive", "Koofr",
-  "Storj", "encrypted",
+  "Storj", "Jottacloud", "encrypted",
   "manual", "when Monti starts", "every 15 minutes", "every hour",
 ];
 

@@ -521,6 +521,7 @@ fn config_state_machine(
     name: &str,
     typ: Option<&str>,
     parameters: &Value,
+    answers: &HashMap<&str, String>,
 ) -> Result<(), String> {
     {
         let mut slot = auth.0.lock().unwrap();
@@ -530,7 +531,7 @@ fn config_state_machine(
         *slot = Some(0); // claimed, no job yet
     }
     log_line(app, &format!("auth flow started ({endpoint} {name})"));
-    let result = drive_state_machine(port, pass, auth, endpoint, name, typ, parameters);
+    let result = drive_state_machine(port, pass, auth, endpoint, name, typ, parameters, answers);
     *auth.0.lock().unwrap() = None;
     match &result {
         Ok(()) => log_line(app, &format!("auth flow finished ({name})")),
@@ -539,6 +540,7 @@ fn config_state_machine(
     result
 }
 
+#[allow(clippy::too_many_arguments)]
 fn drive_state_machine(
     port: u16,
     pass: &str,
@@ -547,6 +549,10 @@ fn drive_state_machine(
     name: &str,
     typ: Option<&str>,
     parameters: &Value,
+    // What to reply to a question rclone asks by name, when the default is
+    // not the answer: Jottacloud asks which kind of sign-in this is and then
+    // for a personal token, and neither can be guessed.
+    answers: &HashMap<&str, String>,
 ) -> Result<(), String> {
     let deadline = std::time::Instant::now() + Duration::from_secs(300);
     let stop_job = |jobid: u64| {
@@ -607,7 +613,10 @@ fn drive_state_machine(
             return Ok(()); // machine done — token stored by the daemon
         }
         let option = &output["Option"];
-        let answer = if option["Name"].as_str() == Some("config_is_local") {
+        let asked = option["Name"].as_str().unwrap_or_default();
+        let answer = if let Some(given) = answers.get(asked) {
+            given.clone()
+        } else if asked == "config_is_local" {
             "true".to_string() // we are the machine with the browser
         } else if let Some(s) = option["DefaultStr"].as_str() {
             s.to_string()
@@ -674,6 +683,10 @@ fn allowed_params(provider: &str) -> Option<&'static [&'static str]> {
 /// Providers whose sign-in is a browser round trip rather than a form.
 const OAUTH_PROVIDERS: &[&str] = &["drive", "dropbox", "onedrive", "box", "pcloud", "yandex"];
 
+/// Providers whose sign-in is neither a form nor a browser, but a short
+/// dialog rclone runs: it asks, Monti answers from what the person typed.
+const DIALOG_PROVIDERS: &[&str] = &["jottacloud"];
+
 /// Of the fields a form provider takes, the ones that may be shown again:
 /// an address, a user name, a key id. Never a password — everything left
 /// out of this list comes back to the dialog blank, which for a secret is
@@ -730,6 +743,44 @@ async fn create_remote(
             ));
         }
     }
+    // Jottacloud signs in through neither a form nor a browser: rclone asks
+    // it in a short dialog — which kind of account, then a personal login
+    // token from the account's security page, then which device to use. The
+    // machinery that drives OAuth drives this too; it only needs to be told
+    // what to answer, since neither reply can be guessed from a default.
+    if DIALOG_PROVIDERS.contains(&provider.as_str()) {
+        let token = params
+            .as_ref()
+            .and_then(|p| p.get("login_token"))
+            .map(|t| t.trim().to_string())
+            .filter(|t| !t.is_empty())
+            .ok_or("a personal login token is required")?;
+        let (port, pass) = {
+            let eng = state.0.lock().unwrap();
+            (eng.port, eng.pass.clone())
+        };
+        let answers = HashMap::from([
+            ("config_type", "standard".to_string()),
+            ("config_login_token", token),
+        ]);
+        if let Err(e) = config_state_machine(
+            &app,
+            port,
+            &pass,
+            &auth,
+            "config/create",
+            &name,
+            Some(&provider),
+            &json!({}),
+            &answers,
+        ) {
+            // A token refused halfway leaves a section with no token in it.
+            let _ = rc_raw(port, &pass, "config/delete", &json!({ "name": name }));
+            return Err(engine::friendly_signin_error(&e, signin_hint(&provider)));
+        }
+        return verify_or_undo(port, &pass, &name, &provider);
+    }
+
     let allowed_params: &[&str] = match provider.as_str() {
         p if OAUTH_PROVIDERS.contains(&p) => {
             let (port, pass) = {
@@ -752,6 +803,7 @@ async fn create_remote(
                 &name,
                 Some(&provider),
                 &Value::Object(parameters),
+                &HashMap::new(),
             ) {
                 // The section is written before OAuth finishes; an aborted
                 // flow must not leave a broken token-less remote. The
@@ -839,6 +891,7 @@ async fn create_remote(
 /// yet, so "not found" is the normal answer for a new one.
 const VERIFY_ON_CREATE: &[&str] = &[
     "b2",
+    "jottacloud",
     "koofr",
     "mega",
     "protondrive",
@@ -852,6 +905,10 @@ const VERIFY_ON_CREATE: &[&str] = &[
 /// place where the right-looking value is the wrong one.
 fn signin_hint(provider: &str) -> Option<&'static str> {
     match provider {
+        "jottacloud" => Some(
+            "Jottacloud wants a personal login token, made on the security \
+             page of your account and good for one use.",
+        ),
         "koofr" => Some(
             "Koofr does not accept the password you sign in with: it wants \
              one made for apps, in Preferences → Password.",
@@ -931,6 +988,7 @@ async fn reconnect_remote(
         &name,
         None,
         &json!({}),
+        &HashMap::new(),
     )
 }
 
@@ -962,6 +1020,7 @@ async fn update_remote_key(
             "client_id": client_id.trim(),
             "client_secret": client_secret.trim(),
         }),
+        &HashMap::new(),
     )
 }
 
@@ -1107,6 +1166,7 @@ fn apply_credentials(
 async fn update_remote_credentials(
     app: AppHandle,
     state: State<'_, EngineState>,
+    auth: State<'_, AuthState>,
     name: String,
     params: HashMap<String, String>,
 ) -> Result<(), String> {
@@ -1114,7 +1174,64 @@ async fn update_remote_credentials(
         let eng = state.0.lock().unwrap();
         (eng.port, eng.pass.clone())
     };
-    apply_credentials(port, &pass, &name, params)?;
+    // Jottacloud is signed in again the way it was signed in: by running
+    // rclone's dialog with a fresh token, not by writing a field. The old
+    // section goes back if the new token is refused, exactly as a refused
+    // password does — half a sign-in is worse than the expired one.
+    if params.contains_key("login_token") {
+        let token = params["login_token"].trim().to_string();
+        if token.is_empty() {
+            return Err("a personal login token is required".into());
+        }
+        let dump = rc_raw(port, &pass, "config/dump", &json!({}))?;
+        let previous = dump
+            .get(&name)
+            .and_then(Value::as_object)
+            .cloned()
+            .ok_or_else(|| format!("there is no drive called \"{name}\""))?;
+        let restore = || {
+            let _ = rc_raw(
+                port,
+                &pass,
+                "config/update",
+                &json!({
+                    "name": name,
+                    "parameters": previous,
+                    "opt": { "noObscure": true, "nonInteractive": true },
+                }),
+            );
+        };
+        let answers = HashMap::from([
+            ("config_type", "standard".to_string()),
+            ("config_login_token", token),
+        ]);
+        let done = config_state_machine(
+            &app,
+            port,
+            &pass,
+            &auth,
+            "config/update",
+            &name,
+            Some("jottacloud"),
+            &json!({}),
+            &answers,
+        )
+        .and_then(|()| {
+            rc_raw(
+                port,
+                &pass,
+                "operations/list",
+                &json!({ "fs": format!("{name}:"), "remote": "" }),
+            )
+            .map(|_| ())
+        });
+        if let Err(e) = done {
+            restore();
+            return Err(engine::friendly_signin_error(&e, signin_hint("jottacloud")));
+        }
+    } else {
+        apply_credentials(port, &pass, &name, params)?;
+    }
     log_line(&app, &format!("new sign-in details for {name}:"));
 
     // rclone builds a drive once, when it is mounted, and keeps using what
@@ -2547,7 +2664,9 @@ mod tests {
     fn every_provider_in_the_dialog_reaches_the_backend() {
         for provider in providers_in_dialog() {
             assert!(
-                OAUTH_PROVIDERS.contains(&provider) || allowed_params(provider).is_some(),
+                OAUTH_PROVIDERS.contains(&provider)
+                    || DIALOG_PROVIDERS.contains(&provider)
+                    || allowed_params(provider).is_some(),
                 "the dialog offers {provider}, which create_remote() refuses"
             );
         }
@@ -2577,6 +2696,10 @@ mod tests {
                 let fields: &[&str] = if OAUTH_PROVIDERS.contains(&kind) {
                     // A browser provider sends only its own key, if there is one.
                     &["client_id", "client_secret"]
+                } else if DIALOG_PROVIDERS.contains(&kind) {
+                    // What a dialog provider sends are answers to questions,
+                    // not options; the backend still has to exist.
+                    &[]
                 } else {
                     allowed_params(kind).expect("the other test proves this exists")
                 };
@@ -2792,6 +2915,38 @@ mod tests {
         assert!(public_params("crypt").is_empty());
     }
 
+    /// Jottacloud's sign-in is a dialog, and two of its questions have no
+    /// answer that can be guessed: which kind of account, and a personal
+    /// token. Both come from the form, and the proof they arrive is that
+    /// rclone gets as far as trying to trade the token in — a machine that
+    /// ignored them would still be asking the first question.
+    #[test]
+    fn the_dialog_is_answered_with_what_the_form_collected() {
+        let Some(d) = spawn_test_rcd() else {
+            return skipped("jottacloud", "no rclone daemon");
+        };
+        let auth = AuthState(Mutex::new(Some(0)));
+        let answers = HashMap::from([
+            ("config_type", "standard".to_string()),
+            ("config_login_token", "not-a-real-token".to_string()),
+        ]);
+        let refused = drive_state_machine(
+            d.port,
+            &d.pass,
+            &auth,
+            "config/create",
+            "jt",
+            Some("jottacloud"),
+            &json!({}),
+            &answers,
+        )
+        .expect_err("a made-up token cannot be traded for a session");
+        assert!(
+            refused.contains("oauth token"),
+            "the dialog did not reach the token step: {refused}"
+        );
+    }
+
     #[test]
     fn state_machine_completes_for_questionless_backend() {
         let Some(d) = spawn_test_rcd() else { return };
@@ -2804,6 +2959,7 @@ mod tests {
             "tlocal",
             Some("local"),
             &json!({}),
+            &HashMap::new(),
         );
         assert_eq!(r, Ok(()));
         let dump = rc_raw(d.port, &d.pass, "config/dump", &json!({})).unwrap();
@@ -2825,6 +2981,7 @@ mod tests {
                 "tdrive",
                 Some("drive"),
                 &json!({}),
+                &HashMap::new(),
             )
         });
         // Give the machine time to reach the browser-wait step, then cancel.

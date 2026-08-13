@@ -276,6 +276,7 @@
               <option value="protondrive">Proton Drive</option>
               <option value="koofr">Koofr</option>
               <option value="storj">Storj</option>
+              <option value="jottacloud">Jottacloud</option>
             </optgroup>
             <optgroup label="Servers">
               <option value="webdav">WebDAV / Nextcloud</option>
@@ -381,6 +382,19 @@
             <a href="https://app.koofr.net/app/admin/preferences/password" class="ext">Preferences → Password</a>.
             Two-factor accounts work this way, and the password can be revoked
             on its own.
+          </p>
+        </div>
+
+        <div id="params-jottacloud" class="params hidden">
+          <label>
+            Personal login token
+            <input id="jotta-token" type="password" class="mono" autocomplete="new-password" spellcheck="false" />
+          </label>
+          <p class="muted" data-i18n="jotta.token">
+            Made on the security page of your account —
+            <a href="https://www.jottacloud.com/web/secure" class="ext">jottacloud.com → Security</a>
+            → Generate personal login token. It is used once, to sign this
+            computer in; after that Jottacloud keeps Monti signed in itself.
           </p>
         </div>
 

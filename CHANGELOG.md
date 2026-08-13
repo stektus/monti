@@ -55,6 +55,14 @@ The passphrase is taken exactly as typed, spaces included — it is not a
 password that a server checks but the key the files are encrypted with, and
 trimming one would leave a drive that opens nothing.
 
+**Jottacloud**, which signs in like neither of the others: not a form and not
+a browser, but a short dialog rclone runs — which kind of account, then a
+personal login token from the account's security page, then which device to
+use. Monti answers it from the one field the form asks for, and the token is
+spent the way Proton's code is: once, to let this computer in, after which
+Jottacloud keeps Monti signed in itself. A token that is refused takes its
+half-made drive with it.
+
 **A drive that cannot sign in is no longer added.** Writing a password into a
 config file checks nothing — rclone signs in the first time the drive is used —
 so a mistyped key produced a drive that looked added and failed minutes later

@@ -23,6 +23,7 @@ const PROVIDER_LABELS = {
   protondrive: "Proton Drive",
   koofr: "Koofr",
   storj: "Storj",
+  jottacloud: "Jottacloud",
   webdav: "WebDAV",
   s3: "S3",
   b2: "Backblaze B2",
@@ -50,6 +51,7 @@ const FIELD_INPUT = {
   protondrive: { username: "proton-user" },
   koofr: { provider: "koofr-provider", endpoint: "koofr-endpoint", user: "koofr-user" },
   storj: { provider: "storj-provider", satellite_address: "storj-satellite" },
+  jottacloud: {},
   sftp: { host: "sftp-host", port: "sftp-port", user: "sftp-user", key_file: "sftp-key" },
 };
 
@@ -65,6 +67,7 @@ const SECRET_INPUT = {
   sftp: ["sftp-pass"],
   // Storj holds more than one: an access grant, or a key and a passphrase.
   storj: ["storj-grant", "storj-key", "storj-passphrase"],
+  jottacloud: ["jotta-token"],
 };
 
 const $ = (id) => document.getElementById(id);
@@ -2251,6 +2254,12 @@ window.addEventListener("DOMContentLoaded", () => {
       const code = v("proton-2fa");
       if (code) params["2fa"] = code;
       return params;
+    }
+    if (p === "jottacloud") {
+      // Not a password: a token the account's security page prints once,
+      // which rclone trades for a session of its own.
+      if (!v("jotta-token")) return t("A personal login token is required.");
+      return { login_token: v("jotta-token") };
     }
     if (p === "storj") {
       // An access grant already carries the passphrase; the other route
