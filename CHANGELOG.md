@@ -46,13 +46,13 @@ password rather than the account one, which is the reason it is worth having:
 unlike MEGA, a Koofr account with two-factor authentication can be reached, and
 the password can be revoked on its own without touching the account.
 
-**Settings stops leaving a hole in the corner.** The four cards were placed by
-column flow, which balances by counting pixels: it put General and Transfers on
-the left, Storage and About on the right, and the right side ended half a screen
-above the left. They are now grouped by what they are — settings on one side,
-the "label — value" panels on the other — and the panel column is narrow,
-because a row like "Free on this disk … 15.5 GB" at half the page width is
-mostly the gap in the middle.
+**Settings is one column now, at every width.** Two columns fitted more on a
+wide screen and cost more than they gave: the eye had to pick a side, the short
+cards left a hole under the long ones, and which card sat where changed with the
+size of the window. One column is read the way a settings page is read — top to
+bottom, one thing at a time — and the column is a little wider than the old one
+was. Explanations under each setting stop at about sixty characters, the width
+a line can be read back from without losing its place.
 
 **The window's header lines up with what is under it.** The logo sat in the far
 corner of a wide monitor while the cards started a hand's width to the right;
