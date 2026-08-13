@@ -32,6 +32,34 @@ const PROVIDER_LABELS = {
 // entirely from form fields.
 const OAUTH_PROVIDERS = new Set(["drive", "dropbox", "onedrive", "box", "pcloud", "yandex"]);
 
+// Which box of the Add-cloud form holds which rclone option. Used to fill
+// the form back in when the sign-in of an existing drive is being changed —
+// only the halves that are not secrets ever arrive to be filled.
+const FIELD_INPUT = {
+  webdav: { url: "webdav-url", vendor: "webdav-vendor", user: "webdav-user" },
+  s3: {
+    provider: "s3-provider",
+    access_key_id: "s3-access",
+    endpoint: "s3-endpoint",
+    region: "s3-region",
+  },
+  b2: { account: "b2-account" },
+  mega: { user: "mega-user" },
+  protondrive: { username: "proton-user" },
+  sftp: { host: "sftp-host", port: "sftp-port", user: "sftp-user", key_file: "sftp-key" },
+};
+
+// The one box per provider that holds the secret. Left empty it means
+// "keep what is saved", and the placeholder says so.
+const SECRET_INPUT = {
+  webdav: "webdav-pass",
+  s3: "s3-secret",
+  b2: "b2-key",
+  mega: "mega-pass",
+  protondrive: "proton-pass",
+  sftp: "sftp-pass",
+};
+
 const $ = (id) => document.getElementById(id);
 
 // ---------- per-drive preferences (mount point, automount) ----------
@@ -1485,6 +1513,23 @@ async function openRemoteDialog(name) {
   $("remote-key-section").classList.toggle("hidden", !oauth);
   $("remote-reconnect").classList.toggle("hidden", !oauth);
 
+  // A drive reached with a password needs the other thing: a way to change
+  // that password when it stops working. Without it the only way back in is
+  // deleting the drive, which also throws away its mount folder, its hidden
+  // folders and everything it had cached. An encrypted drive is left out —
+  // there the password is the key, and a new one unlocks nothing.
+  const formBased = !oauth && !!FIELD_INPUT[info.type];
+  $("remote-signin-row").classList.toggle("hidden", !formBased);
+  if (formBased) {
+    $("remote-signin-status").textContent = t("Saved on this computer.");
+    invoke("remote_credentials", { name })
+      .then(({ fields }) => {
+        const who = fields.user || fields.username || fields.account || fields.access_key_id;
+        if (who) $("remote-signin-status").textContent = t("Signed in as {who}", { who });
+      })
+      .catch(() => {});
+  }
+
   dialogKey = { id: info.clientId || "", oauth };
   $("remote-client-id").value = dialogKey.id;
   $("remote-client-secret").value = "";
@@ -2050,14 +2095,68 @@ window.addEventListener("DOMContentLoaded", () => {
   });
 
   // --- add cloud dialog ---
+  //
+  // The same dialog changes the sign-in of a drive that already exists: the
+  // fields are the same fields. A second copy of them would be a second
+  // place to keep WebDAV vendors, S3 endpoints and Proton's one-time code
+  // right, and one of the two would drift.
+  let signInFor = null;
+
+  const addDialogMode = (name, type) => {
+    signInFor = name;
+    $("add-title").textContent = name ? t("{name} — sign in again", { name }) : t("Add a cloud");
+    // The drive is already chosen. Offering to rename it, or to turn it into
+    // a different provider, would be offering to make a different drive.
+    $("add-name-row").classList.toggle("hidden", !!name);
+    $("add-provider-row").classList.toggle("hidden", !!name);
+    // The button stays "Connect" in both modes, because that is what it
+    // does — and because Proton's code field says to press Connect while
+    // the code is still alive.
+    if (name) {
+      // The box is hidden, not gone: an empty required field the person
+      // cannot see would block the form with nothing to show for it.
+      $("add-name").value = name;
+      $("add-provider").value = type;
+    }
+  };
+
   $("add-btn").addEventListener("click", () => {
     $("add-form").reset();
     showError("");
     $("add-status").classList.add("hidden");
     $("add-advanced").open = false;
+    for (const id of Object.values(SECRET_INPUT)) $(id).placeholder = "";
+    addDialogMode(null, null);
     updateAddForm();
     $("add-dialog").showModal();
   });
+
+  // Same form, filled in with what is already known about the drive —
+  // everything except the secret, which is what is being replaced.
+  const openSignInDialog = async (name) => {
+    let info;
+    try {
+      info = await invoke("remote_credentials", { name });
+    } catch (err) {
+      showError(String(err));
+      return;
+    }
+    $("add-form").reset();
+    showError("");
+    $("add-status").classList.add("hidden");
+    $("add-advanced").open = false;
+    addDialogMode(name, info.type);
+    updateAddForm();
+    for (const [key, value] of Object.entries(info.fields || {})) {
+      const el = $(FIELD_INPUT[info.type]?.[key] || "");
+      if (el) el.value = value;
+    }
+    // Short on purpose: some of these boxes are half a row wide, and a
+    // placeholder that gets cut off mid-word says less than one word does.
+    const secret = $(SECRET_INPUT[info.type] || "");
+    if (secret) secret.placeholder = t("unchanged");
+    $("add-dialog").showModal();
+  };
   $("add-cancel").addEventListener("click", async () => {
     await abortAuth();
     $("add-dialog").close();
@@ -2100,7 +2199,9 @@ window.addEventListener("DOMContentLoaded", () => {
 
   // Non-OAuth providers: collect their form fields and check the required
   // ones (native `required` can't be used — the fields are often hidden).
-  const collectParams = (p) => {
+  // When an existing drive is being signed in again, a blank secret means
+  // "keep the saved one", so it is not demanded.
+  const collectParams = (p, editing = false) => {
     const v = (id) => $(id).value.trim();
     if (p === "webdav") {
       if (!v("webdav-url")) return t("Server URL is required.");
@@ -2112,7 +2213,7 @@ window.addEventListener("DOMContentLoaded", () => {
       };
     }
     if (p === "s3") {
-      if (!v("s3-access") || !$("s3-secret").value)
+      if (!editing && (!v("s3-access") || !$("s3-secret").value))
         return t("Access key ID and Secret access key are required.");
       if ($("s3-provider").value !== "AWS" && !v("s3-endpoint"))
         return t("Endpoint is required for non-Amazon S3 services.");
@@ -2125,7 +2226,7 @@ window.addEventListener("DOMContentLoaded", () => {
       };
     }
     if (p === "protondrive") {
-      if (!v("proton-user") || !$("proton-pass").value)
+      if (!editing && (!v("proton-user") || !$("proton-pass").value))
         return t("E-mail and password are required.");
       const params = { username: v("proton-user"), password: $("proton-pass").value };
       // Sent only when there is one: an empty code is not the same as no
@@ -2135,14 +2236,14 @@ window.addEventListener("DOMContentLoaded", () => {
       return params;
     }
     if (p === "mega") {
-      if (!v("mega-user") || !$("mega-pass").value)
+      if (!editing && (!v("mega-user") || !$("mega-pass").value))
         return t("E-mail and password are required.");
       return { user: v("mega-user"), pass: $("mega-pass").value };
     }
     if (p === "b2") {
       // rclone calls them account and key; Backblaze calls them keyID and
       // applicationKey on the page they are copied from.
-      if (!v("b2-account") || !$("b2-key").value)
+      if (!editing && (!v("b2-account") || !$("b2-key").value))
         return t("Key ID and Application key are required.");
       return { account: v("b2-account"), key: $("b2-key").value };
     }
@@ -2178,7 +2279,7 @@ window.addEventListener("DOMContentLoaded", () => {
     e.preventDefault();
     const name = $("add-name").value.trim();
     const provider = $("add-provider").value;
-    const params = collectParams(provider);
+    const params = collectParams(provider, !!signInFor);
     if (typeof params === "string") {
       showError(params);
       return;
@@ -2186,19 +2287,22 @@ window.addEventListener("DOMContentLoaded", () => {
     $("add-submit").disabled = true;
     showError("");
     const ok = await withAuth($("add-status"), () =>
-      invoke("create_remote", {
-        name,
-        provider,
-        clientId: $("add-client-id").value.trim() || null,
-        clientSecret: $("add-client-secret").value.trim() || null,
-        params,
-      })
+      signInFor
+        ? invoke("update_remote_credentials", { name: signInFor, params })
+        : invoke("create_remote", {
+            name,
+            provider,
+            clientId: $("add-client-id").value.trim() || null,
+            clientSecret: $("add-client-secret").value.trim() || null,
+            params,
+          })
     );
     $("add-submit").disabled = false;
     if (ok) {
       // Sensible default: new drives mount automatically from now on.
-      setPref(name, { automount: true });
+      if (!signInFor) setPref(name, { automount: true });
       $("add-dialog").close();
+      $("remote-dialog").close();
       await refreshRemotes();
     } else if (provider === "protondrive" && $("proton-2fa").value.trim()) {
       // A code dies the moment it is tried, right or wrong. Clear that one
@@ -2240,6 +2344,10 @@ window.addEventListener("DOMContentLoaded", () => {
       showError(String(e));
     }
     await refreshDialogCache(name);
+  });
+
+  $("remote-signin").addEventListener("click", () => {
+    if (dialogRemote) openSignInDialog(dialogRemote);
   });
 
   $("remote-reconnect").addEventListener("click", async () => {

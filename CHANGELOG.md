@@ -40,6 +40,22 @@ Client secret and Re-authorize button showed on every drive, Backblaze and
 WebDAV included, where there is no browser sign-in to re-run and the
 credentials already sit in the config.
 
+**A password that stopped working can be replaced.** Drive settings gained a
+Sign-in row for every drive reached with credentials — WebDAV, S3, Backblaze,
+SFTP, MEGA, Proton Drive — showing who is signed in and a way to change it.
+Until now the only route back in was deleting the drive, which also threw away
+its mount folder, its hidden folders and everything it had cached.
+
+It is the Add-cloud form again, filled in with what is already known and the
+secret left blank; blank means "keep the saved one". The new details are tried
+before they are kept, and the old ones go back if the provider refuses them —
+a typo cannot turn a working drive into a broken one. A drive that was mounted
+is mounted again straight away, because rclone signs in when a drive is
+mounted and would otherwise go on using what stopped working.
+
+An encrypted drive is left out on purpose: there the password is the key, not
+a sign-in, and a new one would not open what the old one locked.
+
 ## v0.8.0 — 2026-08-12
 
 **Monti speaks Ukrainian and Russian.** It follows your desktop's language, or

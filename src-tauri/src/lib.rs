@@ -662,6 +662,23 @@ fn allowed_params(provider: &str) -> Option<&'static [&'static str]> {
 /// Providers whose sign-in is a browser round trip rather than a form.
 const OAUTH_PROVIDERS: &[&str] = &["drive", "dropbox", "onedrive", "box", "pcloud", "yandex"];
 
+/// Of the fields a form provider takes, the ones that may be shown again:
+/// an address, a user name, a key id. Never a password — everything left
+/// out of this list comes back to the dialog blank, which for a secret is
+/// the only right answer.
+fn public_params(provider: &str) -> &'static [&'static str] {
+    match provider {
+        "webdav" => &["url", "vendor", "user"],
+        // The access key id names the key; the secret access key is the key.
+        "s3" => &["provider", "access_key_id", "endpoint", "region"],
+        "b2" => &["account"],
+        "mega" => &["user"],
+        "protondrive" => &["username"],
+        "sftp" => &["host", "port", "user", "key_file"],
+        _ => &[],
+    }
+}
+
 /// Create a remote through the daemon's RC config API. For OAuth
 /// providers the daemon opens the browser and runs the callback server;
 /// optional client_id/client_secret let the user connect through their
@@ -885,6 +902,180 @@ async fn update_remote_key(
             "client_secret": client_secret.trim(),
         }),
     )
+}
+
+/// What the sign-in form should show when it is opened for a drive that
+/// already exists: the provider, and the fields that are not secrets.
+#[tauri::command]
+async fn remote_credentials(state: State<'_, EngineState>, name: String) -> Result<Value, String> {
+    let (port, pass) = {
+        let eng = state.0.lock().unwrap();
+        (eng.port, eng.pass.clone())
+    };
+    let dump = rc_raw(port, &pass, "config/dump", &json!({}))?;
+    let section = dump
+        .get(&name)
+        .ok_or_else(|| format!("there is no drive called \"{name}\""))?;
+    let provider = section["type"].as_str().unwrap_or_default().to_string();
+    let mut fields = serde_json::Map::new();
+    for key in public_params(&provider) {
+        if let Some(value) = section.get(*key).and_then(Value::as_str) {
+            fields.insert((*key).into(), Value::String(value.into()));
+        }
+    }
+    Ok(json!({ "type": provider, "fields": fields }))
+}
+
+/// Write new sign-in details for a drive that already exists, keeping the
+/// drive itself — its name, mount folder, hidden folders and cache stay.
+///
+/// Verified before it is kept. A password is typed blind, and a drive whose
+/// details were replaced by a typo would be a working drive turned broken,
+/// so the provider is asked to answer with them first and the old details go
+/// back if it refuses. Fields left blank are left alone: a form that shows
+/// an empty password box must not read that as "the password is now empty".
+fn apply_credentials(
+    port: u16,
+    pass: &str,
+    name: &str,
+    params: HashMap<String, String>,
+) -> Result<(), String> {
+    let dump = rc_raw(port, pass, "config/dump", &json!({}))?;
+    let section = dump
+        .get(name)
+        .ok_or_else(|| format!("there is no drive called \"{name}\""))?;
+    let provider = section["type"].as_str().unwrap_or_default().to_string();
+    if OAUTH_PROVIDERS.contains(&provider.as_str()) {
+        return Err("this drive signs in through the browser — use Re-authorize".into());
+    }
+    if provider == "crypt" {
+        // Not a sign-in at all: the password is the key. A new one does not
+        // unlock what the old one locked, it just stops the files opening.
+        return Err(
+            "an encrypted drive's password cannot be changed: everything \
+                    already stored in it was encrypted with the old one."
+                .into(),
+        );
+    }
+    let allowed =
+        allowed_params(&provider).ok_or_else(|| format!("unsupported provider: {provider}"))?;
+
+    let mut parameters = serde_json::Map::new();
+    for (key, value) in params {
+        let value = value.trim().to_string();
+        if value.is_empty() {
+            continue;
+        }
+        if !allowed.contains(&key.as_str()) {
+            return Err(format!("unexpected option: {key}"));
+        }
+        parameters.insert(key, Value::String(value));
+    }
+    if parameters.is_empty() {
+        return Err("nothing to change — fill in what should be different".into());
+    }
+
+    // What goes back if the new details are refused. Passwords come out of
+    // the config already obscured, so they are put back untouched: obscuring
+    // an obscured password produces a third, wrong password.
+    let previous: serde_json::Map<String, Value> = parameters
+        .keys()
+        .map(|key| {
+            (
+                key.clone(),
+                section
+                    .get(key)
+                    .cloned()
+                    .unwrap_or_else(|| Value::String(String::new())),
+            )
+        })
+        .collect();
+    let restore = |port: u16, pass: &str| {
+        let _ = rc_raw(
+            port,
+            pass,
+            "config/update",
+            &json!({
+                "name": name,
+                "parameters": previous,
+                "opt": { "noObscure": true, "nonInteractive": true },
+            }),
+        );
+    };
+
+    rc_raw(
+        port,
+        pass,
+        "config/update",
+        &json!({
+            "name": name,
+            "parameters": parameters,
+            "opt": { "obscure": true, "nonInteractive": true },
+        }),
+    )?;
+
+    if let Err(e) = rc_raw(
+        port,
+        pass,
+        "operations/list",
+        &json!({ "fs": format!("{name}:"), "remote": "" }),
+    ) {
+        restore(port, pass);
+        return Err(e);
+    }
+    if provider == "protondrive" {
+        // Spent the moment the sign-in above went through, exactly as at
+        // creation; leaving it behind breaks the next session instead.
+        let _ = rc_raw(
+            port,
+            pass,
+            "config/update",
+            &json!({
+                "name": name,
+                "parameters": { "2fa": "" },
+                "opt": { "nonInteractive": true },
+            }),
+        );
+    }
+    Ok(())
+}
+
+/// New sign-in details for a form-based drive, and a fresh mount if the
+/// drive was mounted with the old ones.
+#[tauri::command]
+async fn update_remote_credentials(
+    app: AppHandle,
+    state: State<'_, EngineState>,
+    name: String,
+    params: HashMap<String, String>,
+) -> Result<(), String> {
+    let (port, pass) = {
+        let eng = state.0.lock().unwrap();
+        (eng.port, eng.pass.clone())
+    };
+    apply_credentials(port, &pass, &name, params)?;
+    log_line(&app, &format!("new sign-in details for {name}:"));
+
+    // rclone builds a drive once, when it is mounted, and keeps using what
+    // it was built with. A mount made with the details that stopped working
+    // would go on failing until the next restart, which reads as "the fix
+    // did nothing" — so it is made again here.
+    let fs_name = format!("{name}:");
+    let entry = {
+        let eng = state.0.lock().unwrap();
+        eng.mounts.get(&fs_name).cloned()
+    };
+    if let Some(entry) = entry {
+        let _ = rc_raw(
+            port,
+            &pass,
+            "mount/unmount",
+            &json!({ "mountPoint": entry.mount_point }),
+        );
+        engine::mount_guarded(port, &pass, &fs_name, &entry)?;
+        log_line(&app, &format!("remounted {fs_name} with the new details"));
+    }
+    Ok(())
 }
 
 /// Abort an in-flight browser authorization (Cancel button): empty the
@@ -1892,6 +2083,8 @@ pub fn run() {
             create_remote,
             reconnect_remote,
             update_remote_key,
+            remote_credentials,
+            update_remote_credentials,
             cancel_create_remote,
             delete_remote,
             vfs_cache_size,
@@ -2402,6 +2595,86 @@ mod tests {
                 "pass": "secret",
             }),
         );
+    }
+
+    /// A password that stopped working has to be fixable without deleting
+    /// the drive — deleting it also throws away the mount folder, the hidden
+    /// folders and the cache. And a second wrong password must leave the
+    /// drive exactly as it was: the fix must not be able to break it.
+    #[test]
+    fn a_password_can_be_replaced_and_a_wrong_one_rolls_back() {
+        let Some(server) = serve("webdav", &["--user", "tester", "--pass", "secret"]) else {
+            return skipped("credentials", "the local server did not come up");
+        };
+        let Some(d) = spawn_test_rcd() else {
+            return skipped("credentials", "no rclone daemon");
+        };
+        let url = format!("http://127.0.0.1:{}", server.port);
+        let list = || {
+            rc_raw(
+                d.port,
+                &d.pass,
+                "operations/list",
+                &json!({ "fs": "srv_creds:", "remote": "Docs" }),
+            )
+        };
+        let params = |pass: &str| HashMap::from([("pass".to_string(), pass.to_string())]);
+
+        rc_raw(
+            d.port,
+            &d.pass,
+            "config/create",
+            &json!({
+                "name": "srv_creds",
+                "type": "webdav",
+                "parameters": { "url": url, "vendor": "other", "user": "tester", "pass": "wrong" },
+                "opt": { "obscure": true, "nonInteractive": true },
+            }),
+        )
+        .expect("creating the remote should work — it is the sign-in that fails");
+        assert!(list().is_err(), "the wrong password was accepted");
+
+        apply_credentials(d.port, &d.pass, "srv_creds", params("secret"))
+            .expect("the right password should be taken");
+        assert!(list().is_ok(), "the drive did not start working again");
+
+        // The one that matters: a typo must not cost the drive.
+        let refused = apply_credentials(d.port, &d.pass, "srv_creds", params("nonsense"))
+            .expect_err("a wrong password should be refused");
+        assert!(!refused.is_empty());
+        assert!(
+            list().is_ok(),
+            "a refused password was left in place: the drive is broken now"
+        );
+
+        // Secrets stay on this side of the wall; the address does not.
+        let public = public_params("webdav");
+        assert!(public.contains(&"url") && !public.contains(&"pass"));
+
+        // An encrypted drive is not offered this at all, and must refuse it
+        // if it ever is: there the password is the key, and a new one does
+        // not unlock what the old one locked.
+        rc_raw(
+            d.port,
+            &d.pass,
+            "config/create",
+            &json!({
+                "name": "srv_vault",
+                "type": "crypt",
+                "parameters": { "remote": "srv_creds:vault", "password": "opensesame" },
+                "opt": { "obscure": true, "nonInteractive": true },
+            }),
+        )
+        .expect("the encrypted drive should be created");
+        let refused = apply_credentials(
+            d.port,
+            &d.pass,
+            "srv_vault",
+            HashMap::from([("password".to_string(), "something else".to_string())]),
+        )
+        .expect_err("an encrypted drive's password must not be replaceable");
+        assert!(refused.contains("encrypted"), "{refused}");
+        assert!(public_params("crypt").is_empty());
     }
 
     #[test]

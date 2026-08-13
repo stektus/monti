@@ -202,6 +202,12 @@ export default {
   "Choose…": "Выбрать…",
   "Cached on this computer": "В кэше на этом компьютере",
   "Clear cache": "Очистить кэш",
+  unchanged: "без изменений",
+  "Sign-in": "Вход",
+  "Change…": "Изменить…",
+  "Saved on this computer.": "Сохранено на этом компьютере.",
+  "Signed in as {who}": "Вход выполнен как {who}",
+  "{name} — sign in again": "{name} — войти заново",
   "API key": "Ключ API",
   "Changing the key re-opens the browser to authorize. How to get a key: see “Use my own API key” in the Add cloud dialog.":
     "Смена ключа снова откроет браузер для входа. Как получить ключ — см. «Использовать свой ключ API» в окне добавления облака.",

@@ -261,8 +261,8 @@
     <!-- ============ ADD CLOUD DIALOG ============ -->
     <dialog id="add-dialog">
       <form method="dialog" id="add-form">
-        <h2>Add a cloud</h2>
-        <label>
+        <h2 id="add-title">Add a cloud</h2>
+        <label id="add-provider-row">
           Provider
           <select id="add-provider">
             <optgroup label="Clouds">
@@ -286,7 +286,7 @@
             </optgroup>
           </select>
         </label>
-        <label>
+        <label id="add-name-row">
           Name <span class="muted">(the folder will be called this)</span>
           <input id="add-name" placeholder="e.g. gdrive" pattern="[A-Za-z0-9_-]+" required />
         </label>
@@ -537,6 +537,14 @@
             <div class="muted" id="remote-cache-used">—</div>
           </div>
           <button class="btn" type="button" id="remote-cache-clear">Clear cache</button>
+        </div>
+
+        <div class="cache-row" id="remote-signin-row">
+          <div>
+            <div class="setting-name">Sign-in</div>
+            <div class="muted" id="remote-signin-status">—</div>
+          </div>
+          <button class="btn" type="button" id="remote-signin">Change…</button>
         </div>
 
         <div class="key-section" id="remote-key-section">
