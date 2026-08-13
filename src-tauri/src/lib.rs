@@ -849,7 +849,7 @@ fn verify_or_undo(port: u16, pass: &str, name: &str, provider: &str) -> Result<(
         &json!({ "fs": format!("{name}:"), "remote": "" }),
     ) {
         let _ = rc_raw(port, pass, "config/delete", &json!({ "name": name }));
-        return Err(e);
+        return Err(engine::friendly_signin_error(&e));
     }
     if provider == "protondrive" {
         // The code is spent. Leaving it behind would make a session that
@@ -1042,7 +1042,7 @@ fn apply_credentials(
         &json!({ "fs": format!("{name}:"), "remote": "" }),
     ) {
         restore(port, pass);
-        return Err(e);
+        return Err(engine::friendly_signin_error(&e));
     }
     if provider == "protondrive" {
         // Spent the moment the sign-in above went through, exactly as at

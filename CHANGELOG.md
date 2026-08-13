@@ -56,11 +56,13 @@ drive is removed and the dialog says so with everything still typed. S3 is left
 out on purpose — keys there are routinely scoped to one bucket, and a root
 listing would fail for a key that is perfectly good.
 
-**A refused sign-in says which kind it is.** Only Google writes "Error 401";
-Backblaze says `Unknown 401 (401 bad_auth_token)` and Proton says `Invalid
-access token`, and neither was recognised, so both arrived raw. They are now,
-and the message covers the two cases that produce them: details just typed are
-wrong, or a sign-in that used to work has expired.
+**A refused sign-in is readable, and says the right half.** Only Google writes
+"Error 401"; Backblaze says `Unknown 401 (401 bad_auth_token)` and Proton says
+`Invalid access token`, and neither was recognised, so both arrived raw. The
+same 401 also means two different things: in front of a form still on screen it
+means one of the boxes is wrong — including a password that came with a stray
+space on the end — while at a mount it means a sign-in that used to work has
+run out. Each moment now says only its own half.
 
 **A password that stopped working can be replaced.** Drive settings gained a
 Sign-in row for every drive reached with credentials — WebDAV, S3, Backblaze,
