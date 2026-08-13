@@ -46,6 +46,22 @@ password rather than the account one, which is the reason it is worth having:
 unlike MEGA, a Koofr account with two-factor authentication can be reached, and
 the password can be revoked on its own without touching the account.
 
+**A drive that cannot sign in is no longer added.** Writing a password into a
+config file checks nothing — rclone signs in the first time the drive is used —
+so a mistyped key produced a drive that looked added and failed minutes later
+at Mount, by which point the dialog that knew which field was wrong was gone.
+The sign-in now happens while the form is still on screen, for Backblaze,
+MEGA, Koofr, Proton Drive, WebDAV and SFTP; if it is refused, the half-made
+drive is removed and the dialog says so with everything still typed. S3 is left
+out on purpose — keys there are routinely scoped to one bucket, and a root
+listing would fail for a key that is perfectly good.
+
+**A refused sign-in says which kind it is.** Only Google writes "Error 401";
+Backblaze says `Unknown 401 (401 bad_auth_token)` and Proton says `Invalid
+access token`, and neither was recognised, so both arrived raw. They are now,
+and the message covers the two cases that produce them: details just typed are
+wrong, or a sign-in that used to work has expired.
+
 **A password that stopped working can be replaced.** Drive settings gained a
 Sign-in row for every drive reached with credentials — WebDAV, S3, Backblaze,
 SFTP, MEGA, Proton Drive — showing who is signed in and a way to change it.

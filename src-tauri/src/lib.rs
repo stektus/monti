@@ -816,31 +816,48 @@ async fn create_remote(
         }),
     )?;
 
-    // A one-time code is good for half a minute, and writing it into the
-    // config does not use it: rclone signs in the first time the drive is
-    // actually touched, which is when someone presses Mount — by then the
-    // code is long dead and Proton answers "Incorrect login credentials".
-    //
-    // So sign in here, while the code is still the one that was just typed.
-    // rclone caches the session in the config and never needs the code
-    // again; if the sign-in fails, the half-made drive goes away rather than
-    // sitting in the list waiting to fail later.
+    verify_or_undo(port, &pass, &name, &provider)
+}
+
+/// Providers whose sign-in can be proved on the spot, by asking for the
+/// root listing right after the drive is written.
+///
+/// S3 is deliberately not here: keys are routinely scoped to one bucket,
+/// and listing the root then fails for a key that is perfectly good.
+/// Neither is crypt — the folder it encrypts into does not have to exist
+/// yet, so "not found" is the normal answer for a new one.
+const VERIFY_ON_CREATE: &[&str] = &["b2", "koofr", "mega", "protondrive", "sftp", "webdav"];
+
+/// Prove the credentials work before the drive is allowed to stay.
+///
+/// Writing a password into a config file does not check it: rclone signs in
+/// the first time the drive is actually used, which is when somebody presses
+/// Mount. A typo therefore became a drive in the list that looked fine and
+/// failed minutes later, somewhere that could no longer say which field was
+/// wrong — and for Proton it could not work at all, because a one-time code
+/// is dead by then. So the sign-in happens here, while the form is still on
+/// screen; if it is refused, the half-made drive goes away instead of waiting
+/// in the list to fail later.
+fn verify_or_undo(port: u16, pass: &str, name: &str, provider: &str) -> Result<(), String> {
+    if !VERIFY_ON_CREATE.contains(&provider) {
+        return Ok(());
+    }
+    if let Err(e) = rc_raw(
+        port,
+        pass,
+        "operations/list",
+        &json!({ "fs": format!("{name}:"), "remote": "" }),
+    ) {
+        let _ = rc_raw(port, pass, "config/delete", &json!({ "name": name }));
+        return Err(e);
+    }
     if provider == "protondrive" {
-        if let Err(e) = rc_raw(
-            port,
-            &pass,
-            "operations/list",
-            &json!({ "fs": format!("{name}:"), "remote": "" }),
-        ) {
-            let _ = rc_raw(port, &pass, "config/delete", &json!({ "name": name }));
-            return Err(e);
-        }
         // The code is spent. Leaving it behind would make a session that
         // expires months from now fail as "incorrect credentials" instead of
         // saying the drive needs signing in again.
         let _ = rc_raw(
             port,
-            &pass,
+            pass,
             "config/update",
             &json!({
                 "name": name,
@@ -2599,6 +2616,60 @@ mod tests {
                 "pass": "secret",
             }),
         );
+    }
+
+    /// A drive whose password is refused must not be left in the list. It
+    /// was: writing the config file checks nothing, so the drive looked
+    /// added and failed minutes later at Mount, where the dialog that knew
+    /// which field was wrong is long gone.
+    #[test]
+    fn a_drive_that_cannot_sign_in_is_never_added() {
+        let Some(server) = serve("webdav", &["--user", "tester", "--pass", "secret"]) else {
+            return skipped("verify", "the local server did not come up");
+        };
+        let Some(d) = spawn_test_rcd() else {
+            return skipped("verify", "no rclone daemon");
+        };
+        let create = |pass: &str| {
+            rc_raw(
+                d.port,
+                &d.pass,
+                "config/create",
+                &json!({
+                    "name": "srv_new",
+                    "type": "webdav",
+                    "parameters": {
+                        "url": format!("http://127.0.0.1:{}", server.port),
+                        "vendor": "other", "user": "tester", "pass": pass,
+                    },
+                    "opt": { "obscure": true, "nonInteractive": true },
+                }),
+            )
+            .expect("writing the config always works — that is the problem")
+        };
+        let exists = || {
+            rc_raw(d.port, &d.pass, "config/dump", &json!({}))
+                .map(|dump| dump.get("srv_new").is_some())
+                .unwrap_or(false)
+        };
+
+        create("wrong");
+        let refused = verify_or_undo(d.port, &d.pass, "srv_new", "webdav")
+            .expect_err("a password the server refuses must not pass");
+        assert!(!refused.is_empty());
+        assert!(
+            !exists(),
+            "the drive stayed in the list after being refused"
+        );
+
+        create("secret");
+        verify_or_undo(d.port, &d.pass, "srv_new", "webdav")
+            .expect("the right password should pass");
+        assert!(exists(), "a working drive was thrown away");
+
+        // S3 keys are routinely scoped to one bucket, so a root listing
+        // proves nothing there — that provider must be left alone.
+        assert!(!VERIFY_ON_CREATE.contains(&"s3") && !VERIFY_ON_CREATE.contains(&"crypt"));
     }
 
     /// A password that stopped working has to be fixable without deleting

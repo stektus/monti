@@ -633,16 +633,27 @@ pub fn friendly_cloud_error(raw: &str) -> String {
              cannot be used here.",
         );
     }
+    // Every provider spells a refused sign-in differently, and only Google
+    // writes "Error 401": Backblaze says "Unknown 401 (401 bad_auth_token)",
+    // Proton says "Invalid access token (Code=401, Status=401)".
     if low.contains("invalid_grant")
         || low.contains("token expired")
         || low.contains("cannot fetch token")
         || low.contains("error 401")
+        || low.contains("status=401")
+        || low.contains("bad_auth_token")
+        || low.contains("invalid access token")
+        || low.contains("unauthorized")
         || low.contains("unauthenticated")
     {
+        // Said both while a drive is being added and long afterwards, and
+        // the two need opposite answers — so it says which is which rather
+        // than sending someone who just mistyped a key off to re-authorize.
         return explain(
-            "The saved sign-in for this drive is no longer accepted — it \
-             expired, or access was withdrawn in the account's security \
-             settings. Open the drive's settings and press Re-authorize.",
+            "The provider did not accept the sign-in. If you have just typed \
+             these details, one of them is wrong. If the drive worked before, \
+             its saved sign-in expired or was withdrawn in the account's \
+             security settings: open the drive's settings and sign in again.",
         );
     }
     if low.contains("no such host")
@@ -1132,7 +1143,24 @@ mod error_tests {
             "failed to get token: oauth2: cannot fetch token: 400 Bad Request \
              invalid_grant",
         );
-        assert!(stale.contains("Re-authorize"), "{stale}");
+        assert!(stale.contains("sign in again"), "{stale}");
+
+        // The same 401 arrives from a key mistyped a second ago, where "your
+        // saved sign-in expired" would be nonsense. Both of these are real
+        // lines out of engine.log, and neither was recognised at first:
+        // only Google writes the words "Error 401".
+        let mistyped = friendly_cloud_error(
+            "failed to authorize account: failed to authenticate: Unknown 401  \
+             (401 bad_auth_token)",
+        );
+        assert!(mistyped.contains("just typed"), "{mistyped}");
+
+        let expired = friendly_cloud_error(
+            "proton drive root link ID '': 401 GET \
+             https://drive-api.proton.me/core/v4/users: Invalid access token \
+             (Code=401, Status=401)",
+        );
+        assert!(expired.contains("sign in again"), "{expired}");
 
         let offline = friendly_cloud_error(
             "Get \"https://www.googleapis.com/drive/v3/files\": dial tcp: \
