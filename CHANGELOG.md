@@ -56,6 +56,15 @@ drive is removed and the dialog says so with everything still typed. S3 is left
 out on purpose — keys there are routinely scoped to one bucket, and a root
 listing would fail for a key that is perfectly good.
 
+**A refused sign-in names the mistake that provider usually makes.** Koofr
+refuses the account password — the one it wants is made in Preferences →
+Password; Backblaze shows an application key once and never again; MEGA cannot
+be reached at all with two-factor authentication on. Each of those is now said
+in the refusal itself, next to the provider's own words, instead of leaving
+someone to check the fields that were right all along. And Koofr's answer, four
+hundred characters of HTTP headers, is cut to the part that means something —
+the whole of it stays in engine.log.
+
 **A refused sign-in is readable, and says the right half.** Only Google writes
 "Error 401"; Backblaze says `Unknown 401 (401 bad_auth_token)` and Proton says
 `Invalid access token`, and neither was recognised, so both arrived raw. The

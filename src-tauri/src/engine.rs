@@ -588,6 +588,24 @@ fn refused_signin(low: &str) -> bool {
         || low.contains("invalid access token")
         || low.contains("unauthorized")
         || low.contains("unauthenticated")
+        // Koofr answers `Invalid response status! Got 401, expected [200]`
+        // and puts the word only in a header — so a bare 401 counts too,
+        // as long as the sentence is about credentials at all.
+        || (low.contains("401")
+            && (low.contains("auth") || low.contains("token") || low.contains("credential")))
+}
+
+/// The provider's own words, cut to what fits in a dialog.
+///
+/// Koofr answers a refused sign-in with its whole header map — four hundred
+/// characters of `Cache-Control`, `Pragma` and a request id. The first part
+/// is the message; the rest belongs in engine.log, where it is kept anyway.
+fn quoted(raw: &str) -> String {
+    const LIMIT: usize = 240;
+    match raw.char_indices().nth(LIMIT) {
+        None => raw.to_string(),
+        Some((cut, _)) => format!("{}…", raw[..cut].trim_end()),
+    }
 }
 
 /// The same refusal, for details that were typed a second ago.
@@ -597,15 +615,22 @@ fn refused_signin(low: &str) -> bool {
 /// in again. In front of a form that is still on screen it means one of the
 /// boxes is wrong — and being told to go and sign in again, where the person
 /// already is, reads as nonsense.
-pub fn friendly_signin_error(raw: &str) -> String {
+/// `hint` is the thing that particular provider is usually refusing about —
+/// the mistake worth naming before the person starts checking every field.
+pub fn friendly_signin_error(raw: &str, hint: Option<&str>) -> String {
     if raw.contains(PROVIDER_SAID) || !refused_signin(&raw.to_lowercase()) {
         return friendly_cloud_error(raw);
     }
-    format!(
+    let mut what = String::from(
         "The provider did not accept these details — one of them is wrong. \
          A password copied from somewhere else can also carry a stray space \
-         at the end.{PROVIDER_SAID}{raw}"
-    )
+         at the end.",
+    );
+    if let Some(hint) = hint {
+        what.push(' ');
+        what.push_str(hint);
+    }
+    format!("{what}{PROVIDER_SAID}{}", quoted(raw))
 }
 
 /// Turn what the provider said into what it means.
@@ -624,7 +649,7 @@ pub fn friendly_cloud_error(raw: &str) -> String {
         return raw.to_string();
     }
     let low = raw.to_lowercase();
-    let explain = |what: &str| format!("{what}{PROVIDER_SAID}{raw}");
+    let explain = |what: &str| format!("{what}{PROVIDER_SAID}{}", quoted(raw));
 
     // Google answers 403 for both "you are out of space" and "you are going
     // too fast", and the word "quota" appears in both — so decide which one
@@ -1164,26 +1189,46 @@ mod error_tests {
         );
         assert!(stale.contains("sign in again"), "{stale}");
 
-        // Two real lines out of engine.log, neither of which was recognised
-        // at first: only Google writes the words "Error 401".
+        // Three real refusals out of a test run against live accounts, none
+        // of which was recognised at first: only Google writes "Error 401",
+        // and Koofr puts the word in a header and nowhere else.
         let b2 = "failed to authorize account: failed to authenticate: \
                   Unknown 401  (401 bad_auth_token)";
         let proton = "proton drive root link ID '': 401 GET \
                       https://drive-api.proton.me/core/v4/users: Invalid access \
                       token (Code=401, Status=401)";
-        for raw in [b2, proton] {
+        let koofr = "Invalid response status! Got 401, expected [200]; headers: \
+                     map[Cache-Control:[no-cache, no-store, must-revalidate] \
+                     Content-Length:[0] Date:[Thu, 13 Aug 2026 09:44:33 GMT] \
+                     Expires:[0] Pragma:[no-cache] Strict-Transport-Security:\
+                     [max-age=31536000; includeSubDomains] Www-Authenticate:[Token] \
+                     X-Request-Id:[00000000-0000-0000-0000-000000000000]], content: ";
+        for raw in [b2, proton, koofr] {
             assert!(friendly_cloud_error(raw).contains("sign in again"), "{raw}");
             // In front of the form the person is still looking at, "your
             // sign-in expired" is the wrong half of the truth.
-            let typed = friendly_signin_error(raw);
+            let typed = friendly_signin_error(raw, None);
             assert!(typed.contains("one of them is wrong"), "{typed}");
             assert!(!typed.contains("expired"), "{typed}");
-            assert_eq!(friendly_signin_error(&typed), typed, "explained twice");
+            assert_eq!(
+                friendly_signin_error(&typed, None),
+                typed,
+                "explained twice"
+            );
         }
+        // Koofr's answer is four hundred characters of headers, and a dialog
+        // is not a log file.
+        let long = friendly_signin_error(koofr, None);
+        assert!(long.contains('…') && long.len() < 600, "{long}");
+
+        // What the provider is usually refusing about is worth naming.
+        let hinted = friendly_signin_error(koofr, Some("Koofr wants an app password."));
+        assert!(hinted.contains("app password"), "{hinted}");
+
         // Anything that is not about credentials reads the same either way.
         let offline_raw = "dial tcp: lookup example.com: no such host";
         assert_eq!(
-            friendly_signin_error(offline_raw),
+            friendly_signin_error(offline_raw, None),
             friendly_cloud_error(offline_raw)
         );
 

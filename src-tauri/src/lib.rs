@@ -828,6 +828,27 @@ async fn create_remote(
 /// yet, so "not found" is the normal answer for a new one.
 const VERIFY_ON_CREATE: &[&str] = &["b2", "koofr", "mega", "protondrive", "sftp", "webdav"];
 
+/// The mistake each provider is usually refusing about, said before the
+/// person starts checking fields that are fine. Every one of these is a
+/// place where the right-looking value is the wrong one.
+fn signin_hint(provider: &str) -> Option<&'static str> {
+    match provider {
+        "koofr" => Some(
+            "Koofr does not accept the password you sign in with: it wants \
+             one made for apps, in Preferences → Password.",
+        ),
+        "b2" => Some(
+            "Backblaze shows an application key once, when the key is made — \
+             if it was not copied then, make a new key.",
+        ),
+        "mega" => Some(
+            "MEGA has no app passwords, so an account with two-factor \
+             authentication cannot be signed in to this way at all.",
+        ),
+        _ => None,
+    }
+}
+
 /// Prove the credentials work before the drive is allowed to stay.
 ///
 /// Writing a password into a config file does not check it: rclone signs in
@@ -849,7 +870,7 @@ fn verify_or_undo(port: u16, pass: &str, name: &str, provider: &str) -> Result<(
         &json!({ "fs": format!("{name}:"), "remote": "" }),
     ) {
         let _ = rc_raw(port, pass, "config/delete", &json!({ "name": name }));
-        return Err(engine::friendly_signin_error(&e));
+        return Err(engine::friendly_signin_error(&e, signin_hint(provider)));
     }
     if provider == "protondrive" {
         // The code is spent. Leaving it behind would make a session that
@@ -1042,7 +1063,7 @@ fn apply_credentials(
         &json!({ "fs": format!("{name}:"), "remote": "" }),
     ) {
         restore(port, pass);
-        return Err(engine::friendly_signin_error(&e));
+        return Err(engine::friendly_signin_error(&e, signin_hint(&provider)));
     }
     if provider == "protondrive" {
         // Spent the moment the sign-in above went through, exactly as at
