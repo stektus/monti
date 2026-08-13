@@ -608,6 +608,13 @@ fn quoted(raw: &str) -> String {
     }
 }
 
+/// What a refused sign-in means at a mount: something that used to work has
+/// run out. Named because the sign-in path recognises its own words — see
+/// [`friendly_signin_error`].
+const SIGNIN_EXPIRED: &str = "The saved sign-in for this drive is no longer accepted — it \
+     expired, or access was withdrawn in the account's security settings. Open the \
+     drive's settings and sign in again.";
+
 /// The same refusal, for details that were typed a second ago.
 ///
 /// A 401 means opposite things at the two moments it arrives. At a mount it
@@ -618,9 +625,22 @@ fn quoted(raw: &str) -> String {
 /// `hint` is the thing that particular provider is usually refusing about —
 /// the mistake worth naming before the person starts checking every field.
 pub fn friendly_signin_error(raw: &str, hint: Option<&str>) -> String {
-    if raw.contains(PROVIDER_SAID) || !refused_signin(&raw.to_lowercase()) {
-        return friendly_cloud_error(raw);
-    }
+    // Everything rc_raw returns has been explained once already, so what
+    // arrives here is usually the mount-time wording with the provider's own
+    // text below it. Take that text back and explain it again for the moment
+    // it actually happened in — otherwise this function can never win, which
+    // is exactly what it did: the Add dialog told people to go and sign in
+    // again, in the dialog they were signing in from.
+    let said = match raw.split_once(PROVIDER_SAID) {
+        // Already explained once. Only our own words for a refused sign-in
+        // may be replaced — anything else is a different problem, and the
+        // provider's text below it may be cut short, so re-reading that to
+        // decide would be reading half a sentence.
+        Some((head, said)) if head == SIGNIN_EXPIRED => said.to_string(),
+        Some(_) => return raw.to_string(),
+        None if refused_signin(&raw.to_lowercase()) => quoted(raw),
+        None => return friendly_cloud_error(raw),
+    };
     let mut what = String::from(
         "The provider did not accept these details — one of them is wrong. \
          A password copied from somewhere else can also carry a stray space \
@@ -630,7 +650,7 @@ pub fn friendly_signin_error(raw: &str, hint: Option<&str>) -> String {
         what.push(' ');
         what.push_str(hint);
     }
-    format!("{what}{PROVIDER_SAID}{}", quoted(raw))
+    format!("{what}{PROVIDER_SAID}{said}")
 }
 
 /// Turn what the provider said into what it means.
@@ -694,11 +714,7 @@ pub fn friendly_cloud_error(raw: &str) -> String {
         );
     }
     if refused_signin(&low) {
-        return explain(
-            "The saved sign-in for this drive is no longer accepted — it \
-             expired, or access was withdrawn in the account's security \
-             settings. Open the drive's settings and sign in again.",
-        );
+        return explain(SIGNIN_EXPIRED);
     }
     if low.contains("no such host")
         || low.contains("network is unreachable")
@@ -1216,6 +1232,17 @@ mod error_tests {
                 "explained twice"
             );
         }
+        // The real path: rc_raw explains everything it returns, so what the
+        // Add dialog gets is already the mount-time wording. Explaining that
+        // for the moment it happened in has to still work — it did not, and
+        // people adding a drive were told to go and sign in again.
+        for raw in [b2, proton, koofr] {
+            let once = friendly_cloud_error(raw);
+            let typed = friendly_signin_error(&once, None);
+            assert!(typed.contains("one of them is wrong"), "{typed}");
+            assert!(!typed.contains("no longer accepted"), "{typed}");
+        }
+
         // Koofr's answer is four hundred characters of headers, and a dialog
         // is not a log file.
         let long = friendly_signin_error(koofr, None);

@@ -909,6 +909,11 @@ fn signin_hint(provider: &str) -> Option<&'static str> {
             "Jottacloud wants a personal login token, made on the security \
              page of your account and good for one use.",
         ),
+        "storj" => Some(
+            "Storj wants the API key from the console's Access page, not the \
+             S3 credentials offered beside it — or an access grant, which is \
+             one value instead of three.",
+        ),
         "koofr" => Some(
             "Koofr does not accept the password you sign in with: it wants \
              one made for apps, in Preferences → Password.",

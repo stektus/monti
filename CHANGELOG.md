@@ -95,7 +95,11 @@ someone to check the fields that were right all along. And Koofr's answer, four
 hundred characters of HTTP headers, is cut to the part that means something —
 the whole of it stays in engine.log.
 
-**A refused sign-in is readable, and says the right half.** Only Google writes
+**A refused sign-in is readable, and says the right half.** Adding a drive with
+a wrong key was told its saved sign-in had expired and to go and sign in again —
+in the dialog it was signing in from. The two wordings exist; the one for a
+form still on screen simply never won, because the message had already been
+explained on its way out of the engine and arrived here finished. Only Google writes
 "Error 401"; Backblaze says `Unknown 401 (401 bad_auth_token)` and Proton says
 `Invalid access token`, and neither was recognised, so both arrived raw. The
 same 401 also means two different things: in front of a form still on screen it
