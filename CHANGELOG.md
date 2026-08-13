@@ -76,6 +76,15 @@ spent the way Proton's code is: once, to let this computer in, after which
 Jottacloud keeps Monti signed in itself. A token that is refused takes its
 half-made drive with it.
 
+**A drive that was refused while being written is no longer left behind.**
+Some backends do real work as the section is written rather than when the drive
+is first used: Storj trades the satellite, key and passphrase for an access
+grant right there. rclone writes what it was given before finding out it does
+not work, so a refused Storj drive appeared in the list underneath the error
+saying it had not been added — and was still there after a restart. All three
+ways of making a drive — a form, a browser, a dialog — now take the section
+back out, and a test reads the source to keep it that way.
+
 **A drive that cannot sign in is no longer added.** Writing a password into a
 config file checks nothing — rclone signs in the first time the drive is used —
 so a mistyped key produced a drive that looked added and failed minutes later

@@ -865,9 +865,28 @@ async fn create_remote(
         let eng = state.0.lock().unwrap();
         (eng.port, eng.pass.clone())
     };
-    rc_raw(
+    write_section(port, &pass, &name, &provider, Value::Object(parameters))?;
+    verify_or_undo(port, &pass, &name, &provider)
+}
+
+/// Write the drive into the config, and take it back out if writing it fails
+/// halfway.
+///
+/// Some backends do real work while the section is being written: Storj
+/// trades the satellite, key and passphrase for an access grant there and
+/// then. When that is refused, rclone has already written what it was given
+/// — so the drive appeared in the list under the error message saying it had
+/// not been added, and was still there after a restart.
+fn write_section(
+    port: u16,
+    pass: &str,
+    name: &str,
+    provider: &str,
+    parameters: Value,
+) -> Result<(), String> {
+    let written = rc_raw(
         port,
-        &pass,
+        pass,
         "config/create",
         &json!({
             "name": name,
@@ -877,9 +896,12 @@ async fn create_remote(
             // nonInteractive: never fall into a token/oauth prompt.
             "opt": { "obscure": true, "nonInteractive": true },
         }),
-    )?;
-
-    verify_or_undo(port, &pass, &name, &provider)
+    );
+    if let Err(e) = written {
+        let _ = rc_raw(port, pass, "config/delete", &json!({ "name": name }));
+        return Err(engine::friendly_signin_error(&e, signin_hint(provider)));
+    }
+    Ok(())
 }
 
 /// Providers whose sign-in can be proved on the spot, by asking for the
@@ -2783,6 +2805,69 @@ mod tests {
                 "user": "tester",
                 "pass": "secret",
             }),
+        );
+    }
+
+    /// Every way of making a drive has to take its section back out if it
+    /// fails. There are three — a form, a browser, a dialog — and the one
+    /// that forgot left a broken Storj drive in the list that survived a
+    /// restart. The rule is checked where it can be checked: in the source,
+    /// so a fourth way cannot be added without it.
+    #[test]
+    fn every_way_of_making_a_drive_cleans_up_after_itself() {
+        let source = include_str!("lib.rs");
+        let code = source
+            .split_once("\nmod tests {")
+            .map(|(before, _)| before)
+            .unwrap_or(source);
+        let mut checked = 0;
+        for (at, _) in code.match_indices("\"config/create\"") {
+            let after: String = code[at..].lines().take(16).collect::<Vec<_>>().join("\n");
+            assert!(
+                after.contains("\"config/delete\""),
+                "a drive is created here without removing it if that fails:\n{}",
+                &code[at.saturating_sub(400)..at + 200]
+            );
+            checked += 1;
+        }
+        assert!(
+            checked >= 3,
+            "only {checked} ways of creating a drive found"
+        );
+    }
+
+    /// Some backends do their sign-in while the section is being written
+    /// rather than when the drive is first used: Storj turns a satellite,
+    /// key and passphrase into an access grant right there. rclone writes
+    /// what it was given before finding out it does not work, so the drive
+    /// appeared in the list underneath the error saying it had not been
+    /// added — and survived a restart.
+    #[test]
+    fn a_provider_that_fails_while_being_written_leaves_nothing_behind() {
+        let Some(d) = spawn_test_rcd() else {
+            return skipped("write", "no rclone daemon");
+        };
+        // A satellite on a port nothing listens on: refused at once, and no
+        // request leaves this machine.
+        let refused = write_section(
+            d.port,
+            &d.pass,
+            "srv_half",
+            "storj",
+            json!({
+                "provider": "new",
+                "satellite_address": "127.0.0.1:1",
+                "api_key": "not-a-key",
+                "passphrase": "not-a-passphrase",
+            }),
+        )
+        .expect_err("a satellite that cannot be reached cannot grant access");
+        assert!(!refused.is_empty());
+
+        let dump = rc_raw(d.port, &d.pass, "config/dump", &json!({})).unwrap();
+        assert!(
+            dump.get("srv_half").is_none(),
+            "the half-written drive stayed in the config: {dump}"
         );
     }
 
