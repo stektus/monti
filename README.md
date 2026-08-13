@@ -347,9 +347,9 @@ file paths — trim anything you would rather not publish.
 
 ## Supported clouds
 
-Google Drive, Dropbox, Box, pCloud, Yandex Disk, MEGA, Proton Drive, OneDrive
-(experimental), Backblaze B2, and self-hosted storage: WebDAV / Nextcloud,
-S3-compatible, SFTP.
+Google Drive, Dropbox, Box, pCloud, Yandex Disk, MEGA, Proton Drive, Koofr,
+OneDrive (experimental), Backblaze B2, and self-hosted storage: WebDAV /
+Nextcloud, S3-compatible, SFTP.
 
 On top of any of them you can add an **encrypted drive**: file contents and
 file names are encrypted on this computer, so the provider stores gibberish
@@ -367,7 +367,7 @@ both are in the dialog as well:
 - [x] Own OAuth client-id wizard (rclone's shared key is being retired in 2026)
 - [x] Per-drive cache limits, read-only mode, cache cleanup
 - [x] Transfer activity indicator and engine health recovery
-- [x] WebDAV, S3-compatible, SFTP, Backblaze B2, MEGA and Proton Drive support
+- [x] WebDAV, S3-compatible, SFTP, Backblaze B2, MEGA, Proton Drive and Koofr support
 - [x] One-command install script with checksum verification
 - [x] Cloud storage quota on each drive card
 - [x] Bandwidth limit, transfer history and desktop notifications
@@ -377,7 +377,7 @@ both are in the dialog as well:
 - [x] Selective folders — choose what a drive or a synced pair carries
 - [x] Encrypted drives (rclone crypt) with an honest warning about the password
 - [x] Translations — Ukrainian and Russian, with a place for more
-- [ ] More providers (Koofr, Jottacloud, Storj, …)
+- [ ] More providers (Jottacloud, Storj, …)
 
 ## Building from source
 

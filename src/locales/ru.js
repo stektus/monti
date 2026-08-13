@@ -169,6 +169,19 @@ export default {
   "Key ID and Application key are required.":
     "Нужны идентификатор ключа и ключ приложения.",
 
+  "koofr.password": `Не тот пароль, которым вы входите: Koofr нужен пароль,
+    сделанный для приложений, — в
+    <a href="https://app.koofr.net/app/admin/preferences/password" class="ext">Настройках → Пароль</a>.
+    Учётные записи с двухфакторной аутентификацией работают именно так, а такой
+    пароль можно отозвать отдельно.`,
+  "Other Koofr-compatible service": "Другой сервис, совместимый с Koofr",
+  "API endpoint": "Адрес API",
+  "(only for other services)": "(только для других сервисов)",
+  "App password": "Пароль для приложения",
+  "E-mail and app password are required.": "Нужны почта и пароль для приложения.",
+  "An API endpoint is required for other Koofr-compatible services.":
+    "Для других сервисов, совместимых с Koofr, нужен адрес API.",
+
   "mega.password": `Пароль от самой учётной записи, не ключ восстановления.
     Отдельных паролей для приложений у MEGA нет: если на учётной записи
     включена двухфакторная аутентификация, rclone войти не сможет.`,

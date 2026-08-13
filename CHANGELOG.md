@@ -40,6 +40,12 @@ Client secret and Re-authorize button showed on every drive, Backblaze and
 WebDAV included, where there is no browser sign-in to re-run and the
 credentials already sit in the config.
 
+**Koofr**, and Digi Storage with it — the same backend serves both, and any
+other service that speaks the Koofr API. It signs in with an application
+password rather than the account one, which is the reason it is worth having:
+unlike MEGA, a Koofr account with two-factor authentication can be reached, and
+the password can be revoked on its own without touching the account.
+
 **A password that stopped working can be replaced.** Drive settings gained a
 Sign-in row for every drive reached with credentials — WebDAV, S3, Backblaze,
 SFTP, MEGA, Proton Drive — showing who is signed in and a way to change it.

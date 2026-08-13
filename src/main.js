@@ -21,6 +21,7 @@ const PROVIDER_LABELS = {
   yandex: "Yandex Disk",
   mega: "MEGA",
   protondrive: "Proton Drive",
+  koofr: "Koofr",
   webdav: "WebDAV",
   s3: "S3",
   b2: "Backblaze B2",
@@ -46,6 +47,7 @@ const FIELD_INPUT = {
   b2: { account: "b2-account" },
   mega: { user: "mega-user" },
   protondrive: { username: "proton-user" },
+  koofr: { provider: "koofr-provider", endpoint: "koofr-endpoint", user: "koofr-user" },
   sftp: { host: "sftp-host", port: "sftp-port", user: "sftp-user", key_file: "sftp-key" },
 };
 
@@ -57,6 +59,7 @@ const SECRET_INPUT = {
   b2: "b2-key",
   mega: "mega-pass",
   protondrive: "proton-pass",
+  koofr: "koofr-pass",
   sftp: "sftp-pass",
 };
 
@@ -2234,6 +2237,19 @@ window.addEventListener("DOMContentLoaded", () => {
       const code = v("proton-2fa");
       if (code) params["2fa"] = code;
       return params;
+    }
+    if (p === "koofr") {
+      const service = $("koofr-provider").value;
+      if (!editing && (!v("koofr-user") || !$("koofr-pass").value))
+        return t("E-mail and app password are required.");
+      if (service === "other" && !v("koofr-endpoint"))
+        return t("An API endpoint is required for other Koofr-compatible services.");
+      return {
+        provider: service,
+        endpoint: v("koofr-endpoint"),
+        user: v("koofr-user"),
+        password: $("koofr-pass").value,
+      };
     }
     if (p === "mega") {
       if (!editing && (!v("mega-user") || !$("mega-pass").value))

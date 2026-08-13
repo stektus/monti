@@ -274,6 +274,7 @@
               <option value="yandex">Yandex Disk</option>
               <option value="mega">MEGA</option>
               <option value="protondrive">Proton Drive</option>
+              <option value="koofr">Koofr</option>
             </optgroup>
             <optgroup label="Servers">
               <option value="webdav">WebDAV / Nextcloud</option>
@@ -355,6 +356,30 @@
           <p class="muted" data-i18n="proton.2fa">
             The code is used once, right now — press Connect while it is still
             valid. After that Proton signs Monti in on its own.
+          </p>
+        </div>
+
+        <div id="params-koofr" class="params hidden">
+          <label>
+            Service
+            <select id="koofr-provider">
+              <option value="koofr">Koofr (app.koofr.net)</option>
+              <option value="digistorage">Digi Storage</option>
+              <option value="other">Other Koofr-compatible service</option>
+            </select>
+          </label>
+          <label>
+            API endpoint <span class="muted">(only for other services)</span>
+            <input id="koofr-endpoint" class="mono" placeholder="https://app.koofr.net/api/v2" autocomplete="off" spellcheck="false" />
+          </label>
+          <label>E-mail <input id="koofr-user" autocomplete="off" spellcheck="false" /></label>
+          <label>App password <input id="koofr-pass" type="password" autocomplete="new-password" /></label>
+          <p class="muted" data-i18n="koofr.password">
+            Not the password you sign in with: Koofr wants a password made for
+            apps, at
+            <a href="https://app.koofr.net/app/admin/preferences/password" class="ext">Preferences → Password</a>.
+            Two-factor accounts work this way, and the password can be revoked
+            on its own.
           </p>
         </div>
 

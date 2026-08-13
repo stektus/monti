@@ -22,7 +22,9 @@ const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const KEEP_ENGLISH = new Set([
   "Monti", "GitHub", "Google Drive", "Dropbox", "OneDrive", "Box", "pCloud",
   "Yandex Disk", "WebDAV", "S3", "SFTP", "Nextcloud", "ownCloud", "Amazon S3",
-  "Backblaze B2", "MEGA", "Proton Drive",
+  "Backblaze B2", "MEGA", "Proton Drive", "Koofr", "Koofr (app.koofr.net)",
+  "Digi Storage",
+  "https://app.koofr.net/api/v2",
   "Cloudflare R2", "MinIO", "Client ID", "Client secret", "rclone",
   "https://cloud.example.com/remote.php/webdav/", "https://…",
   "server.example.com", "~/.ssh/id_ed25519", "~/CloudDrives/…",

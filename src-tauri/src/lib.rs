@@ -650,6 +650,9 @@ fn allowed_params(provider: &str) -> Option<&'static [&'static str]> {
             "region",
         ],
         "b2" => &["account", "key"],
+        // Koofr and Digi Storage know their own endpoint; "other" is the
+        // one variant that has to be told where to connect.
+        "koofr" => &["provider", "endpoint", "user", "password"],
         "mega" => &["user", "pass"],
         // Proton exchanges the one-time code for session tokens and writes
         // those itself; the form only ever sends these three.
@@ -672,6 +675,7 @@ fn public_params(provider: &str) -> &'static [&'static str] {
         // The access key id names the key; the secret access key is the key.
         "s3" => &["provider", "access_key_id", "endpoint", "region"],
         "b2" => &["account"],
+        "koofr" => &["provider", "endpoint", "user"],
         "mega" => &["user"],
         "protondrive" => &["username"],
         "sftp" => &["host", "port", "user", "key_file"],
