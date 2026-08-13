@@ -932,9 +932,10 @@ fn signin_hint(provider: &str) -> Option<&'static str> {
              page of your account and good for one use.",
         ),
         "storj" => Some(
-            "Storj wants the API key from the console's Access page, not the \
-             S3 credentials offered beside it — or an access grant, which is \
-             one value instead of three.",
+            "Storj takes an access grant or the API key from the console's \
+             Access page — not the S3 credentials beside them. One that was \
+             revoked there, or made in a project since deleted, is refused \
+             exactly like a wrong one.",
         ),
         "koofr" => Some(
             "Koofr does not accept the password you sign in with: it wants \
