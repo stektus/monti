@@ -9,6 +9,13 @@ on:
 
 permissions:
   contents: write
+  # Build provenance. A checksum proves a download was not altered on the way
+  # to you; it says nothing about where the file came from. These let GitHub
+  # sign each package with the workflow and commit that produced it, so anyone
+  # can check that the AppImage they are about to run really was built from
+  # this repository rather than assembled on somebody's laptop.
+  id-token: write
+  attestations: write
 
 jobs:
   build:
@@ -203,9 +210,7 @@ jobs:
           pattern: bundles-*
           merge-multiple: true
 
-      - name: Create the GitHub release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Collect the packages and checksum them
         run: |
           set -euo pipefail
           cd bundle
@@ -218,6 +223,24 @@ jobs:
           ls -l
           sha256sum ./*.AppImage ./*.deb ./*.rpm | sed 's|\./||' > SHA256SUMS
           cat SHA256SUMS
+
+      # Before the files go anywhere. The attestation is keyed by the file's
+      # digest, so it holds for the copy on the release page and for any copy
+      # made of it afterwards.
+      - name: Attest what was built
+        uses: actions/attest-build-provenance@v3
+        with:
+          subject-path: |
+            bundle/*.AppImage
+            bundle/*.deb
+            bundle/*.rpm
+
+      - name: Create the GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          cd bundle
           # What changed, taken from the changelog's newest section: the
           # release page is where someone decides whether this version is
           # worth their evening, and "download and click Add cloud" does not
@@ -241,6 +264,15 @@ jobs:
           ARM machines. FUSE3 is required at runtime (preinstalled on most
           desktop distros). `SHA256SUMS` lists checksums for every package;
           the install script verifies them automatically.
+
+          Every package is signed with GitHub build provenance. A checksum says
+          the file arrived intact; this says where it came from — that it was
+          built by this repository's workflow, from the commit this tag points
+          at, and not assembled somewhere else:
+
+          ```
+          gh attestation verify <package file> --repo stektus/monti
+          ```
 
           Upgrading? Install over the old version — your drives, settings and
           synced folders are kept. Removing Monti later:

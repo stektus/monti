@@ -4,6 +4,11 @@ on:
   push:
     branches: [main]
   pull_request:
+  # A dependency does not have to change to become vulnerable: the advisory
+  # can arrive on a week when nothing was pushed. Monday morning the tree is
+  # checked against the current database regardless.
+  schedule:
+    - cron: "17 6 * * 1"
 
 jobs:
   check:
@@ -75,3 +80,22 @@ jobs:
       # check has to be here rather than in someone's eyes.
       - name: Translations
         run: node scripts/check-translations.mjs
+
+  # Monti holds the keys to somebody's cloud account, so "which of the 496
+  # crates under us has a known hole" is not a question to answer by hand
+  # every few months.
+  audit:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit
+
+      # Warnings stay warnings deliberately. Seventeen of them are the GTK3
+      # bindings Tauri 2 is built on, unmaintained upstream with nothing to
+      # move to yet; failing on those would train us to ignore the run. An
+      # actual vulnerability exits non-zero and fails it.
+      - name: cargo audit
+        working-directory: src-tauri
+        run: cargo audit

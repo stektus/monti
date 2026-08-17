@@ -29,6 +29,16 @@ tested.
 - **Downloads are verified.** The rclone binary Monti fetches is checked against
   the official `SHA256SUMS` before it is installed, and the install script does
   the same for Monti's own release.
+- **Release packages say where they came from.** Each one carries GitHub build
+  provenance: a signed statement naming the repository, the workflow and the
+  commit that produced it. A checksum only proves the download arrived intact —
+  this proves it was not built somewhere else. Check it with
+  `gh attestation verify <package> --repo stektus/monti`. Releases before
+  v0.9.2 predate this and have checksums only.
+- **The dependency tree is checked on a schedule.** `cargo audit` runs on every
+  push and once a week against the current RustSec database, so an advisory
+  published against a crate underneath Monti surfaces without anyone
+  remembering to look.
 - **Opening things is constrained.** Folders open only as directories, links
   only over `https` — so neither path can be turned into "execute this".
 - **An encrypted drive's password goes nowhere it should not.** It travels to
