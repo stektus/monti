@@ -713,6 +713,20 @@ pub fn friendly_cloud_error(raw: &str) -> String {
              cannot be used here.",
         );
     }
+    // Storj reads the grant before it talks to anybody, so a half-copied one
+    // fails here rather than at the satellite. That is the opposite mistake
+    // from a grant that was refused, and "sign in again" sends the person
+    // looking at an account that is perfectly fine.
+    if low.contains("invalid access grant") {
+        return explain(
+            "That is not an access grant. The console prints one as a single \
+             unbroken line — no spaces, no line breaks — so a piece of one, a \
+             copy that got wrapped on the way, or an API key pasted in its \
+             place all fail before Storj is even asked. Take it again from the \
+             console's Access page, or switch the method above to the \
+             satellite, API key and passphrase it was made from.",
+        );
+    }
     if refused_signin(&low) {
         return explain(SIGNIN_EXPIRED);
     }
@@ -1284,6 +1298,22 @@ mod error_tests {
         assert!(
             bad_password.contains("password was not accepted"),
             "{bad_password}"
+        );
+
+        // A grant that never parsed is not a grant that was turned down.
+        // Storj's own words for it are four abbreviations deep.
+        let unparsed = friendly_signin_error(
+            &friendly_cloud_error("storj: access: uplink: invalid access grant format"),
+            Some("Storj takes an access grant or the API key."),
+        );
+        assert!(
+            unparsed.starts_with("That is not an access grant"),
+            "{unparsed}"
+        );
+        assert!(!unparsed.contains("sign in again"), "{unparsed}");
+        assert!(
+            unparsed.contains("invalid access grant format"),
+            "{unparsed}"
         );
 
         // Every rc_raw error is explained already, so a caller explaining it

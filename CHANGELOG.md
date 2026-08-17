@@ -68,6 +68,18 @@ The passphrase is taken exactly as typed, spaces included — it is not a
 password that a server checks but the key the files are encrypted with, and
 trimming one would leave a drive that opens nothing.
 
+The console hands out a satellite address and an API key together and no
+passphrase at all, which leaves the third field looking like a mistake. It is
+the project's own phrase — the one the console asks for before it will show the
+files — and the form now says so, because a different one signs in perfectly
+well and then shows an empty drive: the names are encrypted too.
+
+A grant that is not a grant is told apart from one that was refused. Storj
+reads the string on this computer before it talks to a satellite, so half a
+line, or a copy that got wrapped on the way, fails with "invalid access grant
+format" — four abbreviations deep, and previously passed through untouched.
+It now says what it means and where to get another one.
+
 **Jottacloud**, which signs in like neither of the others: not a form and not
 a browser, but a short dialog rclone runs — which kind of account, then a
 personal login token from the account's security page, then which device to
