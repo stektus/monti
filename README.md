@@ -5,9 +5,10 @@
 [![Powered by rclone](https://img.shields.io/badge/powered%20by-rclone-3f79ad)](https://rclone.org)
 [![Built with Tauri](https://img.shields.io/badge/built%20with-Tauri-24C8DB?logo=tauri&logoColor=white)](https://tauri.app)
 
-**Mount your clouds.** Your Google Drive, Dropbox or OneDrive becomes a normal
-folder on your Linux desktop — open it in your file manager, edit files, save
-them. No terminal, no config files, no sync folder eating your disk.
+**Mount your clouds.** Google Drive, Dropbox, MEGA, Proton Drive, Backblaze,
+your own Nextcloud — fifteen of them, and any one becomes a normal folder on
+your Linux desktop: open it in your file manager, edit files, save them. No
+terminal, no config files, no sync folder eating your disk.
 
 ![Monti — your clouds as drive cards, in light and dark](docs/screenshot-main.png)
 
