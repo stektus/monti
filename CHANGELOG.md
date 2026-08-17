@@ -2,7 +2,7 @@
 
 Notable changes per release. Dates are the release date.
 
-## v0.9.0 — unreleased
+## v0.9.0 — 2026-08-17
 
 **Backblaze B2 and MEGA.** Both sign in from the dialog rather than the
 browser: B2 takes a key ID and an application key, MEGA takes the account's
