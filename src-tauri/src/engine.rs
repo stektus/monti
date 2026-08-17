@@ -730,6 +730,19 @@ pub fn friendly_cloud_error(raw: &str) -> String {
     if refused_signin(&low) {
         return explain(SIGNIN_EXPIRED);
     }
+    // Jottacloud's login token fails in four different voices — a JSON parse
+    // error, a base64 one, a 401, or nothing at all coming back — and only
+    // the 401 is recognisable above. The rest reach here, and every one of
+    // them means the same thing to the person holding the token.
+    if low.contains("failed to get oauth token") {
+        return explain(
+            "Jottacloud did not sign in with that token. A personal login \
+             token is good for one use and for a few minutes: one that was \
+             already spent, or copied with a piece missing, comes back like \
+             this. Make a fresh one on the account's security page and paste \
+             it whole, with no line break in it.",
+        );
+    }
     if low.contains("no such host")
         || low.contains("network is unreachable")
         || low.contains("connection refused")
@@ -1315,6 +1328,26 @@ mod error_tests {
             unparsed.contains("invalid access grant format"),
             "{unparsed}"
         );
+
+        // Every way a Jottacloud login token can fail, taken off a live
+        // rclone with tokens invented for the purpose — plus the one a real
+        // wrong token produced. Only the 401 was ever recognised, and it is
+        // the one that should stay on the refusal path, hint and all.
+        let refused = "failed to get oauth token: HTTP error 401 (401 Unauthorized) \
+                       returned body: \"{\\\"error\\\":\\\"invalid_grant\\\"}\"";
+        let hint = "Jottacloud wants a personal login token, good for one use.";
+        let told = friendly_signin_error(&friendly_cloud_error(refused), Some(hint));
+        assert!(told.contains("one of them is wrong"), "{told}");
+        assert!(told.contains(hint), "{told}");
+        for raw in [
+            "failed to get oauth token: unexpected EOF",
+            "failed to get oauth token: invalid character '¶' looking for beginning of value",
+            "failed to get oauth token: illegal base64 data at input byte 63",
+        ] {
+            let shown = friendly_signin_error(&friendly_cloud_error(raw), Some(hint));
+            assert!(shown.starts_with("Jottacloud did not sign in"), "{shown}");
+            assert!(shown.contains("one use"), "{shown}");
+        }
 
         // Every rc_raw error is explained already, so a caller explaining it
         // again must change nothing. It did once: the dialog showed the same

@@ -88,6 +88,12 @@ spent the way Proton's code is: once, to let this computer in, after which
 Jottacloud keeps Monti signed in itself. A token that is refused takes its
 half-made drive with it.
 
+A refused login token says which mistake it was. Jottacloud answers a token
+it does not like in four different voices — a JSON parse error, a base64 one,
+a 401, or an empty reply that surfaces as "unexpected EOF" — and three of them
+reached the dialog as they were. All four now say the one thing that helps: the
+token is good for a single sign-in and a few minutes, so make a fresh one.
+
 **A drive that was refused while being written is no longer left behind.**
 Some backends do real work as the section is written rather than when the drive
 is first used: Storj trades the satellite, key and passphrase for an access
