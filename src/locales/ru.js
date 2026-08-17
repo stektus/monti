@@ -177,14 +177,11 @@ export default {
   "A personal login token is required.": "Нужен персональный токен входа.",
 
   "storj.where": `Оба берутся в
-    <a href="https://storj.io/login" class="ext">консоли Storj</a> — грант
-    доступа короче, потому что уже содержит парольную фразу шифрования. Storj
-    шифрует файлы на этом компьютере, поэтому именно эта фраза делает их
-    читаемыми: записанная в надёжном месте, она единственная, что важно.
-    Консоль выдаёт сателлит и ключ API вместе, а парольную фразу — никогда:
-    она проектная, та самая, которую консоль спрашивает, прежде чем показать
-    файлы. Другая тоже пускает внутрь — и показывает пустой диск, потому что
-    и сами имена зашифрованы.`,
+    <a href="https://storj.io/login" class="ext">консоли Storj</a>. Грант
+    доступа — короче: он уже содержит парольную фразу шифрования, ту самую,
+    которой зашифрованы файлы и без которой их не прочитать.`,
+  "The console does not hand you this one — you chose it there yourself, and it is what the console asks for before it will show your files. Storj never receives it, because files are encrypted on this computer: nobody can look it up or reset it, so written down somewhere safe it is the only copy that matters. Nor is it checked when you connect — another phrase is accepted just as readily and opens an empty drive, because the file names are encrypted too.":
+    "Эту фразу консоль не выдаёт — вы сами её там придумали, и именно её консоль спрашивает, прежде чем показать ваши файлы. Storj её никогда не получает, потому что файлы шифруются на этом компьютере: подсмотреть или сбросить её негде, поэтому записанная в надёжном месте она — единственное, что важно. И при входе её никто не проверяет: другая фраза подойдёт так же легко и откроет пустой диск, потому что имена файлов тоже зашифрованы.",
   "Sign-in method": "Способ входа",
   "Access grant": "Грант доступа",
   "Satellite, API key and passphrase": "Сателлит, ключ API и парольная фраза",

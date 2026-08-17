@@ -427,19 +427,23 @@
               Encryption passphrase
               <input id="storj-passphrase" type="password" autocomplete="new-password" />
             </label>
+            <p class="muted">
+              The console does not hand you this one — you chose it there
+              yourself, and it is what the console asks for before it will show
+              your files. Storj never receives it, because files are encrypted
+              on this computer: nobody can look it up or reset it, so written
+              down somewhere safe it is the only copy that matters. Nor is it
+              checked when you connect — another phrase is accepted just as
+              readily and opens an empty drive, because the file names are
+              encrypted too.
+            </p>
           </div>
           <p class="muted" data-i18n="storj.where">
             Both come from the
-            <a href="https://storj.io/login" class="ext">Storj console</a> —
-            an access grant is the shorter route, because it already carries
-            the encryption passphrase. Storj encrypts files on this computer,
-            so that passphrase is what makes them readable: written down
-            somewhere safe, it is the only copy that matters. The console hands
-            out the satellite and the API key together but never a passphrase —
-            that one is the project's own, the phrase the console itself asks
-            for before it will show the files. A different one signs in
-            perfectly well and then shows an empty drive, because the names are
-            encrypted too.
+            <a href="https://storj.io/login" class="ext">Storj console</a>. An
+            access grant is the shorter route, because it already carries the
+            encryption passphrase — the key the files are encrypted with, and
+            the only thing that can make them readable again.
           </p>
         </div>
 
