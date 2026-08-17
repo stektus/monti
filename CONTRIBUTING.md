@@ -10,9 +10,9 @@ clouds should need no terminal.** That goal decides most questions here.
   `~/.local/share/io.github.stektus.monti/` — `monti.log` (what Monti did) and
   `engine.log` (what rclone said). They contain no passwords or tokens, but do
   skim them before pasting.
-- **Tell us a flow felt confusing.** UX reports are as valuable as crash
+- **Tell me a flow felt confusing.** UX reports are as valuable as crash
   reports. "I could not tell whether it was still uploading" is a real bug.
-- **Try a provider we cannot test.** Box, pCloud, Yandex Disk and OneDrive get
+- **Try a provider I cannot test.** Box, pCloud, Yandex Disk and OneDrive get
   much less real-world use than Google Drive.
 
 ## The codebase

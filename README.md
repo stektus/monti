@@ -16,8 +16,8 @@ them. No terminal, no config files, no sync folder eating your disk.
 *Monti* — from **mount**, and Italian for *mountains*: the place where clouds
 come down to earth.
 
-> Status: **beta.** Linux only, by design. It works, and it is honest
-> about what it does — but expect rough edges and please report them.
+> Status: **beta.** I write it for Linux and nothing else. It works, and it is
+> honest about what it does — but expect rough edges, and please report them.
 
 ## The problem
 
@@ -122,7 +122,7 @@ after you confirm it.
 
 ## Pain points this closes
 
-Monti was built around the things that actually go wrong with rclone mounts:
+I built Monti around the things that actually go wrong with rclone mounts:
 
 - **The cache eating your disk.** Mounts need a full disk cache to let apps save
   files in place. Left unbounded, it grows until the disk is gone — the single
@@ -312,8 +312,8 @@ tokens.
 
 ## Something else is broken? Tell me
 
-Monti is in beta and bug reports are the fastest way it gets better — most
-of the fixes so far came from someone opening an issue.
+Monti is in beta, and a bug report is the fastest way it gets better: most of
+what I have fixed so far, I fixed because somebody opened an issue.
 **[Report a problem](https://github.com/stektus/monti/issues/new/choose)**, and
 please include:
 
@@ -409,10 +409,10 @@ npm run tauri build    # .AppImage / .deb / .rpm in src-tauri/target/release/bun
 
 ## Contributing
 
-The most useful thing anyone can send is a bug report — Monti is in beta,
-and most of what works today works because someone said it did not. "This
-screen confused me" is a report as well; so is trying a provider on hardware or
-a desktop nobody here has.
+The most useful thing you can send me is a bug report — Monti is in beta, and
+most of what works today works because somebody said it did not. "This screen
+confused me" is a report as well; so is trying a provider on hardware or a
+desktop I do not have.
 
 Want to touch the code? [CONTRIBUTING.md](CONTRIBUTING.md) has the layout, the
 checks to run before a pull request, and the handful of rules that are not up
