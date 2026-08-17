@@ -81,9 +81,10 @@ a way to use it without becoming an rclone expert. That is Monti.
 
 ## Screenshots
 
-Every picture below is a real run — a WebDAV server, a local drive and an
-encrypted drive on top of them. Light and dark alternate, because both are
-the same build: Monti follows the desktop unless you tell it otherwise.
+Every picture below is a real run of this version — a WebDAV server and an
+SFTP server on the same machine standing in for two clouds, with an encrypted
+drive on top of one of them. Light and dark alternate, because both are the
+same build: Monti follows the desktop unless you tell it otherwise.
 
 | | |
 |---|---|
