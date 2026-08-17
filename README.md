@@ -10,9 +10,10 @@ your own Nextcloud — fifteen of them, and any one becomes a normal folder on
 your Linux desktop: open it in your file manager, edit files, save them. No
 terminal, no config files, no sync folder eating your disk.
 
-![Monti — your clouds as drive cards, in light and dark](docs/screenshot-main.png)
+![Mounting a cloud in Monti, then opening it in the file manager](docs/monti-loop.gif)
 
-<sub>One window, both themes: Monti follows your desktop, or you pick.</sub>
+<sub>A real run: a WebDAV server standing in for a cloud. Press **Mount**, and it
+is a folder — your file manager opens it like any other.</sub>
 
 *Monti* — from **mount**, and Italian for *mountains*: the place where clouds
 come down to earth.
