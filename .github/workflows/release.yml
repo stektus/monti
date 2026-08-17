@@ -54,8 +54,30 @@ jobs:
 
       - run: npm ci
 
+      # Bundling downloads linuxdeploy and its plugins from github.com and
+      # raw.githubusercontent.com, which answer 429 often enough to lose a
+      # release to nothing at all: v0.9.0 died there while the arm64 build
+      # of the same commit sailed through. A rate limit is worth waiting out;
+      # anything else fails immediately, because a compile error does not get
+      # better on the third try.
+      #
+      # The pipe into tee is why this needs pipefail: without it the step
+      # reported success on a failed build, and the failure surfaced two
+      # steps later as "there is no AppImage here".
       - name: Build bundles
-        run: npm run tauri build 2>&1 | tee /tmp/build.log
+        run: |
+          set -o pipefail
+          for attempt in 1 2 3; do
+            if npm run tauri build 2>&1 | tee /tmp/build.log; then
+              exit 0
+            fi
+            if ! grep -q 'http status: 429' /tmp/build.log; then
+              exit 1
+            fi
+            echo "::warning::bundling was rate-limited, attempt $attempt of 3"
+            sleep $((attempt * 60))
+          done
+          exit 1
 
       # linuxdeploy bundles libraries from the build machine that must come
       # from the host instead. Ours are older, and a host driver that loads

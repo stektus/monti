@@ -16,7 +16,7 @@ them. No terminal, no config files, no sync folder eating your disk.
 *Monti* — from **mount**, and Italian for *mountains*: the place where clouds
 come down to earth.
 
-> Status: **early beta.** Linux only, by design. It works, and it is honest
+> Status: **beta.** Linux only, by design. It works, and it is honest
 > about what it does — but expect rough edges and please report them.
 
 ## The problem
@@ -46,8 +46,12 @@ a way to use it without becoming an rclone expert. That is Monti.
   cloud does not have to arrive whole. The rest stays in the cloud, untouched.
 - **An encrypted drive if you want one.** Files are encrypted here, names
   included, so the provider stores gibberish; you see your files.
-- **Sign in through your browser**, the way you expect. Monti never sees your
-  password.
+- **Sign in the way the provider does it.** Google, Dropbox and the rest send
+  you to the browser and Monti never sees the password. The ones that do not
+  use a browser — Backblaze keys, a MEGA or Koofr password, Proton with its
+  two-factor code, a Storj grant, a Jottacloud token — are typed into the
+  dialog, and the sign-in is tried while it is still open: if the provider
+  says no, nothing is added and the dialog says which half was wrong.
 - **Your drives survive quitting the app.** Close Monti and your folders keep
   working; it reconnects to its background engine on the next start.
 - **You can see how full the cloud is** on every drive, and Monti says
@@ -308,7 +312,7 @@ tokens.
 
 ## Something else is broken? Tell me
 
-Monti is early beta and bug reports are the fastest way it gets better — most
+Monti is in beta and bug reports are the fastest way it gets better — most
 of the fixes so far came from someone opening an issue.
 **[Report a problem](https://github.com/stektus/monti/issues/new/choose)**, and
 please include:
@@ -347,9 +351,16 @@ file paths — trim anything you would rather not publish.
 
 ## Supported clouds
 
-Google Drive, Dropbox, Box, pCloud, Yandex Disk, MEGA, Proton Drive, Koofr,
-Storj, Jottacloud, OneDrive (experimental), Backblaze B2, and self-hosted
-storage: WebDAV / Nextcloud, S3-compatible, SFTP.
+Google Drive, Dropbox, Box, pCloud, Yandex Disk, MEGA, Proton Drive, Koofr
+(and Digi Storage), Storj, Jottacloud, OneDrive (experimental), Backblaze B2,
+and self-hosted storage: WebDAV / Nextcloud, S3-compatible, SFTP.
+
+The first five sign in through the browser. The rest are signed in from the
+dialog itself, each in the form it actually uses: an application key for
+Backblaze, an account password for MEGA, an app password for Koofr, a
+two-factor code for Proton, an access grant for Storj, a one-time login token
+for Jottacloud. Whichever it is, the details are checked before the drive is
+added — a drive that cannot sign in is never left in the list to fail later.
 
 On top of any of them you can add an **encrypted drive**: file contents and
 file names are encrypted on this computer, so the provider stores gibberish
@@ -364,19 +375,21 @@ both are in the dialog as well:
 
 ## Roadmap
 
-- [x] Own OAuth client-id wizard (rclone's shared key is being retired in 2026)
-- [x] Per-drive cache limits, read-only mode, cache cleanup
-- [x] Transfer activity indicator and engine health recovery
-- [x] WebDAV, S3, SFTP, Backblaze B2, MEGA, Proton Drive, Koofr, Storj, Jottacloud
-- [x] One-command install script with checksum verification
-- [x] Cloud storage quota on each drive card
-- [x] Bandwidth limit, transfer history and desktop notifications
-- [ ] AUR package — waiting on the AUR to accept new accounts again
-- [x] arm64 builds
-- [x] Two-way sync (bisync) with a conflict-resolution UI
-- [x] Selective folders — choose what a drive or a synced pair carries
-- [x] Encrypted drives (rclone crypt) with an honest warning about the password
-- [x] Translations — Ukrainian and Russian, with a place for more
+Everything this list used to hold is in the app: two-way sync with conflicts
+you can settle, selective folders, encrypted drives, per-drive cache limits,
+cloud quotas, a speed limit, transfer history, notifications, arm64 builds,
+three languages, and every provider named above. The
+[changelog](CHANGELOG.md) has what landed when.
+
+What is still open:
+
+- **AUR package** — the PKGBUILD works today (see [Install](#install)); the
+  AUR itself is not accepting new maintainer accounts, so it cannot be
+  published there yet.
+- **Flatpak** — only worth doing if a mount survives the sandbox. Until that
+  is answered either way, the AppImage and the packages are the honest answer.
+- **More languages** — the dictionary is one file per language and needs no
+  build step, so a translation is a pull request away.
 
 ## Building from source
 
@@ -396,7 +409,7 @@ npm run tauri build    # .AppImage / .deb / .rpm in src-tauri/target/release/bun
 
 ## Contributing
 
-The most useful thing anyone can send is a bug report — Monti is early beta,
+The most useful thing anyone can send is a bug report — Monti is in beta,
 and most of what works today works because someone said it did not. "This
 screen confused me" is a report as well; so is trying a provider on hardware or
 a desktop nobody here has.
