@@ -54,12 +54,51 @@ jobs:
 
       - run: npm ci
 
-      # Bundling downloads linuxdeploy and its plugins from github.com and
-      # raw.githubusercontent.com, which answer 429 often enough to lose a
-      # release to nothing at all: v0.9.0 died there while the arm64 build
-      # of the same commit sailed through. A rate limit is worth waiting out;
-      # anything else fails immediately, because a compile error does not get
-      # better on the third try.
+      # The bundler fetches its AppImage tooling into ~/.cache/tauri and skips
+      # the download when a file is already there. Both builds of v0.9.0 died
+      # on "http status: 429" from raw.githubusercontent.com — a shared runner
+      # IP being rate-limited, nothing to do with this project — so the files
+      # are fetched here instead, patiently, and kept between runs.
+      - name: Keep the AppImage tooling between runs
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/tauri
+          key: appimage-tools-${{ matrix.arch }}-v1
+
+      - name: Fetch the AppImage tooling
+        run: |
+          set -euo pipefail
+          d=~/.cache/tauri
+          mkdir -p "$d"
+          arch=${{ matrix.arch }}
+          get() {
+            [ -s "$d/$2" ] && { echo "cached: $2"; return 0; }
+            curl -fsSL --retry 8 --retry-all-errors --retry-delay 20 -o "$d/$2" "$1"
+            chmod +x "$d/$2"
+            echo "fetched: $2"
+          }
+          releases=https://github.com/tauri-apps/binary-releases/releases/download
+          get "$releases/apprun-old/AppRun-$arch" "AppRun-$arch"
+          get "$releases/linuxdeploy/linuxdeploy-$arch.AppImage" "linuxdeploy-$arch.AppImage"
+          # The two plugin scripts live on raw.githubusercontent.com, which is
+          # the host that refused us. They are also vendored inside the
+          # tauri-bundler crate, so a rate limit there costs nothing.
+          for plugin in gtk gstreamer; do
+            f=linuxdeploy-plugin-$plugin.sh
+            get "https://raw.githubusercontent.com/tauri-apps/linuxdeploy-plugin-$plugin/master/$f" "$f" || {
+              echo "raw.githubusercontent refused $f — taking the crate's copy"
+              v=$(curl -fsSL -A monti-ci https://crates.io/api/v1/crates/tauri-bundler \
+                  | python3 -c 'import json,sys; print(json.load(sys.stdin)["crate"]["max_version"])')
+              curl -fsSL -A monti-ci --retry 5 --retry-all-errors \
+                  "https://crates.io/api/v1/crates/tauri-bundler/$v/download" | tar xz -C /tmp
+              install -m 755 "/tmp/tauri-bundler-$v/src/bundle/linux/appimage/$f" "$d/$f"
+            }
+          done
+          ls -l "$d"
+
+      # Even with the tooling in place a download can still be refused, so the
+      # build itself waits a rate limit out. Anything else fails immediately:
+      # a compile error does not get better on the third try.
       #
       # The pipe into tee is why this needs pipefail: without it the step
       # reported success on a failed build, and the failure surfaced two

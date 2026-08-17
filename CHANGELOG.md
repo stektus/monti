@@ -2,7 +2,13 @@
 
 Notable changes per release. Dates are the release date.
 
-## v0.9.0 — 2026-08-17
+## v0.9.1 — 2026-08-17
+
+Everything below was meant to be v0.9.0. That tag exists and its build never
+finished: GitHub answered 429 to the AppImage tooling the bundler downloads
+mid-build, on both architectures and both attempts. The tooling is now fetched
+before the build, patiently, and kept between runs — nothing about the app
+itself changed between the two versions.
 
 **Backblaze B2 and MEGA.** Both sign in from the dialog rather than the
 browser: B2 takes a key ID and an application key, MEGA takes the account's
