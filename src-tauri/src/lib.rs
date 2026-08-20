@@ -165,7 +165,7 @@ async fn lost_mounts(app: AppHandle, state: State<'_, EngineState>) -> Result<Ve
         for fs in &gone {
             eng.mounts.remove(fs);
         }
-        engine::save_engine_file(&app, &eng);
+        let _ = engine::save_engine_file(&app, &eng);
     }
     for fs in &gone {
         log_line(
@@ -1950,7 +1950,7 @@ async fn mount_remote(
     let fs_name = fs_name_of(&name)?;
     engine::mount_guarded(eng.port, &eng.pass, &fs_name, &entry).map_err(&cleanup)?;
     eng.mounts.insert(fs_name, entry);
-    save_engine_file(&app, &eng);
+    eng.record_saved = save_engine_file(&app, &eng);
     log_line(
         &app,
         &format!("mounted {name}: at {}", mount_point.display()),
@@ -1995,7 +1995,7 @@ async fn unmount_remote(
     // The folder is a plain empty directory again, and a save into it would
     // now land on the local disk instead of the cloud. Close it.
     engine::close_mount_folder(&mount_point);
-    save_engine_file(&app, &eng);
+    eng.record_saved = save_engine_file(&app, &eng);
     log_line(&app, &format!("unmounted {mount_point}"));
     Ok(())
 }
@@ -2523,7 +2523,11 @@ pub fn run() {
                                 .map(|a| !a.is_empty())
                         })
                         .unwrap_or(false);
-                if keep && has_mounts {
+                // Only when the record survived: without engine.json the
+                // next launch cannot find this daemon, adopts nothing, and
+                // starts another one — one stray rclone per launch for as
+                // long as the disk stays full.
+                if keep && has_mounts && eng.record_saved {
                     eng.child = None; // drop the handle; the process lives on
                 } else {
                     // Bounded drain: give the writeback queue up to 15s

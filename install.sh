@@ -41,10 +41,21 @@ if [ "${1:-}" = "--uninstall" ]; then
 
   # The engine may still be running detached, keeping drives mounted.
   enginepid=""
+  enginestart=""
   if [ -f "$APPDATA/engine.json" ] && have python3; then
     enginepid=$(python3 -c "import json;print(json.load(open('$APPDATA/engine.json')).get('pid',''))" 2>/dev/null || true)
+    enginestart=$(python3 -c "import json;print(json.load(open('$APPDATA/engine.json')).get('starttime',''))" 2>/dev/null || true)
   fi
-  if [ -n "$enginepid" ] && kill -0 "$enginepid" 2>/dev/null \
+  # A pid alone is not an identity: pids are reused, and the number written
+  # down last week may belong to something else entirely today. Monti stores
+  # the process start time with it precisely so this script can tell the
+  # difference before signalling anything.
+  livestart=""
+  if [ -n "$enginepid" ] && [ -r "/proc/$enginepid/stat" ]; then
+    livestart=$(sed 's/.*) //' "/proc/$enginepid/stat" 2>/dev/null | awk '{print $20}')
+  fi
+  if [ -n "$enginepid" ] && [ -n "$enginestart" ] && [ "$enginestart" != "0" ] \
+     && [ "$livestart" = "$enginestart" ] \
      && grep -qs rclone "/proc/$enginepid/comm" 2>/dev/null; then
     if ask "Monti's background engine is running (drives may be mounted). Stop it and unmount?"; then
       kill "$enginepid" 2>/dev/null || true
@@ -71,7 +82,13 @@ if [ "${1:-}" = "--uninstall" ]; then
   # keeps what you opened, so it can be tens of gigabytes, and it lives in
   # rclone's cache directory rather than Monti's.
   VFS_CACHE="${XDG_CACHE_HOME:-$HOME/.cache}/rclone/vfs"
-  if [ -d "$VFS_CACHE" ]; then
+  # Not while a drive is still mounted. Those cached copies include writes
+  # that have not reached the cloud yet, and the reassurance below — "the
+  # originals are in your cloud" — is exactly what is not true for them.
+  if grep -q " fuse.rclone " /proc/mounts 2>/dev/null; then
+    say "Cached copies kept: rclone drives are still mounted, and some of those files may not have reached the cloud yet."
+    say "Unmount them (or let Monti quit properly) and run this again to clear $VFS_CACHE."
+  elif [ -d "$VFS_CACHE" ]; then
     size=$(du -sh "$VFS_CACHE" 2>/dev/null | cut -f1)
     if ask "Delete ${size:-the} cached file copies in $VFS_CACHE? (they are copies; the originals are in your cloud)"; then
       rm -rf "$VFS_CACHE"

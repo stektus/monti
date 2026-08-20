@@ -51,8 +51,11 @@ tested.
 - **A compromised local account.** Monti's data, rclone's config and your
   mounted files are all readable by your own user. Anyone who is already you can
   read them.
-- **An encrypted rclone config.** Monti cannot unlock one; it detects the case
-  and explains it instead of failing obscurely.
+- **An encrypted rclone config, once you have unlocked it.** Monti asks for
+  that password when something needs it and holds it in memory for as long as
+  the engine runs — never on disk. While it is held, anything running as you
+  can reach the drives through Monti; locking the config again means quitting
+  Monti and its engine.
 - **Someone reading rclone's config file.** An encrypted drive's password is
   stored there *obscured*, which is reversible by design — rclone has to be
   able to use it unattended. Encryption protects the copy in the cloud; it

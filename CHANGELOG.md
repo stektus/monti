@@ -66,6 +66,48 @@ button for as long as the remounts took.
 "skipping verification" and installed anyway when the checksums could not
 be fetched — it now stops.
 
+**The engine, the release pipeline and the uninstaller.**
+
+A daemon left over from an older Monti was adopted on a pid alone, because
+the file it wrote had no start time in it — the middle link of the chain
+SECURITY.md describes. Such a file is no longer adopted at all; that launch
+starts a fresh engine. An adopted daemon is also checked through `/proc`
+before every liveness probe, so one that died mid-session can no longer
+hand its port, and the calls carrying passwords, to whatever took it next.
+That probe now has a three-second timeout instead of two minutes.
+
+The daemon inherited any `RCLONE_RC_*` variables the person had set. An
+`RCLONE_RC_ADDR` among them opens a second remote-control listener on
+whatever address it names; those variables are now cleared before rclone
+starts.
+
+Explaining a failed start could itself crash, by cutting the log tail at a
+byte in the middle of a character. Excluding a cloud folder whose name ends
+in a space excluded nothing, because the name was trimmed before the rule
+was built. A retry left over from a failed mount could remount a drive
+minutes after it was deleted. And when `engine.json` cannot be written at
+all, the daemon is no longer left running at exit — nothing would ever find
+it again.
+
+Release notes are now taken from the changelog section named after the tag
+being released. They used to come from the first `## v` heading, which is
+the *previous* release whenever the newest section is still called
+Unreleased. A changelog nobody renamed now stops the release instead of
+publishing last version's notes under this version's name.
+
+The tag name is passed to the release scripts through the environment
+rather than pasted into them, and the four tools that assemble every
+AppImage are checked against known checksums — they are fetched from
+mutable tags and a moving branch, and a silent change upstream would go
+straight into the packages. A failed download used to report success and
+skip the fallback.
+
+The uninstaller identified Monti's engine by pid alone, which after a
+reboot may belong to anything; it now checks the start time recorded beside
+it. It also offered to delete the cache while drives were still mounted,
+where "the originals are in your cloud" is exactly what is not yet true of
+files still waiting to be uploaded.
+
 ## v0.9.1 — 2026-08-17
 
 Everything below was meant to be v0.9.0. That tag exists and its build never

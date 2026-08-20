@@ -37,10 +37,16 @@ jobs:
 
       - name: Tag must match the app version
         if: startsWith(github.ref, 'refs/tags/')
+        # The tag arrives through the environment, never pasted into the
+        # script. git accepts a tag name containing $(...), and a name pasted
+        # into a run: block is executed by the shell that receives it — in a
+        # job that holds id-token and attestations permissions.
+        env:
+          TAG: ${{ github.ref_name }}
         run: |
           v=$(python3 -c "import json;print(json.load(open('src-tauri/tauri.conf.json'))['version'])")
-          if [ "v$v" != "${{ github.ref_name }}" ]; then
-            echo "::error::tag ${{ github.ref_name }} does not match tauri.conf.json version $v"
+          if [ "v$v" != "$TAG" ]; then
+            echo "::error::tag $TAG does not match tauri.conf.json version $v"
             exit 1
           fi
 
@@ -78,9 +84,43 @@ jobs:
           d=~/.cache/tauri
           mkdir -p "$d"
           arch=${{ matrix.arch }}
+          # Known good, recorded 2026-08-20. These four files are executed
+          # during the build, from mutable tags and a moving branch — a
+          # silent change upstream would go straight into every AppImage.
+          # A mismatch stops the release; updating a line here is a decision
+          # someone makes on purpose.
+          cat > "$d/SHA256SUMS" <<'SUMS'
+          f30140a43a0a59e46db21bdefdf749b9e9f2c6946e92afabbacf98b8ae73fb4f  AppRun-x86_64
+          072f17c0895a85c490282fe5395c5007e5fc75da727e553b3b8fb680feb11578  AppRun-aarch64
+          e762bea85c8eb0d4b3508d46e5c1f037f717d0f9303ae3b4aafc8b04991fa1ef  linuxdeploy-x86_64.AppImage
+          b12b5cc57bd0921e1f98d73f58aa364503bc1a27f54b7a69fd2870bce7fa2f55  linuxdeploy-aarch64.AppImage
+          cb379f9b0733e9ad9f8bd78f8c2fa038aef2478523bb7d4c8e64ff6a1ea3501a  linuxdeploy-plugin-gtk.sh
+          c107b49d84edbffc6ab226ed1007e0626a4f7aa2c3a36b7782bef62351d49e94  linuxdeploy-plugin-gstreamer.sh
+          SUMS
+          sed -i 's/^ *//' "$d/SHA256SUMS"
+          check() {
+            want=$(grep " $1\$" "$d/SHA256SUMS" | cut -d' ' -f1)
+            got=$(sha256sum "$d/$1" | cut -d' ' -f1)
+            if [ -z "$want" ] || [ "$want" != "$got" ]; then
+              echo "::error::$1 is not the file this build expects (got $got, expected ${want:-nothing})"
+              rm -f "$d/$1"
+              return 1
+            fi
+          }
           get() {
-            [ -s "$d/$2" ] && { echo "cached: $2"; return 0; }
-            curl -fsSL --retry 8 --retry-all-errors --retry-delay 20 -o "$d/$2" "$1"
+            # Failure must be visible: with `get … || fallback` the shell
+            # turns off errexit inside the function, so a curl that failed
+            # used to end at `echo fetched` and report success — and the
+            # fallback below never ran.
+            if [ -s "$d/$2" ] && check "$2"; then
+              echo "cached: $2"
+              return 0
+            fi
+            curl -fsSL --retry 8 --retry-all-errors --retry-delay 20 -o "$d/$2" "$1" || {
+              rm -f "$d/$2"
+              return 1
+            }
+            check "$2" || return 1
             chmod +x "$d/$2"
             echo "fetched: $2"
           }
@@ -99,6 +139,7 @@ jobs:
               curl -fsSL -A monti-ci --retry 5 --retry-all-errors \
                   "https://crates.io/api/v1/crates/tauri-bundler/$v/download" | tar xz -C /tmp
               install -m 755 "/tmp/tauri-bundler-$v/src/bundle/linux/appimage/$f" "$d/$f"
+              check "$f" || exit 1
             }
           done
           ls -l "$d"
@@ -174,6 +215,10 @@ jobs:
       # maintainer can actually read when a build dies.
       - name: Publish build log on failure
         if: failure()
+        env:
+          TAG: ${{ github.ref_name }}
+          ARCH: ${{ matrix.arch }}
+          RUN_ID: ${{ github.run_id }}
         run: |
           git config user.name ci
           git config user.email ci@users.noreply.github.com
@@ -181,7 +226,7 @@ jobs:
           git reset
           cp /tmp/build.log ci-build.log || true
           git add -f ci-build.log
-          git commit -m "build log for ${{ github.ref_name }} (${{ matrix.arch }}) run ${{ github.run_id }}"
+          git commit -m "build log for $TAG ($ARCH) run $RUN_ID"
           git push -f origin ci-logs
 
       - name: Hand the packages to the publish job
@@ -238,16 +283,26 @@ jobs:
       - name: Create the GitHub release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
           cd bundle
           # What changed, taken from the changelog's newest section: the
           # release page is where someone decides whether this version is
           # worth their evening, and "download and click Add cloud" does not
-          # answer that. Everything from the first "## v" heading up to the
-          # next one, the headings themselves left out.
-          awk '/^## v/{n++} n==1 && !/^## v/' "$GITHUB_WORKSPACE/CHANGELOG.md" \
-            | sed '/./,$!d' > /tmp/notes.md
+          # answer that. The section for THIS tag, headings left out.
+          #
+          # It used to take the first "## v" heading, which is the previous
+          # release whenever the changelog still carries an "## Unreleased"
+          # section — publishing last version's notes under this version's
+          # name. Now the section must be named after the tag, and a
+          # changelog nobody renamed stops the release instead.
+          awk -v want="## $TAG " 'index($0, want) == 1 {n=1; next} /^## /{n=0} n' \
+            "$GITHUB_WORKSPACE/CHANGELOG.md" | sed '/./,$!d' > /tmp/notes.md
+          if [ ! -s /tmp/notes.md ]; then
+            echo "::error::CHANGELOG.md has no section headed \"## $TAG — <date>\" — rename the Unreleased section before tagging"
+            exit 1
+          fi
           cat >> /tmp/notes.md <<'EOF'
 
           ---
@@ -283,8 +338,8 @@ jobs:
           and earlier releases stay on this page if you need to go back.
           EOF
           head -40 /tmp/notes.md
-          gh release create "${{ github.ref_name }}" \
-            --title "Monti ${{ github.ref_name }}" \
+          gh release create "$TAG" \
+            --title "Monti $TAG" \
             --notes-file /tmp/notes.md \
             *.AppImage *.deb *.rpm SHA256SUMS
 

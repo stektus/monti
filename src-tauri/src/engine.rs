@@ -47,8 +47,15 @@ pub fn exclude_rules(excludes: &[String]) -> Vec<String> {
     excludes
         .iter()
         .filter_map(|path| {
-            let trimmed = path.trim().trim_matches('/');
-            if trimmed.is_empty() {
+            // Slashes only: a cloud folder may genuinely be called "2024 ",
+            // and trimming its spaces built a rule for a folder that does
+            // not exist — the picker showed it excluded while every file in
+            // it kept syncing.
+            let trimmed = path.trim_matches('/');
+            // Blank entries are junk from the picker and are dropped; the
+            // spaces inside a real name are not, so the trimming used to
+            // decide that is not the trimming used to build the rule.
+            if trimmed.trim().is_empty() {
                 return None;
             }
             let mut rule = String::from("/");
@@ -99,6 +106,14 @@ pub struct Engine {
     pub pass: String,
     /// Mounts made through Monti, keyed by fs ("name:").
     pub mounts: HashMap<String, MountEntry>,
+    /// False when the last attempt to write engine.json failed.
+    ///
+    /// That file is the only record of a daemon left running on purpose, so
+    /// without it the next launch cannot find the daemon, cannot adopt it,
+    /// and starts another one — a leak of one rclone process per launch on a
+    /// full disk or a read-only home. When the record could not be written,
+    /// the daemon is not left behind at all.
+    pub record_saved: bool,
     /// The password for a password-protected rclone config, when the person
     /// has given us one this session.
     ///
@@ -247,14 +262,20 @@ fn friendly_engine_error(app: &AppHandle) -> String {
     let tail = engine_log_path(app)
         .and_then(|p| fs::read_to_string(p).ok())
         .map(|s| {
+            // On a character boundary, not a byte one. rclone's log carries
+            // file names and the operating system's own words, so the 2048th
+            // byte from the end lands inside a UTF-8 sequence sooner or
+            // later — and slicing there panics, inside the very function
+            // that is supposed to explain a failed start.
             let n = s.len().saturating_sub(2048);
+            let n = (n..=s.len()).find(|i| s.is_char_boundary(*i)).unwrap_or(0);
             s[n..].trim().to_string()
         })
         .unwrap_or_default();
     if tail.contains("unable to decrypt") || tail.contains("couldn't decrypt") {
-        return "Your rclone config file is password-protected — Monti cannot unlock it. \
-                Run `rclone config` in a terminal and remove the configuration password \
-                (Set configuration password → Remove), then try again."
+        return "Your rclone config file is password-protected, and the password \
+                Monti has does not open it. Start Monti again and enter the \
+                password rclone asks for when you run it in a terminal."
             .into();
     }
     if tail.is_empty() {
@@ -436,8 +457,10 @@ fn safe_kill(app: &AppHandle, pid: u32, starttime: u64) {
     }
 }
 
-pub fn save_engine_file(app: &AppHandle, eng: &Engine) {
-    let Some(path) = engine_file(app) else { return };
+pub fn save_engine_file(app: &AppHandle, eng: &Engine) -> bool {
+    let Some(path) = engine_file(app) else {
+        return false;
+    };
     if let Some(dir) = path.parent() {
         let _ = fs::create_dir_all(dir);
     }
@@ -474,9 +497,13 @@ pub fn save_engine_file(app: &AppHandle, eng: &Engine) {
             f.sync_all()
         })
         .and_then(|_| fs::rename(&tmp, &path));
+    let saved = ok.is_ok();
     if let Err(e) = ok {
         log_line(app, &format!("failed to save engine.json: {e}"));
     }
+    // Read by the exit path: a daemon whose record did not survive must not
+    // be left running, or nothing will ever find it again.
+    saved
 }
 
 /// Try to reconnect to an engine left by a previous session. Each check
@@ -506,23 +533,21 @@ pub fn try_adopt_engine(app: &AppHandle, eng: &mut Engine) -> bool {
     if !saved_boot.is_empty() && saved_boot != boot_id() {
         return cleanup();
     }
-    if starttime != 0 {
-        // v2 file: full identity chain.
-        if !is_our_daemon(pid, starttime) {
-            return cleanup(); // recycled pid — not ours, do not touch
-        }
-        if !pid_owns_port(pid, port) {
-            // Our daemon lost the port / someone else has it: never send
-            // credentials there; put our process down and start fresh.
-            safe_kill(app, pid, starttime);
-            return cleanup();
-        }
+    // No start time means a file written by Monti 0.3.3 or older, from
+    // before the identity chain existed. SECURITY.md promises that a daemon
+    // is adopted only when pid, start time and ownership of the socket all
+    // check out; a file that cannot answer the middle one is not adopted at
+    // all. The cost is a fresh engine on that one launch.
+    if starttime == 0 {
+        return cleanup();
     }
-    // Whoever we are about to authenticate to must be holding the port —
-    // checked for every file, not just the v2 ones. A legacy file skips the
-    // chain above, and without this the saved RC password would go to
-    // whatever now sits on that port after a crash.
+    if !is_our_daemon(pid, starttime) {
+        return cleanup(); // recycled pid — not ours, do not touch
+    }
     if !pid_owns_port(pid, port) {
+        // Our daemon lost the port / someone else has it: never send
+        // credentials there; put our process down and start fresh.
+        safe_kill(app, pid, starttime);
         return cleanup();
     }
     // Final proof of life + identity: the daemon itself reports our pid.
@@ -567,7 +592,7 @@ pub fn try_adopt_engine(app: &AppHandle, eng: &mut Engine) -> bool {
                 }
             }
         }
-        save_engine_file(app, eng); // upgrade legacy files to v2
+        eng.record_saved = save_engine_file(app, eng); // upgrade legacy files to v2
         log_line(
             app,
             &format!("adopted running engine (pid {pid}, port {port})"),
@@ -901,8 +926,19 @@ pub fn engine_alive(eng: &mut Engine) -> bool {
     if let Some(child) = &mut eng.child {
         return matches!(child.try_wait(), Ok(None));
     }
-    // Adopted daemon: no process handle, probe the API instead.
-    eng.port != 0 && rc_raw(eng.port, &eng.pass, "rc/noop", &json!({})).is_ok()
+    // Adopted daemon: no process handle. Ask /proc first — it is free, and
+    // it answers the question that matters: is the process we recorded the
+    // one still holding this port? Without it a daemon that died mid-session
+    // left port and password in place, and every later call — the health
+    // poll, and every config/create carrying a provider password — went to
+    // whoever took the port next.
+    if eng.port == 0 || eng.pid == 0 || !pid_owns_port(eng.pid, eng.port) {
+        return false;
+    }
+    // Three seconds, not the two-minute default: two of the three callers
+    // hold the engine lock while asking, and a listener that accepts and
+    // then says nothing would freeze them for the whole timeout.
+    rc_raw_with_timeout(eng.port, &eng.pass, "rc/noop", &json!({}), 3).is_ok()
 }
 
 pub fn start_engine_locked(app: &AppHandle, eng: &mut Engine) -> Result<(), String> {
@@ -942,6 +978,26 @@ pub fn start_engine_locked(app: &AppHandle, eng: &mut Engine) -> Result<(), Stri
     // the daemon must be able to outlive the app to keep drives mounted.
     // ASK_PASSWORD=false: an encrypted config must fail loudly instead of
     // waiting forever on a /dev/null stdin.
+    // Anything RCLONE_RC_* already in the environment is dropped first.
+    // Monti decides the daemon's remote control completely, and an
+    // RCLONE_RC_ADDR left over from someone's own rclone setup would open a
+    // second listener on whatever address it names — possibly not loopback
+    // — answering with the credentials chosen here.
+    for leftover in [
+        "RCLONE_RC_ADDR",
+        "RCLONE_RC_SERVER_READ_TIMEOUT",
+        "RCLONE_RC_NO_AUTH",
+        "RCLONE_RC_HTPASSWD",
+        "RCLONE_RC_REALM",
+        "RCLONE_RC_CERT",
+        "RCLONE_RC_KEY",
+        "RCLONE_RC_CLIENT_CA",
+        "RCLONE_RC_ALLOW_ORIGIN",
+        "RCLONE_RC_WEB_GUI",
+        "RCLONE_RC_ENABLE_METRICS",
+    ] {
+        cmd.env_remove(leftover);
+    }
     cmd.args(["rcd", &format!("--rc-addr=127.0.0.1:{port}")])
         .env("RCLONE_RC_USER", RC_USER)
         .env("RCLONE_RC_PASS", &pass)
@@ -989,7 +1045,7 @@ pub fn start_engine_locked(app: &AppHandle, eng: &mut Engine) -> Result<(), Stri
             eng.child = Some(child);
             eng.port = port;
             eng.pass = pass;
-            save_engine_file(app, eng);
+            eng.record_saved = save_engine_file(app, eng);
             log_line(
                 app,
                 &format!("engine started (pid {}, port {port})", eng.pid),
@@ -1236,6 +1292,21 @@ fn retry_mount(app: &AppHandle, port: u16, pass: &str, fs_name: &str, entry: &Mo
                 }
                 Err(_) => return, // engine gone or replaced; not our mount to fix
             }
+            // And the drive itself may be gone. This thread carries a copy
+            // of the plan made minutes ago; without asking, a drive deleted
+            // or unmounted in the meantime would be quietly mounted again,
+            // up to four minutes after the person put it away.
+            let still_wanted = app
+                .try_state::<EngineState>()
+                .and_then(|st| {
+                    st.0.lock()
+                        .ok()
+                        .map(|eng| eng.mounts.contains_key(&fs_name))
+                })
+                .unwrap_or(false);
+            if !still_wanted {
+                return;
+            }
             let result = mount_guarded(port, &pass, &fs_name, &entry);
             match result {
                 Ok(_) => {
@@ -1271,7 +1342,7 @@ pub fn restart_engine_preserving_mounts(
     eng.mounts = saved_mounts;
     start_engine_locked(app, &mut eng)?;
     remount_saved(app, &eng);
-    save_engine_file(app, &eng);
+    let _ = save_engine_file(app, &eng);
     Ok(())
 }
 
@@ -1617,6 +1688,12 @@ mod filter_tests {
             exclude_rules(&["Photos [2024]".into(), "Mix{a,b}".into()]),
             vec![r"/Photos \[2024\]/**", r"/Mix\{a,b\}/**"]
         );
+        // A cloud folder may end in a space, and rclone will not find
+        // "/2024/**" when the folder is called "2024 ". Excluding it used to
+        // quietly exclude nothing at all.
+        assert_eq!(exclude_rules(&["2024 ".into()]), vec!["/2024 /**"]);
+        assert_eq!(exclude_rules(&[" lead".into()]), vec!["/ lead/**"]);
+
         // Nothing excluded means no filter at all: an empty rule list is a
         // different thing to rclone than no rules.
         assert!(filter_opt(&[]).is_none());
