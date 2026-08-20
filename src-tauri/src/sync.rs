@@ -188,7 +188,6 @@ pub fn sync_pair_save(app: AppHandle, mut pair: SyncPair) -> Result<(), String> 
         Some(old) => {
             let keep_run = old.last_run.clone();
             let keep_result = old.last_result.clone();
-            let keep_deletes = old.delete_without_asking;
             // Excluding a folder that is already synced is the one edit that
             // can destroy files. bisync compares against its own listing from
             // last time, so a folder that disappears behind a filter reads as
@@ -203,7 +202,8 @@ pub fn sync_pair_save(app: AppHandle, mut pair: SyncPair) -> Result<(), String> 
             old.last_run = keep_run;
             old.last_result = keep_result;
             old.initialized = keep_init;
-            old.delete_without_asking = keep_deletes;
+            // Not carried over any more: the dialog now shows this switch
+            // and is the one place that decides it.
             if !same_filter {
                 old.last_result = Some("folders changed — needs a first sync".into());
             }
@@ -369,16 +369,23 @@ pub struct SyncProgress {
 /// "too many deletes" is all `job/status` says; the count is only in the
 /// daemon's own log, and the count is the whole point when asking someone
 /// whether to go ahead.
-fn delete_abort_detail(app: &AppHandle) -> Option<(u64, u64)> {
+fn delete_abort_detail(app: &AppHandle, pair: &SyncPair) -> Option<(u64, u64)> {
     let tail = crate::engine::engine_log_path(app).and_then(|p| fs::read_to_string(p).ok())?;
-    parse_delete_abort(&tail)
+    // One log for the whole daemon, so the last "too many deletes" line in it
+    // may belong to a different pair that aborted a second earlier. rclone
+    // names the side it counted — on Path1 "…" — so the line has to mention
+    // this pair before its numbers are put in front of someone about to
+    // approve deletions.
+    parse_delete_abort(&tail, &[&pair.local, &pair.remote])
 }
 
 /// Pull "2 of 3" out of the daemon's log. Split out from the file reading so
 /// the shape of that line — which comes from rclone, not from us — is pinned
 /// by a test.
-fn parse_delete_abort(log: &str) -> Option<(u64, u64)> {
-    let line = log.lines().rev().find(|l| l.contains("too many deletes"))?;
+fn parse_delete_abort(log: &str, belongs_to: &[&str]) -> Option<(u64, u64)> {
+    let line = log.lines().rev().find(|l| {
+        l.contains("too many deletes") && belongs_to.iter().any(|side| l.contains(*side))
+    })?;
     // …too many deletes (>0%, 2 of 3) on Path1 "…"
     let inside = line.split_once('(')?.1.split_once(')')?.0;
     let mut parts = inside.split_whitespace(); // ">0%," "2" "of" "3"
@@ -394,6 +401,7 @@ pub async fn sync_progress(
     app: AppHandle,
     state: State<'_, EngineState>,
     jobid: u64,
+    name: String,
 ) -> Result<SyncProgress, String> {
     let (port, pass) = {
         let eng = state.0.lock().unwrap();
@@ -412,7 +420,14 @@ pub async fn sync_progress(
     let mut error = status["error"].as_str().unwrap_or("").to_string();
     // Turn the daemon's four words into something the UI can act on.
     if error.contains("too many deletes") {
-        error = match delete_abort_detail(&app) {
+        // Without the pair there is no way to tell whose numbers these are,
+        // and a wrong count in a delete confirmation is worse than none:
+        // 0:0 makes the dialog ask without pretending to know how many.
+        error = match load_pairs(&app)
+            .iter()
+            .find(|p| p.name == name)
+            .and_then(|p| delete_abort_detail(&app, p))
+        {
             Some((n, total)) => format!("TOO_MANY_DELETES:{n}:{total}"),
             None => "TOO_MANY_DELETES:0:0".into(),
         };
@@ -706,7 +721,34 @@ mod tests {
         let log = "2026/08/11 08:30:08 NOTICE: 2026/08/11 08:30:08 ERROR : Safety abort: \
                    too many deletes (>0%, 2 of 3) on Path1 \"/home/u/work/\". \
                    Run with --force if desired.\n";
-        assert_eq!(super::parse_delete_abort(log), Some((2, 3)));
-        assert_eq!(super::parse_delete_abort("nothing to see"), None);
+        assert_eq!(
+            super::parse_delete_abort(log, &["/home/u/work/"]),
+            Some((2, 3))
+        );
+        assert_eq!(
+            super::parse_delete_abort("nothing to see", &["/home/u/work/"]),
+            None
+        );
+    }
+
+    /// One daemon, one log, several pairs. The numbers shown in a delete
+    /// confirmation must come from the pair being asked about — showing
+    /// another pair's count would have someone approve deletions against
+    /// figures that were never theirs.
+    #[test]
+    fn another_pairs_abort_is_not_borrowed() {
+        let log = "ERROR : Safety abort: too many deletes (>0%, 2 of 3) on Path1 \"/home/u/work/\".\n\
+                   ERROR : Safety abort: too many deletes (>0%, 90 of 100) on Path1 \"/home/u/photos/\".\n";
+        // The last line belongs to photos; asking about work must not take it.
+        assert_eq!(
+            super::parse_delete_abort(log, &["/home/u/work/"]),
+            Some((2, 3))
+        );
+        assert_eq!(
+            super::parse_delete_abort(log, &["/home/u/photos/"]),
+            Some((90, 100))
+        );
+        // A pair that never aborted gets nothing rather than someone else's.
+        assert_eq!(super::parse_delete_abort(log, &["/home/u/music/"]), None);
     }
 }

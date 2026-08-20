@@ -48,10 +48,21 @@ struct Flags {
     keep_mounts: AtomicBool,
 }
 
-/// The jobid of the in-flight authorization step on the daemon, if any.
-/// Kept separately so the Cancel button can stop it while the config
-/// state machine is still polling. None inside = no flow running.
-struct AuthState(Mutex<Option<u64>>);
+/// The in-flight authorization: which flow holds the slot, and the jobid of
+/// its current step on the daemon. Kept separately so the Cancel button can
+/// stop that job while the config state machine is still polling.
+///
+/// The flow number matters. Clearing the slot unconditionally at the end let
+/// a flow that had already been cancelled wipe the claim of the one the
+/// person started right after it — leaving that second flow uncancellable
+/// and its rclone job holding the OAuth port until it timed out.
+#[derive(Clone, Copy, PartialEq)]
+struct AuthClaim {
+    flow: u64,
+    jobid: u64,
+}
+struct AuthState(Mutex<Option<AuthClaim>>);
+static NEXT_AUTH_FLOW: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
 
 // ---------- system mounts ----------
 
@@ -79,7 +90,7 @@ fn read_proc_mounts() -> Vec<SystemMount> {
             Some(SystemMount {
                 remote: src.split(':').next()?.to_string(),
                 // /proc/mounts octal-escapes spaces and tabs
-                mount_point: mount_point.replace("\\040", " ").replace("\\011", "\t"),
+                mount_point: engine::unescape_mount(mount_point),
             })
         })
         .collect()
@@ -437,7 +448,17 @@ async fn unlock_config(
         eng.config_pass = Some(password);
         previous
     };
-    restart_engine_preserving_mounts(&app, &state)?;
+    // A restart that fails must not cost the password that was working: the
+    // `?` here used to skip the rollback below, leaving the daemon holding a
+    // guess and the good password gone from memory.
+    if let Err(e) = restart_engine_preserving_mounts(&app, &state) {
+        {
+            let mut eng = state.0.lock().unwrap();
+            eng.config_pass = previous;
+        }
+        let _ = restart_engine_preserving_mounts(&app, &state);
+        return Err(e);
+    }
     let (port, pass) = {
         let eng = state.0.lock().unwrap();
         (eng.port, eng.pass.clone())
@@ -571,16 +592,26 @@ fn config_state_machine(
     parameters: &Value,
     answers: &HashMap<&str, String>,
 ) -> Result<(), String> {
+    let flow = NEXT_AUTH_FLOW.fetch_add(1, Ordering::Relaxed);
     {
         let mut slot = auth.0.lock().unwrap();
         if slot.is_some() {
             return Err("another authorization is already in progress".into());
         }
-        *slot = Some(0); // claimed, no job yet
+        *slot = Some(AuthClaim { flow, jobid: 0 }); // claimed, no job yet
     }
     log_line(app, &format!("auth flow started ({endpoint} {name})"));
-    let result = drive_state_machine(port, pass, auth, endpoint, name, typ, parameters, answers);
-    *auth.0.lock().unwrap() = None;
+    let result = drive_state_machine(
+        port, pass, auth, flow, endpoint, name, typ, parameters, answers,
+    );
+    {
+        // Only if the slot is still ours: a cancelled flow finishing late
+        // must not take away the claim of the flow that replaced it.
+        let mut slot = auth.0.lock().unwrap();
+        if slot.map(|c| c.flow) == Some(flow) {
+            *slot = None;
+        }
+    }
     match &result {
         Ok(()) => log_line(app, &format!("auth flow finished ({name})")),
         Err(e) => log_line(app, &format!("auth flow failed ({name}): {e}")),
@@ -593,6 +624,7 @@ fn drive_state_machine(
     port: u16,
     pass: &str,
     auth: &AuthState,
+    flow: u64,
     endpoint: &str,
     name: &str,
     typ: Option<&str>,
@@ -623,18 +655,18 @@ fn drive_state_machine(
             .ok_or("daemon did not return a job id")?;
         {
             let mut slot = auth.0.lock().unwrap();
-            if slot.is_none() {
+            if slot.map(|c| c.flow) != Some(flow) {
                 stop_job(jobid);
                 return Err("Authorization cancelled.".into());
             }
-            *slot = Some(jobid);
+            *slot = Some(AuthClaim { flow, jobid });
         }
 
         // Poll this step; the OAuth step blocks here until the user
         // finishes in the browser.
         let output = loop {
             thread::sleep(Duration::from_millis(500));
-            if auth.0.lock().unwrap().is_none() {
+            if auth.0.lock().unwrap().map(|c| c.flow) != Some(flow) {
                 stop_job(jobid);
                 return Err("Authorization cancelled.".into());
             }
@@ -1019,7 +1051,7 @@ fn verify_or_undo(port: u16, pass: &str, name: &str, provider: &str) -> Result<(
         port,
         pass,
         "operations/list",
-        &json!({ "fs": format!("{name}:"), "remote": "" }),
+        &json!({ "fs": fs_name_of(name)?, "remote": "" }),
     ) {
         let _ = rc_raw(port, pass, "config/delete", &json!({ "name": name }));
         return Err(engine::friendly_signin_error(&e, signin_hint(provider)));
@@ -1214,7 +1246,7 @@ fn apply_credentials(
         port,
         pass,
         "operations/list",
-        &json!({ "fs": format!("{name}:"), "remote": "" }),
+        &json!({ "fs": fs_name_of(name)?, "remote": "" }),
     ) {
         restore(port, pass);
         return Err(engine::friendly_signin_error(&e, signin_hint(&provider)));
@@ -1297,7 +1329,7 @@ async fn update_remote_credentials(
                 port,
                 &pass,
                 "operations/list",
-                &json!({ "fs": format!("{name}:"), "remote": "" }),
+                &json!({ "fs": fs_name_of(&name)?, "remote": "" }),
             )
             .map(|_| ())
         });
@@ -1314,7 +1346,7 @@ async fn update_remote_credentials(
     // it was built with. A mount made with the details that stopped working
     // would go on failing until the next restart, which reads as "the fix
     // did nothing" — so it is made again here.
-    let fs_name = format!("{name}:");
+    let fs_name = fs_name_of(&name)?;
     let entry = {
         let eng = state.0.lock().unwrap();
         eng.mounts.get(&fs_name).cloned()
@@ -1339,7 +1371,7 @@ async fn cancel_create_remote(
     state: State<'_, EngineState>,
     auth: State<'_, AuthState>,
 ) -> Result<(), String> {
-    let jobid = auth.0.lock().unwrap().take();
+    let jobid = auth.0.lock().unwrap().take().map(|c| c.jobid);
     if let Some(jobid) = jobid.filter(|&j| j > 0) {
         let (port, pass) = {
             let eng = state.0.lock().unwrap();
@@ -1396,13 +1428,46 @@ async fn delete_remote(
             None => PathBuf::from(custom),
         };
         // Only tidy inside the user's home, and never the home dir itself.
-        if p.starts_with(&home) && p != home {
+        // starts_with compares components, so "~/../../var/tmp/x" passes it
+        // while pointing outside — a path with a ".." in it is refused
+        // outright rather than reasoned about.
+        let climbs = p
+            .components()
+            .any(|c| matches!(c, std::path::Component::ParentDir));
+        if !climbs && p.starts_with(&home) && p != home {
             let _ = fs::remove_dir(&p);
         }
     }
     let _ = fs::remove_dir(&clouddrives); // gone too once the last drive leaves
     log_line(&app, &format!("deleted remote {name}"));
     Ok(())
+}
+
+/// Turn a drive name into the fs string rclone expects, refusing anything
+/// that is not a plain name.
+///
+/// Only `create_remote` checked its argument; everywhere else the name
+/// arrived from the interface and went straight into `format!("{name}:")`.
+/// rclone reads far more than a name there: `:local:` or
+/// `:alias,remote=/etc:` are on-the-fly connection strings that select a
+/// backend of their own, which turns "unmount this drive" or "clear this
+/// drive's cache" into an instruction about somewhere else entirely.
+///
+/// The rule is deliberately looser than the one for new drives: a config
+/// written by hand may hold names with dots or spaces in them, and refusing
+/// to work with those would break people who never used the dialog. What is
+/// refused is the punctuation that makes a connection string.
+fn fs_name_of(name: &str) -> Result<String, String> {
+    let bad = name.is_empty()
+        || name.starts_with('-')
+        || name.starts_with('.')
+        || name
+            .chars()
+            .any(|c| matches!(c, ':' | ',' | '/' | '\\') || c.is_control());
+    if bad {
+        return Err(format!("not a drive name: {name:?}"));
+    }
+    Ok(format!("{name}:"))
 }
 
 /// rclone's local VFS cache for one remote: vfs/<name> holds file copies,
@@ -1419,6 +1484,26 @@ fn vfs_cache_dirs(app: &AppHandle, name: &str) -> Result<Vec<PathBuf>, String> {
         root.join("vfs").join(name),
         root.join("vfsMeta").join(name),
     ])
+}
+
+/// Where rclone actually keeps this drive's cache, asked of rclone itself.
+///
+/// The guess above — vfs/<name> — is right for the drives Monti creates and
+/// wrong for others: an alias remote is filed under the backend it wraps
+/// (vfs/local/<path>), so the settings dialog reported an empty cache while
+/// gigabytes sat on the disk, and "Clear cache" cleared nothing. A mounted
+/// drive can be asked; an unmounted one has no VFS to ask, and there the
+/// guess is all there is.
+fn vfs_cache_dirs_live(port: u16, pass: &str, fs_name: &str) -> Option<Vec<PathBuf>> {
+    let stats =
+        engine::rc_raw_with_timeout(port, pass, "vfs/stats", &json!({ "fs": fs_name }), 5).ok()?;
+    let disk = stats.get("diskCache")?;
+    let one = |key: &str| disk.get(key).and_then(Value::as_str).map(PathBuf::from);
+    let dirs: Vec<PathBuf> = [one("path"), one("pathMeta")]
+        .into_iter()
+        .flatten()
+        .collect();
+    (!dirs.is_empty()).then_some(dirs)
 }
 
 fn dir_size(path: &std::path::Path) -> u64 {
@@ -1465,7 +1550,7 @@ async fn remote_about(state: State<'_, EngineState>, name: String) -> Result<Abo
         port,
         &pass,
         "operations/about",
-        &json!({ "fs": format!("{name}:") }),
+        &json!({ "fs": fs_name_of(&name)? }),
         20,
     )?;
     let num = |key: &str| v.get(key).and_then(Value::as_u64);
@@ -1479,11 +1564,19 @@ async fn remote_about(state: State<'_, EngineState>, name: String) -> Result<Abo
 
 /// Bytes of cached file copies a remote keeps under ~/.cache/rclone.
 #[tauri::command(async)]
-fn vfs_cache_size(app: AppHandle, name: String) -> Result<u64, String> {
-    Ok(vfs_cache_dirs(&app, &name)?
-        .iter()
-        .map(|d| dir_size(d))
-        .sum())
+async fn vfs_cache_size(
+    app: AppHandle,
+    state: State<'_, EngineState>,
+    name: String,
+) -> Result<u64, String> {
+    let fs_name = fs_name_of(&name)?;
+    let (port, pass) = {
+        let eng = state.0.lock().unwrap();
+        (eng.port, eng.pass.clone())
+    };
+    let dirs = vfs_cache_dirs_live(port, &pass, &fs_name)
+        .map_or_else(|| vfs_cache_dirs(&app, &name), Ok)?;
+    Ok(dirs.iter().map(|d| dir_size(d)).sum())
 }
 
 #[derive(Serialize)]
@@ -1615,6 +1708,11 @@ fn clear_vfs_cache(app: AppHandle, name: String) -> Result<(), String> {
             m.mount_point
         ));
     }
+    // Only the guess is available here: clearing is refused while the drive
+    // is mounted, and an unmounted drive has no VFS to ask where its cache
+    // went. For the drives Monti creates the guess is right; a hand-made
+    // alias remote files its cache under the backend it wraps, and there is
+    // nothing on the machine that still knows the mapping.
     for dir in vfs_cache_dirs(&app, &name)? {
         if dir.is_dir() {
             fs::remove_dir_all(&dir).map_err(|e| e.to_string())?;
@@ -1637,7 +1735,7 @@ async fn supports_links(state: State<'_, EngineState>, name: String) -> Result<b
         port,
         &pass,
         "operations/fsinfo",
-        &json!({ "fs": format!("{name}:") }),
+        &json!({ "fs": fs_name_of(&name)? }),
         20,
     )?;
     Ok(info
@@ -1684,7 +1782,7 @@ async fn share_link(state: State<'_, EngineState>, name: String) -> Result<Optio
         port,
         &pass,
         "operations/publiclink",
-        &json!({ "fs": format!("{name}:"), "remote": remote }),
+        &json!({ "fs": fs_name_of(&name)?, "remote": remote }),
         60,
     )?;
     out.get("url")
@@ -1849,7 +1947,7 @@ async fn mount_remote(
         excludes: excludes.unwrap_or_default(),
     };
     let mut eng = state.0.lock().unwrap();
-    let fs_name = format!("{name}:");
+    let fs_name = fs_name_of(&name)?;
     engine::mount_guarded(eng.port, &eng.pass, &fs_name, &entry).map_err(&cleanup)?;
     eng.mounts.insert(fs_name, entry);
     save_engine_file(&app, &eng);
@@ -2402,7 +2500,14 @@ pub fn run() {
                 // A dangling authorization must not ride into the next
                 // session on a surviving daemon.
                 let auth: State<AuthState> = app.state();
-                if let Some(jobid) = auth.0.lock().unwrap().take().filter(|&j| j > 0) {
+                if let Some(jobid) = auth
+                    .0
+                    .lock()
+                    .unwrap()
+                    .take()
+                    .map(|c| c.jobid)
+                    .filter(|&j| j > 0)
+                {
                     let _ = rc_raw(eng.port, &eng.pass, "job/stop", &json!({ "jobid": jobid }));
                 }
                 // "Keep drives mounted": if anything is mounted and the
@@ -2438,6 +2543,31 @@ pub fn run() {
                 }
             }
         });
+}
+
+#[cfg(test)]
+mod name_tests {
+    use super::fs_name_of;
+
+    /// Only the Add-cloud dialog ever checked the name it was given. Every
+    /// other command turned whatever arrived into "<name>:" and handed it to
+    /// rclone, which reads a connection string there — a backend of the
+    /// caller's choosing, pointed anywhere.
+    #[test]
+    fn a_connection_string_is_not_a_drive_name() {
+        assert!(fs_name_of(":local:").is_err());
+        assert!(fs_name_of(":alias,remote=/etc:").is_err());
+        assert!(fs_name_of("gdrive:/etc").is_err());
+        assert!(fs_name_of("../../etc").is_err());
+        assert!(fs_name_of("").is_err());
+        assert!(fs_name_of("-x").is_err());
+
+        // Configs written by hand hold names like these, and refusing them
+        // would lock people out of drives they already have.
+        assert_eq!(fs_name_of("gdrive").unwrap(), "gdrive:");
+        assert_eq!(fs_name_of("My Drive").unwrap(), "My Drive:");
+        assert_eq!(fs_name_of("work.backup").unwrap(), "work.backup:");
+    }
 }
 
 #[cfg(test)]
@@ -3079,7 +3209,7 @@ mod tests {
         let Some(d) = spawn_test_rcd() else {
             return skipped("jottacloud", "no rclone daemon");
         };
-        let auth = AuthState(Mutex::new(Some(0)));
+        let auth = AuthState(Mutex::new(Some(AuthClaim { flow: 1, jobid: 0 })));
         let answers = HashMap::from([
             ("config_type", "standard".to_string()),
             ("config_login_token", "not-a-real-token".to_string()),
@@ -3088,6 +3218,7 @@ mod tests {
             d.port,
             &d.pass,
             &auth,
+            1,
             "config/create",
             "jt",
             Some("jottacloud"),
@@ -3104,11 +3235,12 @@ mod tests {
     #[test]
     fn state_machine_completes_for_questionless_backend() {
         let Some(d) = spawn_test_rcd() else { return };
-        let auth = AuthState(Mutex::new(Some(0)));
+        let auth = AuthState(Mutex::new(Some(AuthClaim { flow: 1, jobid: 0 })));
         let r = drive_state_machine(
             d.port,
             &d.pass,
             &auth,
+            1,
             "config/create",
             "tlocal",
             Some("local"),
@@ -3123,7 +3255,8 @@ mod tests {
     #[test]
     fn state_machine_cancel_unblocks_oauth_wait() {
         let Some(d) = spawn_test_rcd() else { return };
-        let auth = std::sync::Arc::new(AuthState(Mutex::new(Some(0))));
+        let auth =
+            std::sync::Arc::new(AuthState(Mutex::new(Some(AuthClaim { flow: 1, jobid: 0 }))));
         let (port, pass) = (d.port, d.pass.clone());
         let auth2 = std::sync::Arc::clone(&auth);
         let flow = thread::spawn(move || {
@@ -3131,6 +3264,7 @@ mod tests {
                 port,
                 &pass,
                 &auth2,
+                1,
                 "config/create",
                 "tdrive",
                 Some("drive"),

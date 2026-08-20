@@ -440,6 +440,8 @@ export default {
   "{n} file(s) changed on both sides": { one: "{n} файл змінено з обох боків", few: "{n} файли змінено з обох боків", many: "{n} файлів змінено з обох боків", other: "{n} файлів змінено з обох боків" },
   "no current version — both sides were renamed":
     "поточної версії немає — перейменовано обидві сторони",
+  "Ask before deleting files on the other side":
+    "Питати перед видаленням файлів на іншому боці",
   "keep current": "лишити поточний",
   "Delete this older copy": "Видалити цю старішу копію",
   "keep this": "лишити цей",

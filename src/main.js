@@ -1428,7 +1428,7 @@ function followSync(name) {
     if (!job) return;
     let p;
     try {
-      p = await invoke("sync_progress", { jobid: job.jobid });
+      p = await invoke("sync_progress", { jobid: job.jobid, name });
     } catch {
       setTimeout(tick, 3000);
       return;
@@ -1583,6 +1583,11 @@ async function openPairDialog(pair = null) {
   }
   $("pair-schedule").value = pair ? pair.schedule : "manual";
   $("pair-conflict").value = pair ? pair.conflictResolve : "newer";
+  // "Stop asking for this pair" used to be a one-way door: ticked once in a
+  // confirmation, never visible again, and every later run — including the
+  // unattended scheduled ones — carried force:true past bisync's own
+  // safety abort. Here it is, where the pair is edited, and it can go back.
+  $("pair-ask-deletes").checked = !(pair && pair.deleteWithoutAsking);
   pairExcludes = pair ? pair.excludes || [] : [];
   $("pair-folders-status").textContent = foldersSummary(pairExcludes);
   $("pair-dialog").showModal();
@@ -1624,6 +1629,7 @@ async function savePairFromDialog() {
         remote,
         schedule: $("pair-schedule").value,
         conflictResolve: $("pair-conflict").value,
+        deleteWithoutAsking: !$("pair-ask-deletes").checked,
         initialized: editingPair ? editingPair.initialized : false,
         excludes: pairExcludes,
       },

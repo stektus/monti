@@ -1067,6 +1067,20 @@ pub fn pending_uploads(port: u16, pass: &str, fs: &str) -> u64 {
 /// True when the path is (still) listed as a fuse.rclone mount — after a
 /// daemon death these turn into "Transport endpoint is not connected"
 /// zombies that must be lazily unmounted before mounting over them.
+/// Undo the escaping /proc/mounts applies to a path.
+///
+/// The kernel escapes four characters, not two: space, tab, newline and the
+/// backslash itself. Decoding only the first two meant a mount point with a
+/// backslash in it never matched its own row, and the drive read as gone —
+/// so lost_mounts announced it lost and forgot where it was mounted.
+/// Backslash last, or "\\134040" would turn into a space.
+pub fn unescape_mount(raw: &str) -> String {
+    raw.replace("\\040", " ")
+        .replace("\\011", "\t")
+        .replace("\\012", "\n")
+        .replace("\\134", "\\")
+}
+
 fn is_fuse_mounted(mount_point: &str) -> bool {
     fs::read_to_string("/proc/mounts")
         .map(|data| {
@@ -1075,8 +1089,7 @@ fn is_fuse_mounted(mount_point: &str) -> bool {
                 let _src = f.next();
                 let mp = f.next().unwrap_or("");
                 let ty = f.next().unwrap_or("");
-                ty == "fuse.rclone"
-                    && mp.replace("\\040", " ").replace("\\011", "\t") == mount_point
+                ty == "fuse.rclone" && unescape_mount(mp) == mount_point
             })
         })
         .unwrap_or(false)
@@ -1300,6 +1313,28 @@ mod port_tests {
         // The lookup accepts any local address, so ownership must still be
         // decided by the fd table alone: a bystander pid never matches.
         assert!(!foreign, "someone else's port reported as ours");
+    }
+}
+
+#[cfg(test)]
+mod mount_escape_tests {
+    /// /proc/mounts escapes four characters. Decoding two of them left a
+    /// drive mounted under a path with a backslash looking like a drive that
+    /// had vanished.
+    #[test]
+    fn all_four_escapes_are_undone() {
+        assert_eq!(
+            super::unescape_mount("/home/u/My\\040Drive"),
+            "/home/u/My Drive"
+        );
+        assert_eq!(super::unescape_mount("/tmp/a\\011b"), "/tmp/a\tb");
+        assert_eq!(super::unescape_mount("/tmp/a\\012b"), "/tmp/a\nb");
+        assert_eq!(
+            super::unescape_mount("/tmp/back\\134slash"),
+            "/tmp/back\\slash"
+        );
+        // A literal "\\134040" is a backslash followed by "040", not a space.
+        assert_eq!(super::unescape_mount("/tmp/x\\134040"), "/tmp/x\\040");
     }
 }
 
