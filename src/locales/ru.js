@@ -559,6 +559,27 @@ export default {
   "Monti — no drives mounted": "Monti — ни один диск не подключён",
   "Monti — {n} drives mounted": { one: "Monti — подключён {n} диск", few: "Monti — подключено {n} диска", many: "Monti — подключено {n} дисков", other: "Monti — подключено {n} дисков" },
 
+    // ---------- зашифрованная конфигурация ----------
+  "Your rclone config is locked": "Конфигурация rclone под паролем",
+  "unlock.what":
+    "Тот пароль, который rclone спрашивает в терминале, а не пароль от " +
+    "какого-то из дисков внутри. Хранится в памяти, на диск не пишется.",
+  "Config password": "Пароль конфигурации",
+  Unlock: "Открыть",
+  "The saved password no longer opens this config.":
+    "Сохранённый пароль больше не открывает эту конфигурацию.",
+  "That is not the password for this config file. It is the one rclone asks for when you run it in a terminal — not a password for any of the drives inside.":
+    "Это не пароль от этого файла конфигурации. Нужен тот, который rclone " +
+    "спрашивает при запуске в терминале, а не пароль какого-то из дисков внутри.",
+  "drives.locked.hint":
+    "Диски на месте — rclone не отдаст их, пока не получит пароль, которым " +
+    "защищена конфигурация на этом компьютере.",
+  "Enter the password": "Ввести пароль",
+  "The rclone config is still locked.": "Конфигурация rclone так и не открыта.",
+  "The rclone config is locked.": "Конфигурация rclone заперта паролем.",
+  "Open Monti and enter the password first.":
+    "Откройте Monti и сначала введите пароль.",
+
   // ---------- единицы ----------
   GB: "ГБ",
   MB: "МБ",

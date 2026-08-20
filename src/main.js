@@ -363,7 +363,7 @@ function refreshPickerRows() {
 
 async function loadChildren(container, fullPath, depth) {
   const remote = picker.remote;
-  const dirs = await invoke("list_cloud_dirs", { name: remote, path: fullPath });
+  const dirs = await unlocked(() => invoke("list_cloud_dirs", { name: remote, path: fullPath }));
   if (!picker) return 0; // closed while the cloud was answering
   for (const full of dirs) container.append(folderRow(full, depth));
   refreshPickerRows();
@@ -535,6 +535,9 @@ let healthTicks = 0;
 // showing the drive as mounted while the folder is empty. The backend reports
 // each such drive once, so anything that comes back here is news.
 async function checkLostMounts() {
+  // Drives a locked config could not mount are not "lost outside Monti" —
+  // they are queued behind the password, and the alarm would ring forever.
+  if (configLocked) return;
   let lost;
   try {
     lost = await invoke("lost_mounts");
@@ -554,7 +557,7 @@ async function checkLostMounts() {
     t("Monti: a drive disconnected"),
     t("{which} is no longer mounted. Open Monti and press Mount.", { which })
   );
-  await refreshRemotes().catch(() => {});
+  await refreshRemotes({ quiet: true }).catch(() => {});
 }
 
 async function healthTick() {
@@ -686,6 +689,124 @@ async function pollActivity() {
   }
 }
 
+// ---------- a password-protected rclone config ----------
+
+// rclone reads its config the first time something needs a remote, not when
+// the daemon starts — so a locked config is not a startup failure, it is the
+// answer to the drive list. Rust turns both refusals into these markers so
+// the words can live here with the rest of the interface.
+const CONFIG_LOCKED = "monti:config-locked";
+const CONFIG_LOCKED_BAD = "monti:config-locked-bad-password";
+
+// While the config sat locked, the quiet paths gave up without a word —
+// auto-mounts, syncs set to run at start. This remembers that something was
+// skipped, so the first successful look at the config can run it.
+let lockSkipped = false;
+
+// Whether the config is known to be locked right now. Background watchers
+// consult this: while it is true, "drive is not mounted" is not news worth
+// an alarm — everything is waiting for the same password.
+let configLocked = false;
+
+// The net under every click handler that awaits without catching: without
+// it a rejected promise dies in silence and the button just does nothing.
+window.addEventListener("unhandledrejection", (ev) => {
+  ev.preventDefault();
+  const msg = String(ev.reason ?? "");
+  showError(msg.startsWith(CONFIG_LOCKED) ? t("The rclone config is locked.") : msg);
+});
+
+// Run something that needs the config, and if the config turns out to be
+// locked, ask and run it again. Every call that names a remote can come back
+// this way — adding a cloud checks the name is free, the sync tab reads the
+// drive list — so the asking belongs here rather than at each of them.
+async function unlocked(run) {
+  try {
+    return await run();
+  } catch (e) {
+    if (!String(e).startsWith(CONFIG_LOCKED)) throw e;
+    // Thrown as a string, not an Error: everything a Tauri command rejects
+    // with is a string, and the callers print it with String(err) — an Error
+    // would arrive at the dialog wearing an "Error: " prefix.
+    if (!(await askConfigPassword(String(e) === CONFIG_LOCKED_BAD))) {
+      throw t("The rclone config is still locked.");
+    }
+    // The drives page may be sitting on the locked panel from an earlier
+    // refusal. It is right again now, whatever happens to the call below —
+    // and if this is left to the caller, a call that fails for its own
+    // reasons leaves a lock on screen over an unlocked config.
+    lockSkipped = true;
+    refreshRemotes().catch(() => {});
+    return run();
+  }
+}
+
+// Ask, hand it to the engine, and say whether we got in. Stays open on a
+// wrong password: the person is holding the right one somewhere and being
+// thrown back to an empty window helps nobody.
+function askConfigPassword(wrongAlready) {
+  const dlg = $("unlock-dialog");
+  const field = $("unlock-pass");
+  const err = $("unlock-error");
+  field.value = "";
+  err.textContent = wrongAlready ? t("The saved password no longer opens this config.") : "";
+  err.classList.toggle("hidden", !wrongAlready);
+
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = (ok) => {
+      if (done) return;
+      done = true;
+      field.value = "";
+      dlg.removeEventListener("close", onClose);
+      $("unlock-cancel").removeEventListener("click", onCancel);
+      $("unlock-form").removeEventListener("submit", onSubmit);
+      resolve(ok);
+    };
+    const onClose = () => {
+      if (!dlg.open) finish(false);
+    };
+    const onCancel = () => {
+      dlg.close();
+      finish(false);
+    };
+    const onSubmit = async (e) => {
+      e.preventDefault();
+      const password = field.value;
+      if (!password) {
+        field.focus();
+        return;
+      }
+      const ok = $("unlock-ok");
+      ok.disabled = true;
+      try {
+        await invoke("unlock_config", { password });
+        dlg.close();
+        finish(true);
+      } catch (e) {
+        // The backend answers with its marker so the words can live in the
+        // dictionaries with the rest of the interface.
+        err.textContent = String(e).startsWith(CONFIG_LOCKED)
+          ? t(
+              "That is not the password for this config file. It is the one " +
+                "rclone asks for when you run it in a terminal — not a " +
+                "password for any of the drives inside."
+            )
+          : String(e);
+        err.classList.remove("hidden");
+        field.select();
+      } finally {
+        ok.disabled = false;
+      }
+    };
+    dlg.addEventListener("close", onClose);
+    $("unlock-cancel").addEventListener("click", onCancel);
+    $("unlock-form").addEventListener("submit", onSubmit);
+    dlg.showModal();
+    field.focus();
+  });
+}
+
 // ---------- drives ----------
 
 async function fetchState() {
@@ -744,8 +865,38 @@ function trayLabels(running, drives) {
   };
 }
 
-async function refreshRemotes() {
-  const { remotes, own, external } = await fetchState();
+async function refreshRemotes(opts = {}) {
+  let snapshot;
+  try {
+    snapshot = await fetchState();
+  } catch (e) {
+    if (!String(e).startsWith(CONFIG_LOCKED)) throw e;
+    configLocked = true;
+    // Turned down. Not an error message — a state with a way out of it: an
+    // empty "no clouds connected yet" would be a lie about a config full of
+    // them, and a red banner leaves nothing to press. A quiet caller — a
+    // timer, a tab switch — shows the state but never summons the dialog:
+    // that right belongs to the person's own actions.
+    if (opts.quiet || !(await askConfigPassword(String(e) === CONFIG_LOCKED_BAD))) {
+      lockSkipped = true;
+      $("remotes-list").innerHTML = "";
+      $("empty-hint").classList.add("hidden");
+      $("locked-hint").classList.remove("hidden");
+      return;
+    }
+    snapshot = await fetchState();
+  }
+  configLocked = false;
+  $("locked-hint").classList.add("hidden");
+  if (lockSkipped) {
+    // The unlock is the moment the skipped work was waiting for.
+    lockSkipped = false;
+    autoRemount()
+      .then((n) => (n ? refreshRemotes() : null))
+      .catch(() => {});
+    syncOnStart().catch(() => {});
+  }
+  const { remotes, own, external } = snapshot;
   ownMounts = own;
   // The tray is drawn from the same state, so it never disagrees with the
   // window about what is mounted.
@@ -895,12 +1046,14 @@ async function refreshRemotes() {
       actions.append(
         makeBtn(t("Mount"), "primary", async () => {
           const mp = prefFor(name).mountPoint || null;
-          await invoke("mount_remote", {
-            name,
-            mountPoint: mp,
-            vfs: vfsOptFor(name),
-            excludes: excludesFor(name),
-          });
+          await unlocked(() =>
+            invoke("mount_remote", {
+              name,
+              mountPoint: mp,
+              vfs: vfsOptFor(name),
+              excludes: excludesFor(name),
+            })
+          );
           await refreshRemotes();
         }),
         makeBtn("⚙", "icon", () => openRemoteDialog(name), t("Drive settings")),
@@ -937,7 +1090,7 @@ async function refreshRemotes() {
               : null,
           });
           if (!ok) return;
-          await invoke("delete_remote", { name, mountPoint });
+          await unlocked(() => invoke("delete_remote", { name, mountPoint }));
           // Only forget the prefs once the remote is really gone — a failed
           // delete (e.g. still mounted) keeps the drive fully configured.
           const all = loadPrefs();
@@ -958,9 +1111,19 @@ async function refreshRemotes() {
 async function autoRemount() {
   const prefs = loadPrefs();
   const wanted = Object.keys(prefs).filter((n) => prefs[n].automount);
-  if (!wanted.length) return;
-  const { remotes, own, external } = await fetchState();
+  if (!wanted.length) return 0;
+  let state;
+  try {
+    state = await fetchState();
+  } catch (e) {
+    // A locked config is not a mount failure; the unlock runs this again.
+    if (!String(e).startsWith(CONFIG_LOCKED)) throw e;
+    lockSkipped = true;
+    return 0;
+  }
+  const { remotes, own, external } = state;
   const existing = new Set(remotes.map((r) => r.name));
+  let mounted = 0;
   for (const name of wanted) {
     if (!existing.has(name) || own.has(name) || external.has(name)) continue;
     try {
@@ -970,10 +1133,12 @@ async function autoRemount() {
         vfs: vfsOptFor(name),
         excludes: excludesFor(name),
       });
+      mounted += 1;
     } catch (e) {
       retryAutoMount(name, 0, e);
     }
   }
+  return mounted;
 }
 
 // "Share a file" belongs only on drives whose provider makes links —
@@ -994,7 +1159,7 @@ function addShareButton(actions, name) {
 async function shareFile(name) {
   let url;
   try {
-    url = await invoke("share_link", { name });
+    url = await unlocked(() => invoke("share_link", { name }));
   } catch (e) {
     showError(String(e));
     return;
@@ -1012,6 +1177,12 @@ async function shareFile(name) {
 const AUTOMOUNT_RETRIES = [10, 30, 60, 120]; // seconds between attempts
 
 function retryAutoMount(name, attempt, lastError) {
+  // A locked config is not the network coming up — retrying cannot fix it,
+  // and the unlock runs auto-mounts again anyway.
+  if (String(lastError).startsWith(CONFIG_LOCKED)) {
+    lockSkipped = true;
+    return;
+  }
   if (attempt >= AUTOMOUNT_RETRIES.length) {
     showError(t("Auto-mount of “{name}” failed: {error}", { name, error: lastError }));
     return;
@@ -1184,7 +1355,7 @@ function askFirstSync(pair) {
   });
 }
 
-async function startSync(pair, force = false) {
+async function startSync(pair, force = false, interactive = true) {
   showError("");
   let resyncMode = null;
   if (!pair.initialized) {
@@ -1193,14 +1364,23 @@ async function startSync(pair, force = false) {
   }
   let jobid;
   try {
-    jobid = await invoke("sync_run", {
-      name: pair.name,
-      resync: !pair.initialized,
-      resyncMode,
-      dryRun: false,
-      force,
-    });
+    const run = () =>
+      invoke("sync_run", {
+        name: pair.name,
+        resync: !pair.initialized,
+        resyncMode,
+        dryRun: false,
+        force,
+      });
+    // A hand on the button deserves the password dialog; a schedule firing
+    // in the background does not get to interrupt anyone — it waits for the
+    // unlock and is re-run by it.
+    jobid = await (interactive ? unlocked(run) : run());
   } catch (e) {
+    if (String(e).startsWith(CONFIG_LOCKED)) {
+      lockSkipped = true;
+      return;
+    }
     showError(t('Sync of "{name}" could not start: {error}', { name: pair.name, error: e }));
     return;
   }
@@ -1268,6 +1448,16 @@ function followSync(name) {
       return;
     }
     syncJobs.delete(name);
+
+    // A job the locked config never let start is not a failed sync — the
+    // run has simply not happened yet. The unlock re-runs it; a banner and
+    // a desktop notification would dress the waiting up as an error.
+    if (String(p.error || "").startsWith(CONFIG_LOCKED)) {
+      configLocked = true;
+      lockSkipped = true;
+      await refreshPairs().catch(() => {});
+      return;
+    }
 
     // The one failure that is a question rather than a fault.
     const deletes = /^TOO_MANY_DELETES:(\d+):(\d+)$/.exec(p.error || "");
@@ -1358,7 +1548,7 @@ let pairExcludes = [];
 async function openPairDialog(pair = null) {
   editingPair = pair;
   showError("");
-  const remotes = await invoke("list_remotes").catch(() => []);
+  const remotes = await unlocked(() => invoke("list_remotes")).catch(() => []);
   const sel = $("pair-remote");
   sel.innerHTML = "";
   for (const r of remotes) {
@@ -1457,7 +1647,7 @@ async function removePair(pair) {
 async function syncOnStart() {
   const pairs = await invoke("sync_pairs").catch(() => []);
   for (const p of pairs) {
-    if (p.schedule === "start" && p.initialized) await startSync(p).catch(() => {});
+    if (p.schedule === "start" && p.initialized) await startSync(p, false, false).catch(() => {});
   }
 }
 
@@ -1483,7 +1673,7 @@ function startSyncSchedules() {
       due.set(p.name, next);
       if (now >= next) {
         due.set(p.name, now + every);
-        startSync(p).catch(() => {});
+        startSync(p, false, false).catch(() => {});
       }
     }
   }, 60000);
@@ -1632,6 +1822,10 @@ async function refreshDialogCache(name) {
 // ---------- views ----------
 
 function switchView(view) {
+  // A message about what went wrong on one tab is not about the tab being
+  // opened; leaving it up made a single failure look like the whole app was
+  // broken, on every page, until something else happened to clear it.
+  showError("");
   $("view-drives").classList.toggle("hidden", view !== "drives");
   $("view-sync").classList.toggle("hidden", view !== "sync");
   $("view-settings").classList.toggle("hidden", view !== "settings");
@@ -1645,6 +1839,10 @@ function switchView(view) {
     refreshTransfers().catch(() => {});
   }
   if (view === "sync") refreshPairs().catch(() => {});
+  // The drive list was the one tab drawn once and left alone, so anything
+  // that changed while it was hidden — a drive added from a dialog, a config
+  // unlocked, a mount that went away — was still on screen as it used to be.
+  if (view === "drives") refreshRemotes({ quiet: true }).catch(() => {});
 }
 
 // What the engine has finished moving since it started. Answers "is it
@@ -1827,8 +2025,10 @@ async function boot() {
     setEngine("ok", status.version || "engine running");
     $("remotes-section").classList.remove("hidden");
     await applyBwLimit();
-    await autoRemount();
+    // The drive list first: with a locked config this is where the password
+    // dialog appears, once, before anything else needs the answer.
     await refreshRemotes();
+    if (await autoRemount()) await refreshRemotes();
     await syncOnStart();
     startSyncSchedules();
     if (!activityTimer) activityTimer = setInterval(pollActivity, 2000);
@@ -1925,6 +2125,8 @@ window.addEventListener("DOMContentLoaded", () => {
             { n: pending[1] }
           )
         );
+      } else if (String(err).startsWith(CONFIG_LOCKED)) {
+        notify(t("The rclone config is locked."), t("Open Monti and enter the password first."));
       } else {
         notify(
           action === "mount"
@@ -2129,6 +2331,13 @@ window.addEventListener("DOMContentLoaded", () => {
       $("add-provider").value = type;
     }
   };
+
+  // The way back from the locked state. The dialog itself refreshes the
+  // page when it succeeds, so there is nothing to do here on failure — the
+  // panel is still on screen with the same button.
+  $("locked-unlock").addEventListener("click", async () => {
+    if (await askConfigPassword(false)) await refreshRemotes().catch(() => {});
+  });
 
   $("add-btn").addEventListener("click", () => {
     $("add-form").reset();
@@ -2341,16 +2550,21 @@ window.addEventListener("DOMContentLoaded", () => {
     }
     $("add-submit").disabled = true;
     showError("");
+    // Adding a drive reads the config first, to see the name is free — so
+    // this is the other door a locked config is met at, and it asks here
+    // rather than failing with rclone's own words.
     const ok = await withAuth($("add-status"), () =>
-      signInFor
-        ? invoke("update_remote_credentials", { name: signInFor, params })
-        : invoke("create_remote", {
-            name,
-            provider,
-            clientId: $("add-client-id").value.trim() || null,
-            clientSecret: $("add-client-secret").value.trim() || null,
-            params,
-          })
+      unlocked(() =>
+        signInFor
+          ? invoke("update_remote_credentials", { name: signInFor, params })
+          : invoke("create_remote", {
+              name,
+              provider,
+              clientId: $("add-client-id").value.trim() || null,
+              clientSecret: $("add-client-secret").value.trim() || null,
+              params,
+            })
+      )
     );
     $("add-submit").disabled = false;
     if (ok) {

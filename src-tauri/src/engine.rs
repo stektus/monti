@@ -99,6 +99,15 @@ pub struct Engine {
     pub pass: String,
     /// Mounts made through Monti, keyed by fs ("name:").
     pub mounts: HashMap<String, MountEntry>,
+    /// The password for a password-protected rclone config, when the person
+    /// has given us one this session.
+    ///
+    /// Memory only. It is deliberately never written to engine.json, 0600 or
+    /// not: someone who encrypted their config did it so that reading a file
+    /// would not hand over their remotes, and keeping the key in the next
+    /// file along would undo exactly that. The daemon holds it for as long as
+    /// it runs — which outlives the app — so the asking is rare.
+    pub config_pass: Option<String>,
 }
 
 pub struct EngineState(pub Mutex<Engine>);
@@ -660,6 +669,28 @@ pub fn friendly_signin_error(raw: &str, hint: Option<&str>) -> String {
 /// person reading it wanted to copy a file. The raw text is kept at the end
 /// of the sentence, because a bug report needs it and because guessing wrong
 /// must not hide the truth.
+/// Monti has no password for a config that needs one.
+pub const CONFIG_LOCKED: &str = "monti:config-locked";
+/// Monti has one and rclone rejected it.
+pub const CONFIG_LOCKED_BAD: &str = "monti:config-locked-bad-password";
+
+/// Recognise the encrypted-config refusal in an error rclone sent back.
+///
+/// Both shapes carry "unable to decrypt configuration"; what separates them
+/// is whether a password was offered at all. Matching the whole phrase and
+/// not just "decrypt" keeps a `crypt` remote's own troubles out of here —
+/// those say "failed to decrypt file name" and belong to a different dialog.
+fn config_locked(low: &str) -> Option<&'static str> {
+    if !low.contains("unable to decrypt configuration") {
+        return None;
+    }
+    if low.contains("rclone_config_pass") && !low.contains("not allowed to ask") {
+        Some(CONFIG_LOCKED_BAD)
+    } else {
+        Some(CONFIG_LOCKED)
+    }
+}
+
 pub fn friendly_cloud_error(raw: &str) -> String {
     // Explaining an explanation reads as the same paragraph three times: the
     // sentence, then "The provider said:" and the sentence again, then the
@@ -670,6 +701,15 @@ pub fn friendly_cloud_error(raw: &str) -> String {
     }
     let low = raw.to_lowercase();
     let explain = |what: &str| format!("{what}{PROVIDER_SAID}{}", quoted(raw));
+
+    // A password-protected rclone config. The daemon starts happily without
+    // the password — it reads the config only when something asks for it —
+    // so this arrives as the answer to the first call that needs a remote,
+    // as a recovered Go panic, which is not a sentence to show anybody.
+    // The two cases are answered differently, so they are marked separately.
+    if let Some(marker) = config_locked(&low) {
+        return marker.into();
+    }
 
     // Google answers 403 for both "you are out of space" and "you are going
     // too fast", and the word "quota" appears in both — so decide which one
@@ -891,6 +931,11 @@ pub fn start_engine_locked(app: &AppHandle, eng: &mut Engine) -> Result<(), Stri
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(stderr);
+    // A password-protected config. Same reasoning as the credentials above:
+    // the environment, never the command line.
+    if let Some(cp) = &eng.config_pass {
+        cmd.env("RCLONE_CONFIG_PASS", cp);
+    }
     detach_child(&mut cmd);
     let mut child = cmd
         .spawn()
@@ -1081,7 +1126,11 @@ pub fn remount_saved(app: &AppHandle, eng: &Engine) {
             ),
             Err(e) => {
                 log_line(app, &format!("remount of {fs_name} failed: {e}"));
-                retry_mount(app, eng.port, &eng.pass, fs_name, entry);
+                // A locked config fails every retry the same way; the unlock
+                // restarts the engine and remounts, so waiting here is noise.
+                if e != CONFIG_LOCKED && e != CONFIG_LOCKED_BAD {
+                    retry_mount(app, eng.port, &eng.pass, fs_name, entry);
+                }
             }
         }
     }
@@ -1207,7 +1256,38 @@ mod port_tests {
 
 #[cfg(test)]
 mod error_tests {
-    use super::{friendly_cloud_error, friendly_signin_error};
+    use super::{friendly_cloud_error, friendly_signin_error, CONFIG_LOCKED, CONFIG_LOCKED_BAD};
+
+    /// Both messages below were copied from rclone v1.75.0 answering
+    /// `config/dump` over the RC API with an encrypted config. They differ by
+    /// one clause, and the whole dialog depends on which one arrived: one
+    /// asks for a password, the other says the one we hold is wrong.
+    #[test]
+    fn a_locked_config_is_told_apart_from_a_wrong_password() {
+        let no_password = friendly_cloud_error(
+            "panic received: fatal error: Failed to load config file \
+             \"/home/u/.config/rclone/rclone.conf\": unable to decrypt \
+             configuration and not allowed to ask for password - set \
+             RCLONE_CONFIG_PASS to your configuration password",
+        );
+        assert_eq!(no_password, CONFIG_LOCKED, "{no_password}");
+
+        let wrong = friendly_cloud_error(
+            "panic received: fatal error: Failed to load config file \
+             \"/home/u/.config/rclone/rclone.conf\": using RCLONE_CONFIG_PASS \
+             env password, unable to decrypt configuration",
+        );
+        assert_eq!(wrong, CONFIG_LOCKED_BAD, "{wrong}");
+    }
+
+    /// A `crypt` drive failing to decrypt a file name is a different problem
+    /// with a different answer, and it must not open the config dialog.
+    #[test]
+    fn a_crypt_drive_failure_is_not_a_locked_config() {
+        let out = friendly_cloud_error("failed to decrypt file name \"a1b2c3\": bad padding");
+        assert_ne!(out, CONFIG_LOCKED);
+        assert_ne!(out, CONFIG_LOCKED_BAD);
+    }
 
     /// Real messages, copied from rclone and from Google's API. The two 403s
     /// are the pair worth pinning: "you are out of space" and "you are going

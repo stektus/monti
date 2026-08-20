@@ -415,6 +415,54 @@ async fn restart_engine(app: AppHandle, state: State<'_, EngineState>) -> Result
     restart_engine_preserving_mounts(&app, &state)
 }
 
+/// Hand the engine the password for a password-protected rclone config.
+///
+/// rclone reads its config lazily, so the daemon is already up and answering
+/// by the time anyone discovers the config is locked — the password can only
+/// reach it through a restart. It is checked here, against the config, so a
+/// typo is answered by the dialog the person is still looking at instead of
+/// turning into an empty drive list a moment later.
+#[tauri::command]
+async fn unlock_config(
+    app: AppHandle,
+    state: State<'_, EngineState>,
+    password: String,
+) -> Result<(), String> {
+    if password.is_empty() {
+        return Err("Enter the password that unlocks your rclone config.".into());
+    }
+    let previous = {
+        let mut eng = state.0.lock().unwrap();
+        let previous = eng.config_pass.take();
+        eng.config_pass = Some(password);
+        previous
+    };
+    restart_engine_preserving_mounts(&app, &state)?;
+    let (port, pass) = {
+        let eng = state.0.lock().unwrap();
+        (eng.port, eng.pass.clone())
+    };
+    match rc_raw(port, &pass, "config/dump", &json!({})) {
+        Ok(_) => {
+            // Never the password itself, and not even its length.
+            log_line(&app, "rclone config unlocked");
+            Ok(())
+        }
+        Err(e) => {
+            // A wrong guess must not cost a password that was working, so
+            // put back whatever was there and leave the daemon holding it.
+            {
+                let mut eng = state.0.lock().unwrap();
+                eng.config_pass = previous;
+            }
+            let _ = restart_engine_preserving_mounts(&app, &state);
+            // The marker, not prose: the dialog translates it with the
+            // rest of the interface.
+            Err(e)
+        }
+    }
+}
+
 /// Read-only proxy to rclone's RC API: credentials never leave the Rust
 /// side, and only the endpoints the UI actually needs are reachable —
 /// anything with side effects goes through a dedicated command above.
@@ -2282,6 +2330,7 @@ pub fn run() {
             engine_status,
             engine_health,
             restart_engine,
+            unlock_config,
             install_rclone,
             start_engine,
             rc,

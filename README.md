@@ -389,8 +389,15 @@ What is still open:
 - **AUR package** — the PKGBUILD works today (see [Install](#install)); the
   AUR itself is not accepting new maintainer accounts, so it cannot be
   published there yet.
-- **Flatpak** — only worth doing if a mount survives the sandbox. Until that
-  is answered either way, the AppImage and the packages are the honest answer.
+- **Flatpak** — answered, and the answer is no. A mount can be made to work
+  from inside the sandbox, but only one way: `fusermount` cannot run in there,
+  so the package has to hand that call out to the host through
+  `--talk-name=org.freedesktop.Flatpak` — a permission that lets the app run
+  anything at all outside the sandbox. An install that looks contained and
+  isn't is worse than an AppImage that never claimed to be, so the AppImage
+  and the packages stay the answer. The portal that would fix this properly,
+  [xdg-desktop-portal#695](https://github.com/flatpak/xdg-desktop-portal/issues/695),
+  has been open since 2022.
 - **More languages** — the dictionary is one file per language and needs no
   build step, so a translation is a pull request away.
 

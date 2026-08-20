@@ -2,6 +2,33 @@
 
 Notable changes per release. Dates are the release date.
 
+## Unreleased
+
+**A password-protected rclone config now works.** Until now Monti met one by
+telling you to open a terminal and take the password off — asking you to
+weaken your setup so the app could run, which is the wrong way round. It asks
+for the password instead, in a dialog, and hands it to the engine through the
+environment. It is kept in memory and never written to disk: someone who
+encrypted their config did it so that reading a file would not give up their
+remotes, and storing the key beside it would undo exactly that. The engine
+holds it while it runs, so the question comes back only after a restart.
+
+A wrong password is answered where you typed it, in your language, and says
+which password is meant — the one rclone asks for in a terminal, not one
+belonging to a drive inside.
+
+The question is asked once, at the moment something actually needs the
+config, and declining it is a state you can leave, not a wall: the drives
+page shows a lock with a button, every direct action — mounting, adding a
+cloud, starting a sync — brings the dialog back on its own, and the
+background keeps quiet. Auto-mounts, drives recorded from the last run and
+syncs scheduled for start wait without banners or notifications, and the
+moment the password is entered they all run themselves: drives mount,
+skipped syncs start, nothing has to be clicked twice. If the password
+changes outside Monti, the dialog says the saved one no longer opens the
+config and asks for the new one; taking the encryption off is noticed
+silently.
+
 ## v0.9.1 — 2026-08-17
 
 Everything below was meant to be v0.9.0. That tag exists and its build never

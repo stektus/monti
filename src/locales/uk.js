@@ -559,6 +559,27 @@ export default {
   "Monti — no drives mounted": "Monti — жодного диска не підключено",
   "Monti — {n} drives mounted": { one: "Monti — підключено {n} диск", few: "Monti — підключено {n} диски", many: "Monti — підключено {n} дисків", other: "Monti — підключено {n} дисків" },
 
+    // ---------- зашифрована конфігурація ----------
+  "Your rclone config is locked": "Конфігурацію rclone захищено паролем",
+  "unlock.what":
+    "Той пароль, який rclone питає в терміналі, а не пароль від якогось із " +
+    "дисків усередині. Зберігається в пам\'яті, на диск не записується.",
+  "Config password": "Пароль конфігурації",
+  Unlock: "Відкрити",
+  "The saved password no longer opens this config.":
+    "Збережений пароль більше не відкриває цю конфігурацію.",
+  "That is not the password for this config file. It is the one rclone asks for when you run it in a terminal — not a password for any of the drives inside.":
+    "Це не пароль від цього файлу конфігурації. Потрібен той, який rclone " +
+    "питає під час запуску в терміналі, а не пароль котрогось із дисків усередині.",
+  "drives.locked.hint":
+    "Диски на місці — rclone не віддасть їх, доки не отримає пароль, яким " +
+    "захищено конфігурацію на цьому комп\'ютері.",
+  "Enter the password": "Ввести пароль",
+  "The rclone config is still locked.": "Конфігурацію rclone так і не відкрито.",
+  "The rclone config is locked.": "Конфігурацію rclone замкнено паролем.",
+  "Open Monti and enter the password first.":
+    "Відкрийте Monti і спершу введіть пароль.",
+
   // ---------- одиниці ----------
   GB: "ГБ",
   MB: "МБ",

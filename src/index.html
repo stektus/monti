@@ -79,6 +79,17 @@
           </div>
           <p class="error hidden" id="disk-warning"></p>
           <div id="remotes-list" class="grid"></div>
+          <div class="empty hidden" id="locked-hint">
+            <div class="empty-cloud">🔒</div>
+            <h3>Your rclone config is locked</h3>
+            <p class="muted" data-i18n="drives.locked.hint">
+              Your drives are there — rclone will not hand them over until it
+              has the password this computer's configuration is protected with.
+            </p>
+            <button class="btn primary" type="button" id="locked-unlock">
+              Enter the password
+            </button>
+          </div>
           <div class="empty hidden" id="empty-hint">
             <div class="empty-cloud">☁️</div>
             <h3>No clouds connected yet</h3>
@@ -571,6 +582,26 @@
         <div class="dialog-actions">
           <button class="btn" type="button" id="confirm-cancel">Cancel</button>
           <button class="btn" type="submit" id="confirm-ok">OK</button>
+        </div>
+      </form>
+    </dialog>
+
+    <!-- ============ CONFIG PASSWORD DIALOG ============ -->
+    <dialog id="unlock-dialog">
+      <form method="dialog" id="unlock-form">
+        <h2>Your rclone config is locked</h2>
+        <label>
+          Config password
+          <input type="password" id="unlock-pass" autocomplete="off" />
+        </label>
+        <p class="muted" data-i18n="unlock.what">
+          The one rclone asks for when you run it in a terminal, not a password
+          for one of the drives inside. Kept in memory, never written to disk.
+        </p>
+        <p class="error hidden" id="unlock-error"></p>
+        <div class="dialog-actions">
+          <button class="btn" type="button" id="unlock-cancel">Cancel</button>
+          <button class="btn primary" type="submit" id="unlock-ok">Unlock</button>
         </div>
       </form>
     </dialog>
