@@ -72,10 +72,29 @@ pub fn load_pairs(app: &AppHandle) -> Vec<SyncPair> {
     let Some(path) = store_path(app) else {
         return Vec::new();
     };
-    fs::read_to_string(path)
-        .ok()
-        .and_then(|s| serde_json::from_str::<Vec<SyncPair>>(&s).ok())
-        .unwrap_or_default()
+    let Ok(text) = fs::read_to_string(&path) else {
+        return Vec::new(); // no file yet: nothing has been set up
+    };
+    match serde_json::from_str::<Vec<SyncPair>>(&text) {
+        Ok(pairs) => pairs,
+        Err(e) => {
+            // A file that exists but cannot be read is not "no sync pairs".
+            // Reporting it as empty used to be enough for the next save to
+            // write that emptiness back and settle the matter for good, so
+            // the damaged file is kept aside instead, and said out loud.
+            let kept = path.with_extension("json.unreadable");
+            let _ = fs::rename(&path, &kept);
+            log_line(
+                app,
+                &format!(
+                    "sync.json could not be read ({e}); kept as {} — the sync \
+                     list starts empty",
+                    kept.display()
+                ),
+            );
+            Vec::new()
+        }
+    }
 }
 
 fn save_pairs(app: &AppHandle, pairs: &[SyncPair]) -> Result<(), String> {
@@ -88,7 +107,17 @@ fn save_pairs(app: &AppHandle, pairs: &[SyncPair]) -> Result<(), String> {
     // No password lives here, but the folder names someone syncs are their
     // business and not the rest of the machine's.
     let data = serde_json::to_vec_pretty(pairs).map_err(|e| e.to_string())?;
-    let tmp = path.with_extension("json.tmp");
+    // The temp name carries the pid and the thread, for the same reason
+    // engine.rs spells out: two writers sharing one temp name do not just
+    // lose a write, they can leave the target itself corrupt — the second
+    // writer's handle survives the first one's rename and then writes into
+    // what is now sync.json. Two pairs on the same schedule finish together
+    // often enough for that to be a matter of time.
+    let tmp = path.with_extension(format!(
+        "json.tmp.{}.{:?}",
+        std::process::id(),
+        std::thread::current().id()
+    ));
     let mut opts = fs::OpenOptions::new();
     opts.write(true).create(true).truncate(true);
     #[cfg(unix)]
@@ -464,6 +493,26 @@ pub struct Conflict {
     size: u64,
 }
 
+/// Split a bisync conflict copy into the name it belongs to.
+///
+/// rclone appends the suffix at the very end — "notes.txt.conflict1" — so the
+/// search has to start from the end. Looking from the front instead turns a
+/// file someone named "report.conflict.txt" into "report", and the answers
+/// below delete and overwrite by that name.
+///
+/// The tail after the suffix must be a number or nothing: that is what rclone
+/// writes, and requiring it keeps ordinary files with "conflict" in the name
+/// out of the list entirely.
+fn conflict_original(file_name: &str) -> Option<&str> {
+    let cut = file_name.rfind(".conflict")?;
+    let tail = &file_name[cut + ".conflict".len()..];
+    if tail.is_empty() || tail.chars().all(|c| c.is_ascii_digit()) {
+        Some(&file_name[..cut])
+    } else {
+        None
+    }
+}
+
 fn walk_conflicts(dir: &Path, out: &mut Vec<Conflict>, depth: usize) {
     if depth > 12 || out.len() > 500 {
         return;
@@ -480,10 +529,10 @@ fn walk_conflicts(dir: &Path, out: &mut Vec<Conflict>, depth: usize) {
         let Some(file_name) = path.file_name().and_then(|n| n.to_str()) else {
             continue;
         };
-        let Some(cut) = file_name.find(".conflict") else {
+        let Some(original) = conflict_original(file_name) else {
             continue;
         };
-        let winner = path.with_file_name(&file_name[..cut]);
+        let winner = path.with_file_name(original);
         out.push(Conflict {
             loser: path.to_string_lossy().into_owned(),
             winner: if winner.exists() {
@@ -527,10 +576,20 @@ fn settle_conflict(loser_path: &Path, keep: &str) -> Result<(), String> {
         .file_name()
         .and_then(|n| n.to_str())
         .ok_or("not a file")?;
-    let cut = file_name.find(".conflict").ok_or("not a conflict copy")?;
-    let original = loser_path.with_file_name(&file_name[..cut]);
+    let stem = conflict_original(file_name).ok_or("not a conflict copy")?;
+    let original = loser_path.with_file_name(stem);
 
     match keep {
+        // Throwing this copy away is only safe while the file it lost to is
+        // still there. When both sides were renamed — same mtime, no winner
+        // to pick — this is the last copy, and "keep current" would delete
+        // the whole file. The interface hides the button in that case; this
+        // is the same rule at the only place that can enforce it.
+        "winner" if !original.exists() => {
+            return Err("the current version of this file is gone — \
+                        keep this copy or keep both instead"
+                .into())
+        }
         "winner" => fs::remove_file(loser_path).map_err(|e| e.to_string())?,
         "loser" => {
             if original.exists() {
@@ -541,7 +600,6 @@ fn settle_conflict(loser_path: &Path, keep: &str) -> Result<(), String> {
         "both" => {
             // Keep the copy, but under a name that is not a conflict marker,
             // or the next run would treat it as one again.
-            let stem = &file_name[..cut];
             let (base, ext) = match stem.rfind('.') {
                 Some(i) => (&stem[..i], &stem[i..]),
                 None => (stem, ""),
@@ -557,6 +615,50 @@ fn settle_conflict(loser_path: &Path, keep: &str) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use std::fs;
+
+    /// A file someone named "report.conflict.txt" is not a conflict copy, and
+    /// the copy of it that bisync makes belongs to it — not to "report".
+    /// Reading the suffix from the front got both of these wrong, and the
+    /// answers below delete by that name.
+    #[test]
+    fn a_conflict_copy_belongs_to_the_file_it_was_copied_from() {
+        use super::conflict_original;
+        assert_eq!(conflict_original("notes.txt.conflict1"), Some("notes.txt"));
+        assert_eq!(
+            conflict_original("report.conflict.txt.conflict1"),
+            Some("report.conflict.txt")
+        );
+        assert_eq!(conflict_original("report.conflict.txt"), None);
+        assert_eq!(conflict_original("plans.conflict"), Some("plans"));
+        assert_eq!(conflict_original("holiday.jpg"), None);
+    }
+
+    /// Both sides changed in the same second, so rclone renamed both copies
+    /// and there is no current version left. "Keep current" would then delete
+    /// the only copy there is, which is the one thing settling a conflict must
+    /// never do.
+    #[test]
+    fn the_last_copy_of_a_file_is_never_thrown_away() {
+        let dir = std::env::temp_dir().join(format!("monti-lastcopy-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let one = dir.join("notes.txt.conflict1");
+        let two = dir.join("notes.txt.conflict2");
+        fs::write(&one, "laptop").unwrap();
+        fs::write(&two, "cloud").unwrap();
+
+        let refused = super::settle_conflict(&one, "winner");
+        assert!(refused.is_err(), "deleting the last copy was allowed");
+        assert!(one.exists() && two.exists(), "a copy was deleted anyway");
+
+        // Putting one back under the original name is the way out, and then
+        // the other copy has a winner again.
+        super::settle_conflict(&one, "loser").unwrap();
+        assert!(dir.join("notes.txt").exists());
+        super::settle_conflict(&two, "winner").unwrap();
+        assert!(!two.exists());
+        let _ = fs::remove_dir_all(&dir);
+    }
 
     /// Settling a conflict moves someone's documents, so each of the three
     /// answers is pinned: nothing may be lost by accident, and "keep both"

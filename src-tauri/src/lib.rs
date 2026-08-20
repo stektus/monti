@@ -1335,15 +1335,22 @@ async fn update_remote_credentials(
 /// Abort an in-flight browser authorization (Cancel button): empty the
 /// slot — the polling loop notices and stops the daemon-side job.
 #[tauri::command]
-fn cancel_create_remote(state: State<EngineState>, auth: State<AuthState>) {
+async fn cancel_create_remote(
+    state: State<'_, EngineState>,
+    auth: State<'_, AuthState>,
+) -> Result<(), String> {
     let jobid = auth.0.lock().unwrap().take();
     if let Some(jobid) = jobid.filter(|&j| j > 0) {
         let (port, pass) = {
             let eng = state.0.lock().unwrap();
             (eng.port, eng.pass.clone())
         };
+        // Off the main thread: job/stop is an RC call with the 120-second
+        // default timeout, and Cancel must never be the click that freezes
+        // the window it belongs to.
         let _ = rc_raw(port, &pass, "job/stop", &json!({ "jobid": jobid }));
     }
+    Ok(())
 }
 
 /// Delete a remote from the rclone config. Done through the RC API, which
@@ -1722,9 +1729,16 @@ async fn pick_folder(app: AppHandle, start: Option<String>) -> Result<Option<Str
 /// which carries no drive name at all, so the card said "not mounted" while
 /// the folder was mounted and full. Monti's own record always knows.
 #[tauri::command]
-fn own_mounts(state: State<'_, EngineState>) -> HashMap<String, String> {
+/// `async` on purpose, like every other command that touches the engine
+/// mutex. A plain command runs inline on the main thread, and this one waits
+/// on the same lock a restart holds for the whole stop-start-remount — up to
+/// two minutes per unreachable drive. The window would stop repainting, the
+/// tray would stop opening, and Close would do nothing, all while the drives
+/// came back perfectly well underneath.
+async fn own_mounts(state: State<'_, EngineState>) -> Result<HashMap<String, String>, String> {
     let eng = state.0.lock().unwrap();
-    eng.mounts
+    Ok(eng
+        .mounts
         .iter()
         .map(|(fs, entry)| {
             (
@@ -1732,7 +1746,7 @@ fn own_mounts(state: State<'_, EngineState>) -> HashMap<String, String> {
                 entry.mount_point.clone(),
             )
         })
-        .collect()
+        .collect())
 }
 
 /// The folders directly inside `path` of a drive, for the "choose which

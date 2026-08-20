@@ -438,6 +438,8 @@ export default {
 
   // конфликты
   "{n} file(s) changed on both sides": { one: "{n} файл изменён с обеих сторон", few: "{n} файла изменены с обеих сторон", many: "{n} файлов изменены с обеих сторон", other: "{n} файлов изменены с обеих сторон" },
+  "no current version — both sides were renamed":
+    "текущей версии нет — переименованы обе стороны",
   "keep current": "оставить текущий",
   "Delete this older copy": "Удалить эту более старую копию",
   "keep this": "оставить этот",

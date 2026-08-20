@@ -1531,8 +1531,19 @@ async function showConflicts(card, name) {
         },
         title
       );
+    // When both sides changed in the same second rclone renames both copies
+    // and no current version is left — the backend says so with an empty
+    // winner. Offering "keep current" there would delete the only copy of
+    // the file, which is the opposite of what settling a conflict is for.
+    if (c.winner) {
+      row.append(settle("winner", t("keep current"), t("Delete this older copy")));
+    } else {
+      const gone = document.createElement("span");
+      gone.className = "muted";
+      gone.textContent = t("no current version — both sides were renamed");
+      row.append(gone);
+    }
     row.append(
-      settle("winner", t("keep current"), t("Delete this older copy")),
       settle("loser", t("keep this"), t("Put this copy back under the original name")),
       settle("both", t("keep both"), t("Rename it to “(copy)” and stop calling it a conflict"))
     );

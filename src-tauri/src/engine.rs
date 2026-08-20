@@ -225,7 +225,18 @@ pub fn log_line(app: &AppHandle, msg: &str) {
     {
         let _ = fs::rename(&path, path.with_extension("log.old"));
     }
-    if let Ok(mut f) = fs::OpenOptions::new().create(true).append(true).open(&path) {
+    // 0600 from birth, like engine.json and engine.log beside it. The
+    // default umask made this one world-readable, and it carries the names
+    // of someone's drives and where they are mounted — their business, not
+    // the rest of the machine's.
+    let mut opts = fs::OpenOptions::new();
+    opts.create(true).append(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        opts.mode(0o600);
+    }
+    if let Ok(mut f) = opts.open(&path) {
         use std::io::Write;
         let _ = writeln!(f, "{} {}", utc_stamp(), msg);
     }
@@ -506,6 +517,13 @@ pub fn try_adopt_engine(app: &AppHandle, eng: &mut Engine) -> bool {
             safe_kill(app, pid, starttime);
             return cleanup();
         }
+    }
+    // Whoever we are about to authenticate to must be holding the port —
+    // checked for every file, not just the v2 ones. A legacy file skips the
+    // chain above, and without this the saved RC password would go to
+    // whatever now sits on that port after a crash.
+    if !pid_owns_port(pid, port) {
+        return cleanup();
     }
     // Final proof of life + identity: the daemon itself reports our pid.
     let daemon_pid = rc_raw(port, &pass, "core/pid", &json!({}))
@@ -949,6 +967,22 @@ pub fn start_engine_locked(app: &AppHandle, eng: &mut Engine) -> Result<(), Stri
             log_line(app, &format!("engine failed to start: {err}"));
             return Err(err);
         }
+        // Who holds the port, before a word is said to it. free_port() picks
+        // a number and lets go of it, so between that and rclone binding it
+        // there is a gap — measured at around 80 ms — and anything else on
+        // the machine can take it. Asking rc/noop first would hand that
+        // stranger the RC password in the Authorization header, and from
+        // then on it would be Monti's engine: the drive list, and every
+        // provider password typed into "Add cloud", sent straight to it.
+        //
+        // This is only reading /proc, so it costs the stranger nothing and
+        // tells us everything. The adoption path has always checked this
+        // before trusting a port; the daemon we spawn ourselves deserves the
+        // same suspicion.
+        if !pid_owns_port(child.id(), port) {
+            thread::sleep(Duration::from_millis(100));
+            continue;
+        }
         if rc_raw(port, &pass, "rc/noop", &json!({})).is_ok() {
             eng.pid = child.id();
             eng.starttime = proc_starttime(eng.pid).unwrap_or(0);
@@ -1074,6 +1108,11 @@ pub fn mount_guarded(
     #[cfg(unix)]
     let under = fs::File::open(&entry.mount_point).ok();
     #[cfg(unix)]
+    let was = under.as_ref().and_then(|d| d.metadata().ok()).map(|m| {
+        use std::os::unix::fs::PermissionsExt;
+        m.permissions().mode() & 0o777
+    });
+    #[cfg(unix)]
     if under.is_some() {
         set_mode(&entry.mount_point, 0o700);
     }
@@ -1081,7 +1120,17 @@ pub fn mount_guarded(
     #[cfg(unix)]
     if let Some(dir) = under {
         use std::os::unix::fs::PermissionsExt;
-        let _ = dir.set_permissions(fs::Permissions::from_mode(0o500));
+        // Closing the folder under a live mount is the point: writes that
+        // land there would sit invisibly beneath the drive. But when the
+        // mount did not happen there is nothing on top, and leaving the
+        // person locked out of their own folder is not a safety measure —
+        // so failure puts the mode back the way it was found.
+        let mode = if result.is_ok() {
+            0o500
+        } else {
+            was.unwrap_or(0o755)
+        };
+        let _ = dir.set_permissions(fs::Permissions::from_mode(mode));
     }
     result
 }

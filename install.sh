@@ -198,7 +198,8 @@ sums_url="$(dirname "$url")/SHA256SUMS"
 if sums=$(curl -fsSL "$sums_url" 2>/dev/null); then
   expected=$(printf '%s\n' "$sums" | grep " $(basename "$url")\$" | cut -d' ' -f1) || true
   if [ -z "$expected" ]; then
-    say "AppImage not listed in SHA256SUMS — skipping verification."
+    rm -f "$BIN.part"
+    die "This release does not list $(basename "$url") in its SHA256SUMS, so the download cannot be verified. Nothing was installed."
   elif [ "$(sha256sum "$BIN.part" | cut -d' ' -f1)" != "$expected" ]; then
     rm -f "$BIN.part"
     die "Checksum mismatch — the download is corrupted or tampered with. Try again."
@@ -206,7 +207,11 @@ if sums=$(curl -fsSL "$sums_url" 2>/dev/null); then
     say "Checksum: ok"
   fi
 else
-  say "Checksum file not published for this release — skipping verification."
+  # Fail closed. Announcing "skipping verification" and installing anyway
+  # turned an unreachable or missing SHA256SUMS — which is also what an
+  # attacker serving a swapped AppImage would arrange — into a clean install.
+  rm -f "$BIN.part"
+  die "Could not fetch $sums_url, so the download cannot be verified. Nothing was installed. Check your connection, or download the AppImage and its checksum by hand from the releases page."
 fi
 
 mv "$BIN.part" "$BIN"

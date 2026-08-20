@@ -29,6 +29,43 @@ changes outside Monti, the dialog says the saved one no longer opens the
 config and asks for the new one; taking the encryption off is noticed
 silently.
 
+**Fixes found by auditing the code against itself.**
+
+Settling a sync conflict could delete the wrong file. The name of a
+conflict copy was read from the first `.conflict` in it rather than the
+last, so a document someone had named `report.conflict.txt` was itself
+listed as a conflict — and answering "keep this" on its copy deleted an
+unrelated file called `report`. Both sides now read the suffix from the
+end and require what rclone actually writes.
+
+When both sides of a file change in the same second, rclone renames both
+copies and no current version is left. "Keep current" was still offered
+there, and pressing it on both rows deleted every copy of the file. The
+button is now absent when there is nothing to keep, and the backend
+refuses that answer as well.
+
+The engine handshake no longer sends its password to whoever happens to
+hold the port. Monti picks a free port, lets go of it, and starts rclone;
+anything on the machine can take it in between, and the readiness probe
+treated any answer as proof. It now confirms through `/proc` that the
+process holding the port is the one it started, before a word is said to
+it — the check the adoption path already made, now made everywhere.
+
+The sync list could be lost. Two pairs finishing at the same moment wrote
+through one shared temporary file, which could leave `sync.json` corrupt,
+and a corrupt file was read as "no sync pairs at all" and then written
+back. Writers no longer share a name, and an unreadable file is kept aside
+and reported instead of being silently accepted.
+
+Two commands ran on the main thread while holding the engine lock, so a
+restart with unreachable drives froze the window, the tray and the close
+button for as long as the remounts took.
+
+`monti.log` was created world-readable while every file beside it was
+0600. A failed mount left the folder read-only. `install.sh` announced
+"skipping verification" and installed anyway when the checksums could not
+be fetched — it now stops.
+
 ## v0.9.1 — 2026-08-17
 
 Everything below was meant to be v0.9.0. That tag exists and its build never
