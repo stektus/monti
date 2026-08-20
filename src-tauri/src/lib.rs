@@ -1894,8 +1894,49 @@ async fn mount_remote(
     vfs: Option<Value>,
     excludes: Option<Vec<String>>,
 ) -> Result<String, String> {
+    let fs_wanted = fs_name_of(&name)?;
+    let eng_port_pass = {
+        let eng = state.0.lock().unwrap();
+        (eng.port, eng.pass.clone())
+    };
     // Refuse to mount a remote that is already mounted anywhere on the
     // system: two VFS caches over one remote can corrupt files.
+    //
+    // The name is read out of the /proc/mounts source, which rclone writes
+    // as "gdrive:" for the drives Monti makes — but as the wrapped path for
+    // an alias remote, where nothing carries the name at all. So the daemon
+    // is asked as well: it knows every mount it made under the name it made
+    // it under, whichever backend that is.
+    let mounted_here = engine::rc_raw_with_timeout(
+        eng_port_pass.0,
+        &eng_port_pass.1,
+        "mount/listmounts",
+        &json!({}),
+        5,
+    )
+    .ok()
+    .and_then(|v| {
+        v.get("mountPoints")
+            .and_then(Value::as_array)
+            .map(|points| {
+                points
+                    .iter()
+                    .filter(|m| m.get("Fs").and_then(Value::as_str) == Some(fs_wanted.as_str()))
+                    .filter_map(|m| {
+                        m.get("MountPoint")
+                            .and_then(Value::as_str)
+                            .map(String::from)
+                    })
+                    .next()
+            })
+    })
+    .flatten();
+    if let Some(point) = mounted_here {
+        return Err(format!(
+            "\"{name}\" is already mounted at {point}. \
+             Use that folder, or unmount it first."
+        ));
+    }
     if let Some(existing) = read_proc_mounts().into_iter().find(|m| m.remote == name) {
         return Err(format!(
             "\"{name}\" is already mounted at {} (outside Monti). \
@@ -1947,9 +1988,8 @@ async fn mount_remote(
         excludes: excludes.unwrap_or_default(),
     };
     let mut eng = state.0.lock().unwrap();
-    let fs_name = fs_name_of(&name)?;
-    engine::mount_guarded(eng.port, &eng.pass, &fs_name, &entry).map_err(&cleanup)?;
-    eng.mounts.insert(fs_name, entry);
+    engine::mount_guarded(eng.port, &eng.pass, &fs_wanted, &entry).map_err(&cleanup)?;
+    eng.mounts.insert(fs_wanted, entry);
     eng.record_saved = save_engine_file(&app, &eng);
     log_line(
         &app,

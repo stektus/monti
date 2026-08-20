@@ -33,8 +33,9 @@ tested.
   provenance: a signed statement naming the repository, the workflow and the
   commit that produced it. A checksum only proves the download arrived intact —
   this proves it was not built somewhere else. Check it with
-  `gh attestation verify <package> --repo stektus/monti`. Releases before
-  v0.9.2 predate this and have checksums only.
+  `gh attestation verify <package> --repo stektus/monti`. This starts with
+  v0.9.2 — every release published before it was built by the same workflow
+  but carries checksums only, so there is nothing to verify there yet.
 - **The dependency tree is checked on a schedule.** `cargo audit` runs on every
   push and once a week against the current RustSec database, so an advisory
   published against a crate underneath Monti surfaces without anyone

@@ -108,6 +108,28 @@ it. It also offered to delete the cache while drives were still mounted,
 where "the originals are in your cloud" is exactly what is not yet true of
 files still waiting to be uploaded.
 
+**The last of the audit findings, in the window itself.**
+
+A sync whose run Monti lost track of — rclone forgets a finished job after
+about a minute — left the pair pinned at "syncing" with no result and no way
+to start it again until Monti was restarted. It now gives up after half a
+minute of silence and says so.
+
+Starting a sync by hand while the config was locked did nothing at all: the
+daemon accepts the job and refuses later, so the password dialog the button
+promised never appeared. It appears now, and the sync runs itself once the
+config opens.
+
+"Unmount all" from the tray stopped at the first drive that would not come
+down and left the rest mounted, reporting the failure as "undefined". Every
+drive is now tried, and what actually failed is named.
+
+Unlocking the config restarts the engine, and a fresh engine has no speed
+limit — this was the one restart that did not put it back.
+
+Mounting a drive that is already mounted is refused by asking the daemon as
+well as by reading /proc/mounts, which cannot name an alias remote at all.
+
 ## v0.9.1 — 2026-08-17
 
 Everything below was meant to be v0.9.0. That tag exists and its build never

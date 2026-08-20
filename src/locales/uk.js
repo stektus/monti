@@ -442,6 +442,9 @@ export default {
     "поточної версії немає — перейменовано обидві сторони",
   "Ask before deleting files on the other side":
     "Питати перед видаленням файлів на іншому боці",
+  "lost track of this run — start it again to be sure":
+    "втрачено звʼязок із цим запуском — запустіть ще раз, щоб бути певним",
+  "Could not unmount everything": "Не вдалося відключити всі диски",
   "keep current": "лишити поточний",
   "Delete this older copy": "Видалити цю старішу копію",
   "keep this": "лишити цей",

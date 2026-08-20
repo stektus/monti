@@ -781,6 +781,10 @@ function askConfigPassword(wrongAlready) {
       ok.disabled = true;
       try {
         await invoke("unlock_config", { password });
+        // The unlock restarts the daemon, and a fresh daemon is an
+        // unlimited one: every other restart in the app puts the speed
+        // limit back, and this one used to drop it for the session.
+        await applyBwLimit().catch(() => {});
         dlg.close();
         finish(true);
       } catch (e) {
@@ -1384,7 +1388,7 @@ async function startSync(pair, force = false, interactive = true) {
     showError(t('Sync of "{name}" could not start: {error}', { name: pair.name, error: e }));
     return;
   }
-  syncJobs.set(pair.name, { jobid, resync: !pair.initialized, force });
+  syncJobs.set(pair.name, { jobid, resync: !pair.initialized, force, interactive });
   await refreshPairs();
   followSync(pair.name);
 }
@@ -1423,14 +1427,33 @@ async function confirmDeletes(pair, n, total) {
 // bisync of a real folder takes minutes; follow the job and keep the card
 // honest about what is happening.
 function followSync(name) {
+  // rclone forgets a finished job after about a minute, and the poll then
+  // fails for good. Retrying it forever left the pair pinned at "syncing"
+  // — no result, no way to start it again — until Monti was restarted.
+  let misses = 0;
   const tick = async () => {
     const job = syncJobs.get(name);
     if (!job) return;
     let p;
     try {
       p = await invoke("sync_progress", { jobid: job.jobid, name });
-    } catch {
-      setTimeout(tick, 3000);
+      misses = 0;
+    } catch (e) {
+      if (++misses < 10) {
+        setTimeout(tick, 3000);
+        return;
+      }
+      // Half a minute of silence: let the pair go rather than pretend.
+      syncJobs.delete(name);
+      await invoke("sync_finished", {
+        name,
+        ok: false,
+        wasResync: job.resync,
+        detail: t("lost track of this run — start it again to be sure"),
+        rememberDeletes: false,
+      }).catch(() => {});
+      await refreshPairs().catch(() => {});
+      showError(t('Sync of "{name}" failed: {error}', { name, error: String(e) }));
       return;
     }
     if (!p.finished) {
@@ -1454,8 +1477,19 @@ function followSync(name) {
     // a desktop notification would dress the waiting up as an error.
     if (String(p.error || "").startsWith(CONFIG_LOCKED)) {
       configLocked = true;
-      lockSkipped = true;
       await refreshPairs().catch(() => {});
+      // A hand-started sync deserves the dialog: rclone accepts an async
+      // bisync and returns a job id even when the config is locked, so the
+      // refusal arrives here rather than at the call unlocked() wraps.
+      const pair = (await invoke("sync_pairs").catch(() => [])).find((x) => x.name === name);
+      if (job.interactive && pair) {
+        if (await askConfigPassword(String(p.error) === CONFIG_LOCKED_BAD)) {
+          refreshRemotes().catch(() => {});
+          await startSync(pair, job.force, true);
+          return;
+        }
+      }
+      lockSkipped = true;
       return;
     }
 
@@ -2101,10 +2135,15 @@ window.addEventListener("DOMContentLoaded", () => {
         // refuses, says which one, and the rest still come down — the point
         // is to leave nothing half-uploaded, not to force everything off.
         const busy = [];
+        const failed = [];
         for (const [drive, point] of [...ownMounts]) {
+          // Whatever one drive says, the rest still come down. Rethrowing
+          // here abandoned every drive after the first difficult one, and
+          // the outer handler had no drive name to report — the person got
+          // a desktop notification reading "undefined".
           await invoke("unmount_remote", { mountPoint: point }).catch((err) => {
             if (String(err).includes("UPLOADS_PENDING")) busy.push(drive);
-            else throw err;
+            else failed.push(`${drive}: ${err}`);
           });
         }
         if (busy.length) {
@@ -2114,6 +2153,10 @@ window.addEventListener("DOMContentLoaded", () => {
               drives: busy.join(", "),
             })
           );
+        }
+        if (failed.length) {
+          notify(t("Could not unmount everything"), failed.join("\n"));
+          showError(failed.join("; "));
         }
         await refreshRemotes();
         return;
