@@ -2,7 +2,7 @@
 
 Notable changes per release. Dates are the release date.
 
-## Unreleased
+## v0.9.2 — 2026-08-20
 
 **A password-protected rclone config now works.** Until now Monti met one by
 telling you to open a terminal and take the password off — asking you to
