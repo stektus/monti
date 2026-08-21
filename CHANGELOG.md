@@ -2,7 +2,7 @@
 
 Notable changes per release. Dates are the release date.
 
-## Unreleased
+## v0.9.3 — 2026-08-21
 
 **Monti can put a password on your rclone config, not only ask for one.**
 Opening an encrypted config has worked since 0.9.2; settings can now encrypt
