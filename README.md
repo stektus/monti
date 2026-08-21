@@ -105,6 +105,7 @@ same build: Monti follows the desktop unless you tell it otherwise.
 | ![Drive settings](docs/screenshot-drive-settings.png) | **Per-drive settings** — where it mounts, whether it mounts on start, read-only mode, cache limit, which folders it carries, how much it has cached right now, and a way to sign in again when a password changes. |
 | ![A new synced pair](docs/screenshot-newsync.png) | **Setting up a sync** — a folder here, a folder in the cloud, how often, and what to do when both sides changed. **Browse…** opens your file manager's picker. |
 | ![Settings](docs/screenshot-settings.png) | **Settings** — theme, start on login, keep drives mounted after quitting, tray, notifications, a speed limit, and what the engine has moved since it started. |
+| ![Setting a password on the rclone config](docs/screenshot-config-password.png) | **A password on the config itself** — rclone can encrypt the file that holds every cloud you have connected. Settings puts one on, changes it, or takes it off; the warning about losing it is not in the small print either. |
 | ![Storage](docs/screenshot-storage.png) | **Storage** — what the cache costs you and how much room is left, because a cache that quietly fills the disk is the classic way rclone mounts go wrong. |
 | ![Disconnecting a drive](docs/screenshot-disconnect.png) | **Removing a drive** — the dialog lists exactly what happens, including the folder it deletes, and lets you clear the cache in the same click. |
 
@@ -278,16 +279,17 @@ To remove it all: delete the AppImage, that `.desktop` file,
 The AppImage carries its own GTK and WebKit, and takes the C library, the
 graphics stack and fonts from your system. Every release is launched on
 **Debian 12, Ubuntu 24.04, Fedora 42 and Arch** before it is published, and is
-rejected if the window does not draw.
+rejected if the window does not draw. (The arm64 build sees the first three:
+Arch publishes no official arm64 image.)
 
 If rclone is not installed, Monti downloads the official build into its own
 folder; no root needed.
 
 ## If something goes wrong
 
-**The window is blank / white.** Every release is launched on four
-distributions before it is published, so this should not happen — if it does,
-these two are worth trying, and either way please report it:
+**The window is blank / white.** Every release is launched on the
+distributions listed above before it is published, so this should not happen —
+if it does, these two are worth trying, and either way please report it:
 
 ```bash
 WEBKIT_DISABLE_DMABUF_RENDERER=0 ~/Applications/Monti.AppImage   # accelerated
@@ -373,6 +375,10 @@ file paths — trim anything you would rather not publish.
   ownership of the port — before reconnecting or sending anything to it.
 - OAuth happens in your browser through rclone's own flow, driven over the API
   so no engine restart is needed and no drive gets dropped mid-setup.
+- A config password never touches a command line, in either direction. The
+  engine receives it in its environment; when Monti sets or changes one,
+  rclone asks by running a command — and that command is Monti itself, which
+  prints what it was handed and exits.
 
 ## Supported clouds
 
@@ -380,12 +386,13 @@ Google Drive, Dropbox, Box, pCloud, Yandex Disk, MEGA, Proton Drive, Koofr
 (and Digi Storage), Storj, Jottacloud, OneDrive (experimental), Backblaze B2,
 and self-hosted storage: WebDAV / Nextcloud, S3-compatible, SFTP.
 
-The first five sign in through the browser. The rest are signed in from the
-dialog itself, each in the form it actually uses: an application key for
-Backblaze, an account password for MEGA, an app password for Koofr, a
-two-factor code for Proton, an access grant for Storj, a one-time login token
-for Jottacloud. Whichever it is, the details are checked before the drive is
-added — a drive that cannot sign in is never left in the list to fail later.
+Six sign in through the browser — Google Drive, Dropbox, Box, pCloud, Yandex
+Disk and OneDrive. The rest are signed in from the dialog itself, each in the
+form it actually uses: an application key for Backblaze, an account password
+for MEGA, an app password for Koofr, a two-factor code for Proton, an access
+grant for Storj, a one-time login token for Jottacloud. Whichever it is, the
+details are checked before the drive is added — a drive that cannot sign in is
+never left in the list to fail later.
 
 On top of any of them you can add an **encrypted drive**: file contents and
 file names are encrypted on this computer, so the provider stores gibberish
@@ -396,7 +403,8 @@ both are in the dialog as well:
   The files stay encrypted forever.
 - **The password is stored on this computer** in rclone's config, scrambled
   but reversible. What encryption protects is the copy in the cloud, not the
-  config file on your disk.
+  config file on your disk — unless you put a password on that file as well,
+  which Settings can do for you.
 
 ## Roadmap
 
