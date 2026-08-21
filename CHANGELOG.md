@@ -2,6 +2,14 @@
 
 Notable changes per release. Dates are the release date.
 
+## Unreleased
+
+A mounted drive showed the whole path to its folder while an unmounted one
+showed `~/CloudDrives/name`, so the same folder looked like two different
+places depending on whether it was mounted. Paths inside your home are now
+written the way you write them — the full path is still there, one hover
+away. The same applies to a synced pair and to the config file in About.
+
 ## v0.9.3 — 2026-08-21
 
 **Monti can put a password on your rclone config, not only ask for one.**

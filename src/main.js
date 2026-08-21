@@ -244,6 +244,27 @@ function makeBtn(label, extra, onClick, title = "") {
 // the ellipsis stays at the front and the slashes stay where they were
 // written. Copying the line still yields the plain path — no invisible
 // control characters are added.
+// Where this person's home is, so a path inside it can be shown the way
+// they would write it. Filled from app_info before the first paint; until
+// then, and for anything outside home, paths are shown whole.
+let homeDir = "";
+let appInfo = null;
+
+async function loadAppInfo() {
+  appInfo = await invoke("app_info");
+  homeDir = appInfo.home || "";
+  return appInfo;
+}
+
+// `/home/ann/CloudDrives/photos` → `~/CloudDrives/photos`. A drive showed
+// the short form until it was mounted and the long one afterwards, which
+// made one folder look like two places.
+function withTilde(path) {
+  if (!path || !homeDir) return path;
+  if (path === homeDir) return "~";
+  return path.startsWith(homeDir + "/") ? "~" + path.slice(homeDir.length) : path;
+}
+
 function setPath(el, text, title = text) {
   el.textContent = "";
   const inner = document.createElement("span");
@@ -968,10 +989,10 @@ async function refreshRemotes(opts = {}) {
     if (wraps) card.querySelector(".wraps").textContent = t("in {name}", { name: wraps });
     // The line is truncated to keep every card the same shape; the full
     // path is one hover away.
-    setPath(
-      card.querySelector(".remote-path"),
-      ownPoint || extPoint || prefFor(name).mountPoint || `~/CloudDrives/${name}`,
-    );
+    const point = ownPoint || extPoint || prefFor(name).mountPoint || `~/CloudDrives/${name}`;
+    // Short on the card, whole in the tooltip: nothing is hidden, it is
+    // just not shouted.
+    setPath(card.querySelector(".remote-path"), withTilde(point), point);
     card.querySelector(".remote-name").title = name;
 
     // Measuring walks the cache directory, so do it after the card is on
@@ -1266,7 +1287,11 @@ async function refreshPairs() {
       : p.initialized
         ? t("ready")
         : t("not synced yet");
-    setPath(card.querySelector(".remote-path"), `${p.local}  ⇄  ${p.remote}`);
+    setPath(
+      card.querySelector(".remote-path"),
+      `${withTilde(p.local)}  ⇄  ${p.remote}`,
+      `${p.local}  ⇄  ${p.remote}`,
+    );
 
     const line = card.querySelector(".sync-progress");
     if (p.lastRun) {
@@ -2110,11 +2135,11 @@ async function runConfigPassword(mode) {
 }
 
 async function initSettings() {
-  const info = await invoke("app_info");
+  const info = appInfo || (await loadAppInfo());
   $("about-version").textContent = `v${info.appVersion}`;
   $("about-rclone").textContent = info.rcloneVersion || t("not installed");
   setPath($("about-rclone-path"), info.rclonePath || "—");
-  setPath($("about-config"), info.configPath || "—");
+  setPath($("about-config"), withTilde(info.configPath) || "—", info.configPath || "—");
   $("open-config-btn").addEventListener("click", () => {
     if (info.configPath) {
       const dir = info.configPath.slice(0, info.configPath.lastIndexOf("/"));
@@ -2311,8 +2336,14 @@ window.addEventListener("DOMContentLoaded", () => {
 
 
 
-  boot();
-  initSettings().catch((e) => showError(String(e)));
+  // One app_info for both: the home directory has to be known before the
+  // drive cards are drawn, or the first paint shows the long paths.
+  loadAppInfo()
+    .catch(() => {})
+    .finally(() => {
+      boot();
+      initSettings().catch((e) => showError(String(e)));
+    });
 
   // The tray's per-drive actions. They happen with the window hidden, so
   // anything that goes wrong is said in a notification — an error banner in

@@ -2349,6 +2349,9 @@ struct AppInfo {
     rclone_version: Option<String>,
     rclone_path: Option<String>,
     config_path: Option<String>,
+    /// So the interface can show `~/CloudDrives/photos` instead of the whole
+    /// path — the same folder written the way people write it.
+    home: Option<String>,
     tray_available: bool,
 }
 
@@ -2377,6 +2380,7 @@ async fn app_info(app: AppHandle, flags: State<'_, Flags>) -> Result<AppInfo, St
         rclone_version,
         rclone_path: rclone.map(|p| p.display().to_string()),
         config_path,
+        home: app.path().home_dir().ok().map(|p| p.display().to_string()),
         tray_available: flags.tray_ok.load(Ordering::Relaxed),
     })
 }
