@@ -587,6 +587,44 @@ export default {
   "Open Monti and enter the password first.":
     "Откройте Monti и сначала введите пароль.",
 
+  // ---------- пароль на конфигурации rclone ----------
+  "Your connections file": "Файл с подключениями",
+  "cfglock.note":
+    "rclone умеет держать этот файл под паролем — тогда его чтение не даёт " +
+    "ничего: ни ваших облаков, ни ключей к ним. Monti спрашивает этот пароль, " +
+    "когда файл нужен, держит его в памяти, пока работает, и никуда не " +
+    "записывает.",
+  "under a password": "под паролем",
+  "readable by anything on this computer": "читается всем, что запущено от вас",
+  "not created yet": "ещё не создан",
+  "cannot tell": "не удалось выяснить",
+  "Set a password": "Поставить пароль",
+  "Change password": "Сменить пароль",
+  "Remove the password": "Снять пароль",
+  "Set a config password": "Пароль на конфигурацию",
+  "Change the config password": "Смена пароля конфигурации",
+  "Remove the config password": "Снятие пароля с конфигурации",
+  "Current password": "Текущий пароль",
+  "New password": "Новый пароль",
+  "Type it again": "Ещё раз",
+  "Set the password": "Поставить",
+  "Change it": "Сменить",
+  "Remove it": "Снять",
+  "The two do not match.": "Введённое не совпадает.",
+  "That is not the password this config has now.":
+    "Это не тот пароль, которым конфигурация защищена сейчас.",
+  "Keep it somewhere safe. A config password cannot be recovered — not by Monti, not by rclone, not by your provider: without it this file and every cloud in it are lost.":
+    "Сохраните его где-то надёжно. Пароль конфигурации восстановить нельзя — " +
+    "ни Monti, ни rclone, ни провайдером: без него этот файл и все облака в " +
+    "нём потеряны.",
+  "The new password replaces the old one for the whole file. Anything else that opens this config — rclone in a terminal — needs the new one from now on.":
+    "Новый пароль заменяет старый для всего файла. Всему, что открывает эту " +
+    "конфигурацию — rclone в терминале в том числе, — с этого момента нужен " +
+    "новый.",
+  "The file goes back to being readable by anything running as you: the names of your clouds and the keys to them.":
+    "Файл снова станет читаемым для всего, что запущено от вашего имени: " +
+    "имена облаков и ключи к ним.",
+
   // ---------- единицы ----------
   GB: "ГБ",
   MB: "МБ",

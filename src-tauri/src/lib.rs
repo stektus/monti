@@ -4,6 +4,7 @@
 // see engine.rs) and proxies JSON-RPC calls to it. The frontend never
 // talks to rclone directly and never sees the RC credentials.
 
+mod config_lock;
 mod engine;
 mod sync;
 
@@ -482,6 +483,223 @@ async fn unlock_config(
             Err(e)
         }
     }
+}
+
+/// Where rclone's config lives, and whether it is under a password. The
+/// settings page asks this to decide which of the two halves it shows.
+#[tauri::command]
+async fn config_encryption(app: AppHandle) -> Result<Value, String> {
+    let rclone = find_rclone(&app).ok_or("rclone is not installed yet")?;
+    let path =
+        config_lock::config_file(&rclone).ok_or("rclone did not say where its config file is")?;
+    Ok(json!({
+        "path": path.display().to_string(),
+        "exists": path.exists(),
+        "encrypted": config_lock::is_encrypted(&path),
+    }))
+}
+
+/// The last thing rclone said, without the timestamp it says it at.
+fn last_word(stderr: &str) -> String {
+    stderr
+        .lines()
+        .rev()
+        .find(|line| !line.trim().is_empty())
+        .map(|line| match line.find(": ") {
+            Some(cut) => line[cut + 2..].trim().to_string(),
+            None => line.trim().to_string(),
+        })
+        .unwrap_or_else(|| "rclone refused, without saying why".into())
+}
+
+/// Run one `rclone config encryption …`. Passwords reach it only through
+/// the environment — `ps` shows every argument on this machine to every
+/// process of this user, and a config password is exactly what must not be
+/// in that list.
+fn run_encryption(app: &AppHandle, sub: &str, vars: &[(&str, &str)]) -> Result<(), String> {
+    let rclone = find_rclone(app).ok_or("rclone is not installed yet")?;
+    let mut cmd = Command::new(&rclone);
+    cmd.args(["config", "encryption", sub])
+        .env("RCLONE_ASK_PASSWORD", "false")
+        .stdin(Stdio::null());
+    // What the person happens to have exported must not answer instead of
+    // us: a leftover RCLONE_PASSWORD_COMMAND takes precedence over the
+    // password below, and RCLONE_PASSWORD_CHANGE would have our own helper
+    // hand back the wrong one of the two.
+    for leftover in [
+        "RCLONE_CONFIG_PASS",
+        "RCLONE_PASSWORD_COMMAND",
+        "RCLONE_PASSWORD_CHANGE",
+    ] {
+        cmd.env_remove(leftover);
+    }
+    for (name, value) in vars {
+        cmd.env(name, value);
+    }
+    engine::clean_appimage_env(&mut cmd);
+    let out = cmd
+        .output()
+        .map_err(|e| format!("could not run rclone: {e}"))?;
+    if out.status.success() {
+        return Ok(());
+    }
+    let said = String::from_utf8_lossy(&out.stderr);
+    if said.to_lowercase().contains("unable to decrypt") {
+        // The marker, not prose: the dialog translates it with the rest of
+        // the interface.
+        return Err(engine::CONFIG_LOCKED_BAD.to_string());
+    }
+    Err(last_word(&said))
+}
+
+/// Hand the running daemon the password the config now has.
+///
+/// `config/unlock` answers `{}` to a wrong password exactly as cheerfully as
+/// to a right one, so the proof cannot be its reply — it has to be a read
+/// that only succeeds once the config has actually opened.
+fn unlock_daemon(state: &State<'_, EngineState>, password: &str) -> Result<(), String> {
+    let (port, pass) = {
+        let eng = state.0.lock().unwrap();
+        (eng.port, eng.pass.clone())
+    };
+    rc_raw(
+        port,
+        &pass,
+        "config/unlock",
+        &json!({ "configPassword": password }),
+    )?;
+    rc_raw(port, &pass, "config/dump", &json!({})).map(|_| ())
+}
+
+/// The config file this is all about, and a refusal if it is already in the
+/// state the caller is trying to put it in.
+fn config_for_change(app: &AppHandle, want_encrypted: bool) -> Result<PathBuf, String> {
+    let rclone = find_rclone(app).ok_or("rclone is not installed yet")?;
+    let path =
+        config_lock::config_file(&rclone).ok_or("rclone did not say where its config file is")?;
+    if !path.exists() {
+        return Err("There is no rclone config on this computer yet — add a cloud first.".into());
+    }
+    if config_lock::is_encrypted(&path) != want_encrypted {
+        return Err(if want_encrypted {
+            "Your rclone config does not have a password.".into()
+        } else {
+            "Your rclone config already has a password.".into()
+        });
+    }
+    Ok(path)
+}
+
+/// Put a password on the rclone config.
+#[tauri::command]
+async fn set_config_password(
+    app: AppHandle,
+    state: State<'_, EngineState>,
+    password: String,
+) -> Result<(), String> {
+    if password.is_empty() {
+        return Err("Choose a password for your rclone config.".into());
+    }
+    let path = config_for_change(&app, false)?;
+    let exe =
+        std::env::current_exe().map_err(|e| format!("Monti cannot find its own file: {e}"))?;
+    let askpass = config_lock::askpass_command(&exe);
+    run_encryption(
+        &app,
+        "set",
+        &[
+            ("RCLONE_PASSWORD_COMMAND", askpass.as_str()),
+            (config_lock::ENV_NEW, password.as_str()),
+        ],
+    )?;
+    if !config_lock::is_encrypted(&path) {
+        return Err("rclone reported success, but the config is not encrypted.".into());
+    }
+    // The daemon read the config while it was still plain and cannot read it
+    // again. Handing it the password beats restarting it: nothing that is
+    // mounted has to notice this happened.
+    {
+        let mut eng = state.0.lock().unwrap();
+        eng.config_pass = Some(password.clone());
+    }
+    unlock_daemon(&state, &password)?;
+    // Never the password, and not even its length.
+    log_line(&app, "a password was set on the rclone config");
+    Ok(())
+}
+
+/// Change the password on the rclone config.
+#[tauri::command]
+async fn change_config_password(
+    app: AppHandle,
+    state: State<'_, EngineState>,
+    current: String,
+    password: String,
+) -> Result<(), String> {
+    if current.is_empty() {
+        return Err("Enter the password your rclone config has now.".into());
+    }
+    if password.is_empty() {
+        return Err("Choose the new password for your rclone config.".into());
+    }
+    config_for_change(&app, true)?;
+    let exe =
+        std::env::current_exe().map_err(|e| format!("Monti cannot find its own file: {e}"))?;
+    let askpass = config_lock::askpass_command(&exe);
+    // rclone runs the command twice for a change: once as it is, for the
+    // password the file has, and once with RCLONE_PASSWORD_CHANGE=1 for the
+    // one it is to get.
+    run_encryption(
+        &app,
+        "set",
+        &[
+            ("RCLONE_PASSWORD_COMMAND", askpass.as_str()),
+            (config_lock::ENV_OLD, current.as_str()),
+            (config_lock::ENV_NEW, password.as_str()),
+        ],
+    )?;
+    {
+        let mut eng = state.0.lock().unwrap();
+        eng.config_pass = Some(password.clone());
+    }
+    unlock_daemon(&state, &password)?;
+    log_line(&app, "the rclone config password was changed");
+    Ok(())
+}
+
+/// Take the password off the rclone config.
+#[tauri::command]
+async fn remove_config_password(
+    app: AppHandle,
+    state: State<'_, EngineState>,
+    current: String,
+) -> Result<(), String> {
+    if current.is_empty() {
+        return Err("Enter the password your rclone config has now.".into());
+    }
+    let path = config_for_change(&app, true)?;
+    run_encryption(&app, "remove", &[("RCLONE_CONFIG_PASS", current.as_str())])?;
+    if config_lock::is_encrypted(&path) {
+        return Err("rclone reported success, but the config is still encrypted.".into());
+    }
+    // This is the one that cannot be done by talking to the daemon. A daemon
+    // still holding the password writes it straight back: the next time
+    // anything saves the config — a refreshed token is enough — the file is
+    // encrypted again, with a password Monti has just been told to forget.
+    // Measured on rclone 1.75, and `config/unlock` with an empty string does
+    // not clear it. So this one costs a restart.
+    {
+        let mut eng = state.0.lock().unwrap();
+        eng.config_pass = None;
+    }
+    if let Err(e) = restart_engine_preserving_mounts(&app, &state) {
+        return Err(format!(
+            "The password is off your config, but the engine did not restart, \
+             and until it does it may write the password back: {e}"
+        ));
+    }
+    log_line(&app, "the password was taken off the rclone config");
+    Ok(())
 }
 
 /// Read-only proxy to rclone's RC API: credentials never leave the Rust
@@ -2344,6 +2562,11 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // rclone asking for the config password, not a person starting Monti:
+    // print it and be gone, before anything that looks like an app exists.
+    if config_lock::served_askpass() {
+        return;
+    }
     // A bug report starts with "which version?", and the answer must not
     // require opening the window — on the machines that need reporting most,
     // the window is exactly what does not come up.
@@ -2483,6 +2706,10 @@ pub fn run() {
             engine_health,
             restart_engine,
             unlock_config,
+            config_encryption,
+            set_config_password,
+            change_config_password,
+            remove_config_password,
             install_rclone,
             start_engine,
             rc,

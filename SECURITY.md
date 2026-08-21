@@ -42,6 +42,15 @@ tested.
   remembering to look.
 - **Opening things is constrained.** Folders open only as directories, links
   only over `https` — so neither path can be turned into "execute this".
+- **Setting the config password does not put it on a command line either.**
+  rclone asks for a new password by running the command named in
+  `--password-command`; Monti answers that call with its own binary, which
+  prints what it was handed in its environment and exits before any window
+  exists. The password reaches rclone through that environment — readable by
+  this user and no one else — and never through `argv`, which every process on
+  the machine can read. Taking the password off restarts the engine on
+  purpose: a daemon still holding it writes it back into the file the next
+  time anything saves the config.
 - **An encrypted drive's password goes nowhere it should not.** It travels to
   the engine over the local API, never on a command line and never into a log,
   and it is stored by rclone the way rclone stores passwords: obscured. See

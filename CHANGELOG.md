@@ -2,6 +2,31 @@
 
 Notable changes per release. Dates are the release date.
 
+## Unreleased
+
+**Monti can put a password on your rclone config, not only ask for one.**
+Opening an encrypted config has worked since 0.9.2; settings can now encrypt
+one that is not encrypted yet, change that password, or take it off again.
+rclone does the encrypting in every case, so the file stays a file rclone
+wrote: one Monti locked opens in a terminal, one locked in a terminal opens
+here, with the same password either way — byte for byte, trailing spaces
+included.
+
+The password never reaches a command line, not even for the moment it takes to
+set it. rclone asks for a new password by running a command; Monti answers
+that call with its own binary, which prints what it was handed in its
+environment and exits.
+
+Taking the password off restarts the engine, and that is not housekeeping. A
+daemon that still holds the password writes it back the next time anything
+saves the config — a refreshed token is enough — so the file would quietly
+come back encrypted, with a password Monti had just been told to forget.
+Setting or changing one costs no restart: the running engine is handed the new
+password where it stands, and nothing that is mounted notices.
+
+A wrong current password is answered in the dialog, and the file is left
+exactly as it was.
+
 ## v0.9.2 — 2026-08-20
 
 **A password-protected rclone config now works.** Until now Monti met one by

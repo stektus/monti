@@ -587,6 +587,42 @@ export default {
   "Open Monti and enter the password first.":
     "Відкрийте Monti і спершу введіть пароль.",
 
+  // ---------- пароль на конфігурації rclone ----------
+  "Your connections file": "Файл із підключеннями",
+  "cfglock.note":
+    "rclone вміє тримати цей файл під паролем — тоді його читання не дає " +
+    "нічого: ні ваших хмар, ні ключів до них. Monti питає цей пароль, коли " +
+    "файл потрібен, тримає його в памʼяті, поки працює, і нікуди не записує.",
+  "under a password": "під паролем",
+  "readable by anything on this computer": "читається всім, що запущено від вас",
+  "not created yet": "ще не створений",
+  "cannot tell": "не вдалося зʼясувати",
+  "Set a password": "Поставити пароль",
+  "Change password": "Змінити пароль",
+  "Remove the password": "Зняти пароль",
+  "Set a config password": "Пароль на конфігурацію",
+  "Change the config password": "Зміна пароля конфігурації",
+  "Remove the config password": "Зняття пароля з конфігурації",
+  "Current password": "Поточний пароль",
+  "New password": "Новий пароль",
+  "Type it again": "Ще раз",
+  "Set the password": "Поставити",
+  "Change it": "Змінити",
+  "Remove it": "Зняти",
+  "The two do not match.": "Введене не збігається.",
+  "That is not the password this config has now.":
+    "Це не той пароль, яким конфігурація захищена зараз.",
+  "Keep it somewhere safe. A config password cannot be recovered — not by Monti, not by rclone, not by your provider: without it this file and every cloud in it are lost.":
+    "Збережіть його десь надійно. Пароль конфігурації відновити неможливо — " +
+    "ні Monti, ні rclone, ні провайдером: без нього цей файл і всі хмари в " +
+    "ньому втрачено.",
+  "The new password replaces the old one for the whole file. Anything else that opens this config — rclone in a terminal — needs the new one from now on.":
+    "Новий пароль замінює старий для всього файла. Усьому, що відкриває цю " +
+    "конфігурацію — rclone у терміналі теж, — відтепер потрібен новий.",
+  "The file goes back to being readable by anything running as you: the names of your clouds and the keys to them.":
+    "Файл знову стане читабельним для всього, що запущено від вашого імені: " +
+    "імена хмар і ключі до них.",
+
   // ---------- одиниці ----------
   GB: "ГБ",
   MB: "МБ",

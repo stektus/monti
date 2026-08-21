@@ -58,7 +58,9 @@ a way to use it without becoming an rclone expert. That is Monti.
   own config file. Monti asks you for that password in a dialog rather than
   asking you to take it off; it is held in memory while the app runs and never
   written to disk, so the file on your computer stays exactly as unreadable as
-  you made it.
+  you made it. If it has no password yet, Settings can put one on, change it,
+  or take it off — rclone does the encrypting, so a file Monti locked opens in
+  a terminal like any other, and one locked in a terminal opens here.
 - **Your drives survive quitting the app.** Close Monti and your folders keep
   working; it reconnects to its background engine on the next start.
 - **You can see how full the cloud is** on every drive, and Monti says

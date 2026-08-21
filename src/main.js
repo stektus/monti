@@ -1930,6 +1930,185 @@ async function refreshTransfers() {
   }
 }
 
+// ---------- the password on the rclone config ----------
+//
+// Monti could already open a config somebody else had encrypted. This is
+// the other half: putting a password on it from here, changing it, and
+// taking it off. rclone does the work in every case, so the file stays a
+// file rclone wrote — it opens in a terminal like any other, and one
+// encrypted in a terminal opens here.
+
+async function refreshConfigLock() {
+  const label = $("cfglock-state");
+  let info;
+  try {
+    info = await invoke("config_encryption");
+  } catch {
+    label.textContent = t("cannot tell");
+    return;
+  }
+  const locked = !!info.encrypted;
+  label.textContent = !info.exists
+    ? t("not created yet")
+    : locked
+      ? t("under a password")
+      : t("readable by anything on this computer");
+  $("cfglock-set").classList.toggle("hidden", locked || !info.exists);
+  $("cfglock-change").classList.toggle("hidden", !locked);
+  $("cfglock-remove").classList.toggle("hidden", !locked);
+}
+
+// What each of the three does, in the words the person sees. The warning
+// is not small print: a config password cannot be recovered by anyone, and
+// somebody who loses it loses every cloud in the file.
+function configPasswordModes() {
+  return {
+    set: {
+      title: t("Set a config password"),
+      ok: t("Set the password"),
+      what: t(
+        "Keep it somewhere safe. A config password cannot be recovered — " +
+          "not by Monti, not by rclone, not by your provider: without it " +
+          "this file and every cloud in it are lost."
+      ),
+      needsCurrent: false,
+      needsNew: true,
+      command: "set_config_password",
+    },
+    change: {
+      title: t("Change the config password"),
+      ok: t("Change it"),
+      what: t(
+        "The new password replaces the old one for the whole file. " +
+          "Anything else that opens this config — rclone in a terminal — " +
+          "needs the new one from now on."
+      ),
+      needsCurrent: true,
+      needsNew: true,
+      command: "change_config_password",
+    },
+    remove: {
+      title: t("Remove the config password"),
+      ok: t("Remove it"),
+      what: t(
+        "The file goes back to being readable by anything running as you: " +
+          "the names of your clouds and the keys to them."
+      ),
+      needsCurrent: true,
+      needsNew: false,
+      command: "remove_config_password",
+    },
+  };
+}
+
+function configPasswordDialog(mode) {
+  const spec = configPasswordModes()[mode];
+  const dlg = $("cfgpass-dialog");
+  const current = $("cfgpass-current");
+  const next = $("cfgpass-new");
+  const again = $("cfgpass-again");
+  const err = $("cfgpass-error");
+  const ok = $("cfgpass-ok");
+
+  $("cfgpass-title").textContent = spec.title;
+  ok.textContent = spec.ok;
+  $("cfgpass-what").textContent = spec.what;
+  for (const [row, wanted] of [
+    ["cfgpass-current-row", spec.needsCurrent],
+    ["cfgpass-new-row", spec.needsNew],
+    ["cfgpass-again-row", spec.needsNew],
+  ]) {
+    $(row).classList.toggle("hidden", !wanted);
+  }
+  current.value = "";
+  next.value = "";
+  again.value = "";
+  err.textContent = "";
+  err.classList.add("hidden");
+
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = (result) => {
+      if (done) return;
+      done = true;
+      // Nothing typed here outlives the dialog.
+      current.value = "";
+      next.value = "";
+      again.value = "";
+      dlg.removeEventListener("close", onClose);
+      $("cfgpass-cancel").removeEventListener("click", onCancel);
+      $("cfgpass-form").removeEventListener("submit", onSubmit);
+      resolve(result);
+    };
+    const fail = (message) => {
+      err.textContent = message;
+      err.classList.remove("hidden");
+    };
+    const onClose = () => {
+      if (!dlg.open) finish(false);
+    };
+    const onCancel = () => {
+      dlg.close();
+      finish(false);
+    };
+    const onSubmit = async (e) => {
+      e.preventDefault();
+      if (spec.needsCurrent && !current.value) {
+        current.focus();
+        return;
+      }
+      if (spec.needsNew) {
+        if (!next.value) {
+          next.focus();
+          return;
+        }
+        if (next.value !== again.value) {
+          fail(t("The two do not match."));
+          again.select();
+          return;
+        }
+      }
+      ok.disabled = true;
+      try {
+        await invoke(spec.command, {
+          current: current.value,
+          password: next.value,
+        });
+        dlg.close();
+        finish(true);
+      } catch (e2) {
+        // The backend answers a wrong password with its marker, so the
+        // words live in the dictionaries with the rest of the interface.
+        fail(
+          String(e2).startsWith(CONFIG_LOCKED)
+            ? t("That is not the password this config has now.")
+            : String(e2)
+        );
+        (spec.needsCurrent ? current : next).select();
+      } finally {
+        ok.disabled = false;
+      }
+    };
+    dlg.addEventListener("close", onClose);
+    $("cfgpass-cancel").addEventListener("click", onCancel);
+    $("cfgpass-form").addEventListener("submit", onSubmit);
+    dlg.showModal();
+    (spec.needsCurrent ? current : next).focus();
+  });
+}
+
+async function runConfigPassword(mode) {
+  const err = $("cfglock-error");
+  err.classList.add("hidden");
+  if (!(await configPasswordDialog(mode))) return;
+  await refreshConfigLock();
+  // Removing the password restarts the engine, so the drive list is read
+  // again from a daemon that has just come back.
+  // No notification: this is a button somebody just pressed while looking
+  // at the window, and the state line above it has already changed.
+  if (mode === "remove") await refreshRemotes(true).catch(() => {});
+}
+
 async function initSettings() {
   const info = await invoke("app_info");
   $("about-version").textContent = `v${info.appVersion}`;
@@ -1944,6 +2123,17 @@ async function initSettings() {
   });
 
   await refreshCacheInfo();
+
+  await refreshConfigLock();
+  for (const mode of ["set", "change", "remove"]) {
+    $(`cfglock-${mode}`).addEventListener("click", () => {
+      runConfigPassword(mode).catch((e) => {
+        const err = $("cfglock-error");
+        err.textContent = String(e);
+        err.classList.remove("hidden");
+      });
+    });
+  }
 
   // Re-download the engine into the app folder (recovers from a corrupted
   // or interrupted download; the running daemon keeps its old binary until

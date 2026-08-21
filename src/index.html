@@ -247,6 +247,25 @@
         </section>
 
         <section class="card">
+          <h2>Config password</h2>
+          <div class="about-rows">
+            <div class="about-row"><span class="muted">Your connections file</span><span id="cfglock-state">—</span></div>
+          </div>
+          <p class="muted" data-i18n="cfglock.note">
+            rclone can keep this file under a password, so that reading it
+            gives up nothing — not your clouds, not the keys to them. Monti
+            asks you for that password when it needs the file, holds it in
+            memory while it runs, and never writes it down.
+          </p>
+          <div class="about-actions">
+            <button class="btn primary hidden" id="cfglock-set">Set a password</button>
+            <button class="btn hidden" id="cfglock-change">Change password</button>
+            <button class="btn hidden" id="cfglock-remove">Remove the password</button>
+          </div>
+          <p class="error hidden" id="cfglock-error"></p>
+        </section>
+
+        <section class="card">
           <h2>About</h2>
           <div class="about-rows">
             <div class="about-row"><span class="muted">Monti</span><span id="about-version">—</span></div>
@@ -602,6 +621,31 @@
         <div class="dialog-actions">
           <button class="btn" type="button" id="unlock-cancel">Cancel</button>
           <button class="btn primary" type="submit" id="unlock-ok">Unlock</button>
+        </div>
+      </form>
+    </dialog>
+
+    <!-- ============ SET / CHANGE / REMOVE THE CONFIG PASSWORD ============ -->
+    <dialog id="cfgpass-dialog">
+      <form method="dialog" id="cfgpass-form">
+        <h2 id="cfgpass-title">Set a config password</h2>
+        <label id="cfgpass-current-row">
+          Current password
+          <input type="password" id="cfgpass-current" autocomplete="off" />
+        </label>
+        <label id="cfgpass-new-row">
+          New password
+          <input type="password" id="cfgpass-new" autocomplete="off" />
+        </label>
+        <label id="cfgpass-again-row">
+          Type it again
+          <input type="password" id="cfgpass-again" autocomplete="off" />
+        </label>
+        <p class="muted" id="cfgpass-what"></p>
+        <p class="error hidden" id="cfgpass-error"></p>
+        <div class="dialog-actions">
+          <button class="btn" type="button" id="cfgpass-cancel">Cancel</button>
+          <button class="btn primary" type="submit" id="cfgpass-ok">Set the password</button>
         </div>
       </form>
     </dialog>
