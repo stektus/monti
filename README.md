@@ -54,6 +54,11 @@ a way to use it without becoming an rclone expert. That is Monti.
   two-factor code, a Storj grant, a Jottacloud token — are typed into the
   dialog, and the sign-in is tried while it is still open: if the provider
   says no, nothing is added and the dialog says which half was wrong.
+- **A config under a password stays under a password.** rclone can encrypt its
+  own config file. Monti asks you for that password in a dialog rather than
+  asking you to take it off; it is held in memory while the app runs and never
+  written to disk, so the file on your computer stays exactly as unreadable as
+  you made it.
 - **Your drives survive quitting the app.** Close Monti and your folders keep
   working; it reconnects to its background engine on the next start.
 - **You can see how full the cloud is** on every drive, and Monti says
@@ -145,6 +150,13 @@ I built Monti around the things that actually go wrong with rclone mounts:
   local disk without a word, and the drive then refuses to mount over the
   folder it is sitting in. Monti keeps that folder read-only while the drive
   is away, so the save fails at the moment you make it.
+- **An app that asks you to weaken your setup.** The usual answer to an
+  encrypted rclone config is "open a terminal and remove the password", which
+  is the wrong way round. Monti asks for it at the moment something actually
+  needs the config, and declining is not a wall: the drives page shows a lock,
+  and mounting a drive, adding a cloud or starting a sync brings the question
+  back. Whatever was waiting — drives from the last run, syncs due to start —
+  runs by itself the moment it is unlocked.
 - **rclone's shared API key being retired during 2026.** Monti walks you through
   creating your own key, including the test-user step that trips up most people.
 
@@ -308,6 +320,14 @@ or unmount it from the card and let Monti take over.
 
 **"is mounted at … — unmount it first".** Removing a drive or clearing its cache
 needs the mount gone first, so rclone is not reading files while they disappear.
+
+**"Your rclone config is locked".** The config file on this computer is
+encrypted, and rclone will not list your drives without the password it is
+protected with — the one rclone asks for in a terminal, not a password
+belonging to a drive inside. Press *Enter the password*, and everything that
+was waiting mounts and syncs on its own. Monti keeps it in memory only, so the
+question comes back after a restart, and taking the encryption off outside
+Monti is noticed without a word.
 
 **Logs** live in `~/.local/share/io.github.stektus.monti/`: `monti.log` for what
 Monti did, `engine.log` for what rclone said. Neither contains passwords or
