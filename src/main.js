@@ -1332,7 +1332,7 @@ function askFirstSync(pair) {
     $("firstsync-text").textContent = t(
       '"{name}" has not been synced yet. Monti will compare {local} and ' +
         "{remote} and make them match.",
-      { name: pair.name, local: pair.local, remote: pair.remote }
+      { name: pair.name, local: withTilde(pair.local), remote: pair.remote }
     );
     const done = (mode) => {
       dlg.removeEventListener("close", onClose);
@@ -1438,7 +1438,7 @@ async function confirmDeletes(pair, n, total) {
             { name: pair.name }
           ),
     points: [
-      t("on this computer: {path}", { path: pair.local }),
+      t("on this computer: {path}", { path: withTilde(pair.local) }),
       t("in the cloud: {path}", { path: pair.remote }),
       t("if this is not what you expected, cancel and check both folders first"),
     ],
@@ -1632,7 +1632,7 @@ async function openPairDialog(pair = null) {
     : t("New sync");
   $("pair-name").value = pair ? pair.name : "";
   $("pair-name").disabled = !!pair; // the name keys the pair's history
-  $("pair-local").value = pair ? pair.local : "";
+  $("pair-local").value = pair ? withTilde(pair.local) : "";
   if (pair) {
     const [remote, ...rest] = pair.remote.split(":");
     sel.value = remote;
@@ -1706,7 +1706,7 @@ async function removePair(pair) {
     title: t('Stop syncing "{name}"?', { name: pair.name }),
     text: t("Monti forgets this pair. Nothing is deleted:"),
     points: [
-      t("{path} stays exactly as it is", { path: pair.local }),
+      t("{path} stays exactly as it is", { path: withTilde(pair.local) }),
       t("{path} stays exactly as it is", { path: pair.remote }),
       t("the two simply stop being kept the same"),
     ],
@@ -2894,6 +2894,8 @@ window.addEventListener("DOMContentLoaded", () => {
       showError(String(e));
     }
     await refreshDialogCache(name);
+    // The card behind the dialog still shows the old size otherwise.
+    await refreshRemotes();
   });
 
   $("remote-signin").addEventListener("click", () => {

@@ -560,6 +560,9 @@ dialog {
   overscroll-behavior: contain;
   box-shadow: 0 24px 60px rgb(0 0 0 / 30%);
 }
+/* A path or a remote name has no spaces to break at, and a long one used to
+   run out past the dialog's edge. */
+dialog p, dialog li { overflow-wrap: anywhere; }
 dialog::backdrop { background: rgb(0 0 0 / 40%); backdrop-filter: blur(3px); }
 dialog h2 { margin: 0 0 16px; font-size: 17px; letter-spacing: -0.01em; }
 

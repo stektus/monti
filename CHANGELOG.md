@@ -10,6 +10,15 @@ places depending on whether it was mounted. Paths inside your home are now
 written the way you write them — the full path is still there, one hover
 away. The same applies to a synced pair and to the config file in About.
 
+The sync dialogs wrote that path out in full where the rest of the app had
+learned not to: the first-sync question, the delete confirmation, the one
+that asks before a pair is forgotten, and the folder field in a pair's own
+settings. A long path also used to run past the edge of a dialog instead of
+wrapping.
+
+Clearing a drive's cache left the old size on the card behind the dialog
+until something else redrew it.
+
 ## v0.9.3 — 2026-08-21
 
 **Monti can put a password on your rclone config, not only ask for one.**
