@@ -341,6 +341,8 @@ export default {
   "Mounted outside Monti (e.g. a systemd service).":
     "Підключено поза Monti (наприклад, службою systemd).",
   "mounted · system": "підключено · система",
+  "disconnected": "не під'єднано",
+  "The engine stopped, so this folder is not connected.": "Рушій зупинено, тому тека зараз не під'єднана.",
   "not mounted": "не підключено",
   "The encrypted copy is stored here": "Тут зберігається зашифрована копія",
   "Connected through your own API key": "Підключено через власний ключ API",

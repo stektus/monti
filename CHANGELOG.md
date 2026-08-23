@@ -19,6 +19,11 @@ wrapping.
 Clearing a drive's cache left the old size on the card behind the dialog
 until something else redrew it.
 
+When the engine stopped, the warning said the drives were disconnected while
+the cards beside it still said "mounted", with Open folder and Unmount ready
+to press. The cards now say "disconnected" and their buttons wait until the
+engine is back.
+
 ## v0.9.3 — 2026-08-21
 
 **Monti can put a password on your rclone config, not only ask for one.**

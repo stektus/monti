@@ -581,6 +581,23 @@ async function checkLostMounts() {
   await refreshRemotes({ quiet: true }).catch(() => {});
 }
 
+// With the engine gone the mounts are gone with it, so a card still saying
+// "mounted" beside the warning would be lying about the same second.
+function markDrivesDisconnected() {
+  for (const card of $("remotes-list").querySelectorAll(".remote-card")) {
+    const chip = card.querySelector(".chip.state");
+    if (chip) {
+      chip.classList.remove("on", "ext", "sync");
+      chip.textContent = t("disconnected");
+      chip.title = t("The engine stopped, so this folder is not connected.");
+    }
+    for (const b of card.querySelectorAll(".remote-actions button")) {
+      b.disabled = true;
+    }
+  }
+}
+
+
 async function healthTick() {
   if (document.hidden) return;
   let alive;
@@ -598,6 +615,7 @@ async function healthTick() {
     engineDown = true;
     setEngine("err", "engine stopped");
     $("engine-restart").classList.remove("hidden");
+    markDrivesDisconnected();
     showError(
       t(
         "The rclone engine stopped unexpectedly — your drives are disconnected. " +
