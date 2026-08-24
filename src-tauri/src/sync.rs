@@ -17,6 +17,10 @@ use tauri::{AppHandle, Manager, State};
 
 use crate::engine::{log_line, rc_raw_with_timeout, utc_stamp, EngineState};
 
+/// What sync_progress reports when rclone has given up on a pair and wants a
+/// fresh baseline. The window turns it into the first-sync question again.
+pub const NEEDS_RESYNC: &str = "NEEDS_RESYNC";
+
 /// One folder pair. Stored in app_data/sync.json, which the backend owns:
 /// this is what the product does, not how it looks, and a later version can
 /// run the schedule without an open window.
@@ -291,7 +295,7 @@ pub async fn sync_run(
         .find(|p| p.name == name)
         .ok_or_else(|| format!("no sync pair called \"{name}\""))?;
     if !pair.initialized && !resync {
-        return Err("NEEDS_RESYNC".into());
+        return Err(NEEDS_RESYNC.into());
     }
     let (port, pass) = {
         let eng = state.0.lock().unwrap();
@@ -379,6 +383,13 @@ fn delete_abort_detail(app: &AppHandle, pair: &SyncPair) -> Option<(u64, u64)> {
     parse_delete_abort(&tail, &[&pair.local, &pair.remote])
 }
 
+/// rclone gives up on a pair whose two sides it can no longer line up, and
+/// refuses every later run until one of them re-baselines with `--resync`.
+/// The wording is rclone's, so it is pinned by a test.
+fn wants_fresh_baseline(error: &str) -> bool {
+    error.to_lowercase().contains("bisync aborted")
+}
+
 /// Pull "2 of 3" out of the daemon's log. Split out from the file reading so
 /// the shape of that line — which comes from rclone, not from us — is pinned
 /// by a test.
@@ -431,6 +442,8 @@ pub async fn sync_progress(
             Some((n, total)) => format!("TOO_MANY_DELETES:{n}:{total}"),
             None => "TOO_MANY_DELETES:0:0".into(),
         };
+    } else if wants_fresh_baseline(&error) {
+        error = NEEDS_RESYNC.into();
     } else if !error.is_empty() {
         // A failed sync is exactly where "googleapi: Error 403 …" turns up,
         // and where it helps least.
@@ -457,6 +470,7 @@ pub fn sync_finished(
     was_resync: bool,
     detail: String,
     remember_deletes: bool,
+    needs_resync: bool,
 ) -> Result<(), String> {
     let mut pairs = load_pairs(&app);
     if let Some(p) = pairs.iter_mut().find(|p| p.name == name) {
@@ -464,6 +478,12 @@ pub fn sync_finished(
         p.last_result = Some(if ok { "ok".into() } else { detail.clone() });
         if ok && was_resync {
             p.initialized = true;
+        }
+        // Forgetting the baseline is what puts the first-sync question back,
+        // and that question is the re-baseline rclone is asking for — with
+        // the person, not us, saying which side wins.
+        if needs_resync {
+            p.initialized = false;
         }
         if remember_deletes {
             p.delete_without_asking = true;
@@ -750,5 +770,19 @@ mod tests {
         );
         // A pair that never aborted gets nothing rather than someone else's.
         assert_eq!(super::parse_delete_abort(log, &["/home/u/music/"]), None);
+    }
+
+    #[test]
+    fn an_abandoned_pair_is_offered_a_fresh_start() {
+        // What rclone puts in the job's error when it will not try again.
+        assert!(super::wants_fresh_baseline("bisync aborted"));
+        assert!(super::wants_fresh_baseline(
+            "Bisync aborted. Must run --resync to recover."
+        ));
+        // An ordinary failure is not a reason to forget the baseline: the
+        // next run should compare against it, not overwrite from one side.
+        assert!(!super::wants_fresh_baseline(
+            "couldn't connect: dial tcp: i/o timeout"
+        ));
     }
 }

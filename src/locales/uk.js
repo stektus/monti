@@ -446,6 +446,8 @@ export default {
     "Питати перед видаленням файлів на іншому боці",
   "lost track of this run — start it again to be sure":
     "втрачено звʼязок із цим запуском — запустіть ще раз, щоб бути певним",
+  "the two sides no longer line up — the next run compares them from scratch":
+    "сторони більше не збігаються — наступний запуск порівняє їх заново",
   "Could not unmount everything": "Не вдалося відключити всі диски",
   "keep current": "лишити поточний",
   "Delete this older copy": "Видалити цю старішу копію",

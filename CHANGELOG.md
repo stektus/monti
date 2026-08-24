@@ -24,6 +24,12 @@ the cards beside it still said "mounted", with Open folder and Unmount ready
 to press. The cards now say "disconnected" and their buttons wait until the
 engine is back.
 
+A synced folder whose two sides rclone could no longer line up was stuck for
+good: every later run failed with "bisync aborted", and nothing in the window
+offered the fresh comparison rclone was asking for. Monti now says what
+happened in words and puts the first-sync question back, so the next run
+starts from a comparison of both sides — with you choosing which side wins.
+
 ## v0.9.3 — 2026-08-21
 
 **Monti can put a password on your rclone config, not only ask for one.**

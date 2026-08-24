@@ -736,6 +736,8 @@ async function pollActivity() {
 // the words can live here with the rest of the interface.
 const CONFIG_LOCKED = "monti:config-locked";
 const CONFIG_LOCKED_BAD = "monti:config-locked-bad-password";
+// rclone has given up comparing the two sides and wants a fresh baseline.
+const NEEDS_RESYNC = "NEEDS_RESYNC";
 
 // While the config sat locked, the quiet paths gave up without a word —
 // auto-mounts, syncs set to run at start. This remembers that something was
@@ -1494,6 +1496,7 @@ function followSync(name) {
         wasResync: job.resync,
         detail: t("lost track of this run — start it again to be sure"),
         rememberDeletes: false,
+        needsResync: false,
       }).catch(() => {});
       await refreshPairs().catch(() => {});
       showError(t('Sync of "{name}" failed: {error}', { name, error: String(e) }));
@@ -1550,24 +1553,33 @@ function followSync(name) {
           wasResync: false,
           detail: "waiting for you",
           rememberDeletes: true,
+          needsResync: false,
         }).catch(() => {});
       }
       if (ok) await startSync(pair, true);
       return;
     }
 
+    // rclone refuses every later run on a pair it has aborted, until one of
+    // them starts from a fresh comparison. Saying so — and forgetting the
+    // baseline, which puts the first-sync question back — is the way out.
+    const needsResync = p.error === NEEDS_RESYNC;
+    const detail = needsResync
+      ? t("the two sides no longer line up — the next run compares them from scratch")
+      : p.error || "";
     await invoke("sync_finished", {
       name,
       ok: p.success,
       wasResync: job.resync,
-      detail: p.error || "",
+      detail,
       rememberDeletes: false,
+      needsResync,
     }).catch(() => {});
     if (!p.success) {
-      showError(t('Sync of "{name}" failed: {error}', { name, error: p.error }));
+      showError(t('Sync of "{name}" failed: {error}', { name, error: detail }));
       notify(
         t("Monti: sync failed"),
-        t('"{name}" did not finish: {error}', { name, error: p.error })
+        t('"{name}" did not finish: {error}', { name, error: detail })
       );
     }
     await refreshPairs().catch(() => {});
