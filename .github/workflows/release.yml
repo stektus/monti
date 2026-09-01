@@ -73,7 +73,7 @@ jobs:
       # IP being rate-limited, nothing to do with this project — so the files
       # are fetched here instead, patiently, and kept between runs.
       - name: Keep the AppImage tooling between runs
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cache/tauri
           key: appimage-tools-${{ matrix.arch }}-v1
@@ -273,7 +273,7 @@ jobs:
       # digest, so it holds for the copy on the release page and for any copy
       # made of it afterwards.
       - name: Attest what was built
-        uses: actions/attest-build-provenance@v3
+        uses: actions/attest-build-provenance@v4
         with:
           subject-path: |
             bundle/*.AppImage
