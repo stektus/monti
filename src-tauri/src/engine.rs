@@ -667,6 +667,29 @@ const SIGNIN_EXPIRED: &str = "The saved sign-in for this drive is no longer acce
      expired, or access was withdrawn in the account's security settings. Open the \
      drive's settings and sign in again.";
 
+/// Proton signs in with a session rather than a token, and a session runs
+/// out. When it does, the account's second factor is wanted again — and
+/// rclone's own answer to that names a command-line flag, which is no use to
+/// anybody holding a window.
+const NEEDS_2FA: &str = "Proton wants the six-digit code from your authenticator again. Its \
+     sign-in does not last forever: open the drive's settings, press Change… next to \
+     Sign-in, and fill in e-mail, password and a fresh code.";
+
+/// The same demand, in front of a form that is still on screen.
+///
+/// Nothing typed is necessarily wrong here — the form simply has one more
+/// box in it, and sending somebody to the drive's settings from the dialog
+/// they are signing in from is the mistake [`friendly_signin_error`] exists
+/// to avoid.
+const NEEDS_2FA_TYPED: &str = "This account has two-factor sign-in turned on. Put the \
+     six-digit code from your authenticator in the Two-factor code box and press Connect — \
+     a code is only good for about half a minute.";
+
+/// Whether the provider is asking for a second factor that was never sent.
+fn wants_second_factor(low: &str) -> bool {
+    low.contains("requires a 2fa code")
+}
+
 /// The same refusal, for details that were typed a second ago.
 ///
 /// A 401 means opposite things at the two moments it arrives. At a mount it
@@ -677,6 +700,16 @@ const SIGNIN_EXPIRED: &str = "The saved sign-in for this drive is no longer acce
 /// `hint` is the thing that particular provider is usually refusing about —
 /// the mistake worth naming before the person starts checking every field.
 pub fn friendly_signin_error(raw: &str, hint: Option<&str>) -> String {
+    // A missing second factor is not a wrong detail, so it never reaches the
+    // "one of them is wrong" wording below. It is caught before the split
+    // because it arrives both ways: explained already, and raw.
+    if wants_second_factor(&raw.to_lowercase()) {
+        let said = match raw.split_once(PROVIDER_SAID) {
+            Some((_, said)) => said.to_string(),
+            None => quoted(raw),
+        };
+        return format!("{NEEDS_2FA_TYPED}{PROVIDER_SAID}{said}");
+    }
     // Everything rc_raw returns has been explained once already, so what
     // arrives here is usually the mount-time wording with the provider's own
     // text below it. Take that text back and explain it again for the moment
@@ -788,6 +821,9 @@ pub fn friendly_cloud_error(raw: &str) -> String {
              about half a minute — take a fresh one from your authenticator \
              and press Connect again. The rest of the form is still filled in.",
         );
+    }
+    if wants_second_factor(&low) {
+        return explain(NEEDS_2FA);
     }
     if low.contains("the password is not correct") {
         return explain(
@@ -1509,6 +1545,28 @@ mod error_tests {
         // is not a log file.
         let long = friendly_signin_error(koofr, None);
         assert!(long.contains('…') && long.len() < 600, "{long}");
+
+        // Proton's session runs out and the account wants its second factor
+        // again. rclone answers with a command-line flag, and a window has no
+        // command line — what the person needs is which box to fill in.
+        let no_code = "couldn't initialize a new proton drive instance: this account \
+                       requires a 2FA code. Can be provided with --protondrive-2fa=000000";
+        let at_mount = friendly_cloud_error(no_code);
+        assert!(at_mount.contains("drive's settings"), "{at_mount}");
+        assert!(at_mount.contains("--protondrive-2fa"), "raw text dropped");
+        // In front of the form, the same demand means one more box to fill —
+        // not a trip to settings the person is not standing in. It arrives
+        // both raw and already explained, and must read the same either way.
+        for raw in [no_code, at_mount.as_str()] {
+            let typed = friendly_signin_error(raw, None);
+            assert!(typed.contains("Two-factor code box"), "{typed}");
+            assert!(!typed.contains("drive's settings"), "{typed}");
+            assert_eq!(
+                friendly_signin_error(&typed, None),
+                typed,
+                "explained twice"
+            );
+        }
 
         // What the provider is usually refusing about is worth naming.
         let hinted = friendly_signin_error(koofr, Some("Koofr wants an app password."));

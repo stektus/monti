@@ -30,6 +30,12 @@ offered the fresh comparison rclone was asking for. Monti now says what
 happened in words and puts the first-sync question back, so the next run
 starts from a comparison of both sides — with you choosing which side wins.
 
+A Proton Drive sign-in that ran out reported itself in rclone's own words,
+which suggest a command-line flag — no use inside a window. Monti now says
+that Proton wants a fresh six-digit code and where to type it: the drive's
+settings when the drive is failing to mount, the Two-factor code box when
+the sign-in form is the thing on screen.
+
 ## v0.9.3 — 2026-08-21
 
 **Monti can put a password on your rclone config, not only ask for one.**
