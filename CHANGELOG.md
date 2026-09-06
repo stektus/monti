@@ -2,7 +2,7 @@
 
 Notable changes per release. Dates are the release date.
 
-## Unreleased
+## v0.9.4 — 2026-09-06
 
 A mounted drive showed the whole path to its folder while an unmounted one
 showed `~/CloudDrives/name`, so the same folder looked like two different
