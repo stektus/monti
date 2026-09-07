@@ -74,6 +74,29 @@ tested.
 - **The cloud provider itself,** or anything that happens after your files leave
   this machine.
 
+## Known advisories in the dependency tree
+
+`cargo audit` runs on every push and once a week, and reports seventeen
+warnings. None of them is a vulnerability, and none can be fixed here.
+
+- **The GTK3 bindings** — `gtk`, `gdk`, `atk`, `gtk3-macros` and their `-sys`
+  companions — are no longer maintained by gtk-rs. Tauri 2 is built on them.
+- **`glib` 0.18.5** carries
+  [RUSTSEC-2024-0429](https://rustsec.org/advisories/RUSTSEC-2024-0429), an
+  unsoundness in the `Iterator` implementations for `VariantStrIter`. It is
+  fixed in glib 0.20, which requires gtk-rs 0.20, which Tauri 2 does not use.
+  Monti's own code never names glib.
+- **`proc-macro-error` and the five `unic-*` crates** arrive the same way,
+  through `glib-macros` and through Tauri's `urlpattern`.
+
+All seventeen are reached through Tauri, and Monti is already on the newest
+Tauri there is. They go when Tauri moves to maintained bindings, and not
+before — pinning around them here would mean forking the framework. This is
+why the audit job reports warnings without failing: a build that is red every
+day for something nobody can act on stops being read.
+
+Last checked against Tauri 2.11.5 on 2026-09-07.
+
 ## Scope
 
 Monti drives [rclone](https://rclone.org); flaws inside rclone belong in
