@@ -1219,33 +1219,63 @@ async function shareFile(name) {
 // cloud that cannot be reached yet fails to mount for a minute or two at
 // most. Giving up on the first try would leave people with an empty folder
 // and no idea why, so keep trying quietly for about four minutes.
-const AUTOMOUNT_RETRIES = [10, 30, 60, 120]; // seconds between attempts
+// Ten seconds out to ten minutes, and every quarter of an hour after that
+// for as long as the app runs. The reason a drive fails at login is almost
+// always the network not being up yet, and that heals on its own — but four
+// attempts inside four minutes used to be the whole of it, so a laptop that
+// boots before its Wi-Fi came up to drives that stayed unmounted until
+// somebody noticed. It also means a sign-in mended in the provider's web
+// interface is picked up without touching Monti.
+const AUTOMOUNT_RETRIES = [10, 30, 60, 120, 300, 600]; // seconds between attempts
+const AUTOMOUNT_SLOW = 900; // and this, from then on, indefinitely
+// How many attempts announce themselves. After that it keeps trying in
+// silence: a banner every quarter of an hour is noise, and the card already
+// says the drive is not mounted.
+const AUTOMOUNT_LOUD = 4;
+// Drives with a chain of attempts already running. Auto-mount runs again
+// after a config is unlocked, and since a chain no longer ends by itself,
+// without this a second one would be laid on top of the first.
+const autoMountRetrying = new Set();
 
 function retryAutoMount(name, attempt, lastError) {
   // A locked config is not the network coming up — retrying cannot fix it,
   // and the unlock runs auto-mounts again anyway.
   if (String(lastError).startsWith(CONFIG_LOCKED)) {
+    autoMountRetrying.delete(name);
     lockSkipped = true;
     return;
   }
-  if (attempt >= AUTOMOUNT_RETRIES.length) {
+  if (attempt === 0 && autoMountRetrying.has(name)) return;
+  autoMountRetrying.add(name);
+  const wait = AUTOMOUNT_RETRIES[attempt] ?? AUTOMOUNT_SLOW;
+  if (attempt < AUTOMOUNT_LOUD) {
+    showError(
+      t(
+        "“{name}” is not mounted yet — trying again in {wait}s. " +
+          "Right after login this usually means the network is still coming up.",
+        { name, wait }
+      )
+    );
+  } else if (attempt === AUTOMOUNT_LOUD) {
+    // Why it failed, said once. From here the trying goes on quietly, so
+    // repeating this would put a banner on screen every fifteen minutes for
+    // the rest of the session.
     showError(t("Auto-mount of “{name}” failed: {error}", { name, error: lastError }));
-    return;
   }
-  const wait = AUTOMOUNT_RETRIES[attempt];
-  showError(
-    t(
-      "“{name}” is not mounted yet — trying again in {wait}s. " +
-        "Right after login this usually means the network is still coming up.",
-      { name, wait }
-    )
-  );
   setTimeout(async () => {
     try {
-      const { own, external } = await fetchState();
+      const { remotes, own, external } = await fetchState();
       if (own.has(name) || external.has(name)) {
+        autoMountRetrying.delete(name);
         showError(""); // mounted meanwhile, by hand or by the engine
         await refreshRemotes();
+        return;
+      }
+      // Trying forever means asking, each time, whether it is still wanted:
+      // the drive may have been removed, or auto-mount turned off, while
+      // this chain sat in a timeout.
+      if (!remotes.some((r) => r.name === name) || !prefFor(name).automount) {
+        autoMountRetrying.delete(name);
         return;
       }
       await invoke("mount_remote", {
@@ -1254,6 +1284,7 @@ function retryAutoMount(name, attempt, lastError) {
         vfs: vfsOptFor(name),
         excludes: excludesFor(name),
       });
+      autoMountRetrying.delete(name);
       showError("");
       await refreshRemotes();
     } catch (e) {

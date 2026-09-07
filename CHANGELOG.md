@@ -4,8 +4,17 @@ Notable changes per release. Dates are the release date.
 
 ## Unreleased
 
-Three things found by reading a real engine log rather than by looking for
+Four things found by reading a real engine log rather than by looking for
 them.
+
+**A drive that failed to mount at login is no longer given up on.** Four
+attempts inside four minutes were the whole of it, and after that the drive
+stayed unmounted until somebody noticed — on a laptop that boots before its
+Wi-Fi is up, that meant hours of a folder that was not there. Monti now keeps
+trying: ten seconds, then out to ten minutes, then every quarter of an hour
+for as long as it runs, quietly after the first few. The reason is said once.
+A sign-in mended in the provider's web interface is also picked up on its own
+now, without touching Monti.
 
 A drive whose sign-in MEGA no longer accepts said "login with previous auth
 keys failed: unexpected end of JSON input" — rclone's words, carrying neither
