@@ -1752,6 +1752,11 @@ struct AboutInfo {
     trashed: Option<u64>,
 }
 
+/// What a drive is told when its backend has no quota to report. The window
+/// treats any failure here as "this provider does not answer that", so the
+/// words only ever reach a log.
+const NO_ABOUT: &str = "this backend does not report a quota";
+
 /// Space used in the cloud, so nobody has to open a web interface to find
 /// out whether their Drive is full.
 ///
@@ -1760,17 +1765,31 @@ struct AboutInfo {
 /// than hold up the whole list.
 #[tauri::command]
 async fn remote_about(state: State<'_, EngineState>, name: String) -> Result<AboutInfo, String> {
+    let fs_name = fs_name_of(&name)?;
     let (port, pass) = {
         let eng = state.0.lock().unwrap();
+        // Asked once. A backend that cannot answer never starts being able
+        // to, and every asking is an ERROR line in the engine log.
+        if eng.no_about.contains(&name) {
+            return Err(NO_ABOUT.into());
+        }
         (eng.port, eng.pass.clone())
     };
-    let v = engine::rc_raw_with_timeout(
+    let v = match engine::rc_raw_with_timeout(
         port,
         &pass,
         "operations/about",
-        &json!({ "fs": fs_name_of(&name)? }),
+        &json!({ "fs": fs_name }),
         20,
-    )?;
+    ) {
+        Ok(v) => v,
+        Err(e) => {
+            if e.to_lowercase().contains("support about") {
+                state.0.lock().unwrap().no_about.insert(name);
+            }
+            return Err(e);
+        }
+    };
     let num = |key: &str| v.get(key).and_then(Value::as_u64);
     Ok(AboutInfo {
         total: num("total"),
@@ -1788,11 +1807,20 @@ async fn vfs_cache_size(
     name: String,
 ) -> Result<u64, String> {
     let fs_name = fs_name_of(&name)?;
-    let (port, pass) = {
+    let (port, pass, mounted) = {
         let eng = state.0.lock().unwrap();
-        (eng.port, eng.pass.clone())
+        (
+            eng.port,
+            eng.pass.clone(),
+            eng.mounts.contains_key(&fs_name),
+        )
     };
-    let dirs = vfs_cache_dirs_live(port, &pass, &fs_name)
+    // Only a mounted drive has a VFS to ask. Asking anyway is not free: the
+    // answer is "no VFS found", which rclone writes to the engine log as an
+    // ERROR — once per unmounted drive, every time the list is drawn.
+    let dirs = mounted
+        .then(|| vfs_cache_dirs_live(port, &pass, &fs_name))
+        .flatten()
         .map_or_else(|| vfs_cache_dirs(&app, &name), Ok)?;
     Ok(dirs.iter().map(|d| dir_size(d)).sum())
 }

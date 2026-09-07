@@ -2,6 +2,26 @@
 
 Notable changes per release. Dates are the release date.
 
+## Unreleased
+
+Three things found by reading a real engine log rather than by looking for
+them.
+
+A drive whose sign-in MEGA no longer accepts said "login with previous auth
+keys failed: unexpected end of JSON input" — rclone's words, carrying neither
+a 401 nor the word "token", so nothing recognised them and nothing explained
+them. Monti now says that the saved sign-in is no longer accepted and where
+to renew it.
+
+The engine log filled with errors that were never anybody's problem, and real
+ones had to be found among them. Every redraw of the drive list asked each
+unmounted drive for cache statistics it cannot have, and rclone logged an
+ERROR for every one; the quota of a backend that has no quota — B2 at its
+root, Storj, S3 at a bucket — was asked again every few minutes, with the
+same result and another ERROR each time. Cache statistics are now asked only
+of drives that are mounted, and a backend that says it cannot report a quota
+is not asked twice.
+
 ## v0.9.4 — 2026-09-06
 
 A mounted drive showed the whole path to its folder while an unmounted one

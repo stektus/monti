@@ -3,7 +3,7 @@
 // re-adopting a daemon left running by a previous session.
 
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     fs,
     io::Read,
     net::TcpListener,
@@ -123,6 +123,15 @@ pub struct Engine {
     /// file along would undo exactly that. The daemon holds it for as long as
     /// it runs — which outlives the app — so the asking is rare.
     pub config_pass: Option<String>,
+    /// Drives whose backend cannot report a quota, learned by asking once.
+    ///
+    /// Whether `about` works is a property of the backend, not a passing
+    /// state: B2 at its root, Storj and S3 at a bucket all refuse it, and
+    /// rclone writes an ERROR line for every refusal. The window forgets the
+    /// answer after a few minutes and asks again, so a drive that can never
+    /// answer filled the engine log with errors that were nobody's problem —
+    /// and buried the ones that were.
+    pub no_about: HashSet<String>,
 }
 
 pub struct EngineState(pub Mutex<Engine>);
@@ -860,6 +869,18 @@ pub fn friendly_cloud_error(raw: &str) -> String {
              already spent, or copied with a piece missing, comes back like \
              this. Make a fresh one on the account's security page and paste \
              it whole, with no line break in it.",
+        );
+    }
+    // MEGA keeps a session rather than a token, and when that session is no
+    // longer good it says so in words that carry neither "401" nor "token" —
+    // so this refusal reached people as rclone wrote it, which explains
+    // nothing to anybody.
+    if low.contains("login with previous auth keys failed") {
+        return explain(
+            "MEGA no longer accepts the saved sign-in for this drive. It keeps \
+             a session rather than a token, and a session ends when the \
+             password changes or the account signs out everywhere. Open the \
+             drive's settings and sign in again.",
         );
     }
     if low.contains("no such host")
@@ -1641,6 +1662,16 @@ mod error_tests {
             assert!(shown.starts_with("Jottacloud did not sign in"), "{shown}");
             assert!(shown.contains("one use"), "{shown}");
         }
+
+        // MEGA's stale session, straight out of a real engine log. It says
+        // neither "401" nor "token", so it used to reach people exactly as
+        // rclone wrote it — and "unexpected end of JSON input" tells nobody
+        // that their sign-in is what ran out.
+        let mega = friendly_cloud_error(
+            "login with previous auth keys failed: unexpected end of JSON input",
+        );
+        assert!(mega.contains("sign in again"), "{mega}");
+        assert!(mega.contains("unexpected end of JSON"), "raw text dropped");
 
         // Every rc_raw error is explained already, so a caller explaining it
         // again must change nothing. It did once: the dialog showed the same
