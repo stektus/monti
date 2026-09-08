@@ -238,6 +238,13 @@ jobs:
             src-tauri/target/release/bundle/deb/*.deb
             src-tauri/target/release/bundle/rpm/*.rpm
           if-no-files-found: error
+          # These live for the minutes between this job and `publish`, and
+          # what they carry ends up on the release page anyway. Kept for the
+          # default ninety days instead, one build of each architecture left
+          # 190 MB behind, and the free account's 500 MB of artifact storage
+          # ran out: the upload then fails at the last step, "403 Forbidden"
+          # on finalize, with the build itself perfectly green.
+          retention-days: 1
 
   # One release carries both architectures, so publishing waits until every
   # build has drawn its window somewhere other than the machine it was
