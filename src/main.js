@@ -106,9 +106,19 @@ function setEngine(stateClass, label) {
   engineRunning = stateClass === "ok";
 }
 
+// The backend marks an error that means "this drive needs signing in again",
+// because a network failure and a refused token look alike from here and
+// deserve opposite answers: one is worth retrying in seconds, the other is
+// not worth retrying at all until a person does something. Declared here
+// because this is where it is first stripped; the other markers live with
+// the config-lock code that uses them.
+const SIGNIN_REFUSED = "monti:signin-refused";
+
 // Render the message inside the open modal dialog (the page-level banner
 // sits under the ::backdrop and would be invisible); clearing clears all.
 function showError(msg) {
+  // The mark is for deciding what to do, never for reading.
+  if (msg) msg = String(msg).replace(SIGNIN_REFUSED + "\n", "");
   const slots = ["global-error", "add-error", "remote-error", "pair-error", "sync-error"];
   if (!msg) {
     for (const id of slots) {
@@ -1228,6 +1238,12 @@ async function shareFile(name) {
 // interface is picked up without touching Monti.
 const AUTOMOUNT_RETRIES = [10, 30, 60, 120, 300, 600]; // seconds between attempts
 const AUTOMOUNT_SLOW = 900; // and this, from then on, indefinitely
+// A refused sign-in is not on the same clock. It cannot heal by itself, so
+// the ladder above would only repeat a question already answered — but a
+// person may renew the token in the provider's web interface, and then the
+// drive should come back without being asked. Once an hour finds that out
+// soon enough and leaves one line in the engine log instead of ninety-six.
+const AUTOMOUNT_REFUSED = 3600;
 // How many attempts announce themselves. After that it keeps trying in
 // silence: a banner every quarter of an hour is noise, and the card already
 // says the drive is not mounted.
@@ -1247,8 +1263,20 @@ function retryAutoMount(name, attempt, lastError) {
   }
   if (attempt === 0 && autoMountRetrying.has(name)) return;
   autoMountRetrying.add(name);
-  const wait = AUTOMOUNT_RETRIES[attempt] ?? AUTOMOUNT_SLOW;
-  if (attempt < AUTOMOUNT_LOUD) {
+  // Two failures, two answers. The network coming up is worth a flurry of
+  // quick attempts and is what the reassuring line is about; a sign-in the
+  // provider refuses is neither, and saying "the network is still coming up"
+  // to somebody whose network is fine sends them looking in the wrong place
+  // for four minutes.
+  const refused = String(lastError).startsWith(SIGNIN_REFUSED);
+  const wait = refused
+    ? AUTOMOUNT_REFUSED
+    : AUTOMOUNT_RETRIES[attempt] ?? AUTOMOUNT_SLOW;
+  if (refused) {
+    if (attempt === 0) {
+      showError(t("Auto-mount of “{name}” failed: {error}", { name, error: lastError }));
+    }
+  } else if (attempt < AUTOMOUNT_LOUD) {
     showError(
       t(
         "“{name}” is not mounted yet — trying again in {wait}s. " +

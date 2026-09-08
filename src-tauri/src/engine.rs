@@ -672,6 +672,17 @@ fn quoted(raw: &str) -> String {
 /// What a refused sign-in means at a mount: something that used to work has
 /// run out. Named because the sign-in path recognises its own words — see
 /// [`friendly_signin_error`].
+/// Marks an error that means "this drive needs signing in again", so the
+/// window can tell it apart from a network hiccup without reading English
+/// prose. Everything after the newline is the sentence a person reads, and
+/// the window strips the line before showing it.
+///
+/// The difference matters at a mount: a network failure heals by itself and
+/// is worth retrying in seconds, a refused sign-in never does. Told apart by
+/// nothing at all, an expired token was answered for four minutes with
+/// "the network is still coming up" — on a machine whose network was fine.
+pub const SIGNIN_REFUSED: &str = "monti:signin-refused\n";
+
 const SIGNIN_EXPIRED: &str = "The saved sign-in for this drive is no longer accepted — it \
      expired, or access was withdrawn in the account's security settings. Open the \
      drive's settings and sign in again.";
@@ -709,6 +720,10 @@ fn wants_second_factor(low: &str) -> bool {
 /// `hint` is the thing that particular provider is usually refusing about —
 /// the mistake worth naming before the person starts checking every field.
 pub fn friendly_signin_error(raw: &str, hint: Option<&str>) -> String {
+    // The mark is for the mount path, where the question is whether to keep
+    // retrying. In front of a form there is nothing to retry, so it is taken
+    // off before anything here reads the words.
+    let raw = raw.strip_prefix(SIGNIN_REFUSED).unwrap_or(raw);
     // A missing second factor is not a wrong detail, so it never reaches the
     // "one of them is wrong" wording below. It is caught before the split
     // because it arrives both ways: explained already, and raw.
@@ -786,6 +801,9 @@ pub fn friendly_cloud_error(raw: &str) -> String {
     }
     let low = raw.to_lowercase();
     let explain = |what: &str| format!("{what}{PROVIDER_SAID}{}", quoted(raw));
+    // The same, marked: this drive will not mount until somebody signs in
+    // again, so retrying it every ten seconds helps nobody.
+    let refuse = |what: &str| format!("{SIGNIN_REFUSED}{}", explain(what));
 
     // A password-protected rclone config. The daemon starts happily without
     // the password — it reads the config only when something asks for it —
@@ -832,7 +850,7 @@ pub fn friendly_cloud_error(raw: &str) -> String {
         );
     }
     if wants_second_factor(&low) {
-        return explain(NEEDS_2FA);
+        return refuse(NEEDS_2FA);
     }
     if low.contains("the password is not correct") {
         return explain(
@@ -856,14 +874,14 @@ pub fn friendly_cloud_error(raw: &str) -> String {
         );
     }
     if refused_signin(&low) {
-        return explain(SIGNIN_EXPIRED);
+        return refuse(SIGNIN_EXPIRED);
     }
     // Jottacloud's login token fails in four different voices — a JSON parse
     // error, a base64 one, a 401, or nothing at all coming back — and only
     // the 401 is recognisable above. The rest reach here, and every one of
     // them means the same thing to the person holding the token.
     if low.contains("failed to get oauth token") {
-        return explain(
+        return refuse(
             "Jottacloud did not sign in with that token. A personal login \
              token is good for one use and for a few minutes: one that was \
              already spent, or copied with a piece missing, comes back like \
@@ -876,7 +894,7 @@ pub fn friendly_cloud_error(raw: &str) -> String {
     // so this refusal reached people as rclone wrote it, which explains
     // nothing to anybody.
     if low.contains("login with previous auth keys failed") {
-        return explain(
+        return refuse(
             "MEGA no longer accepts the saved sign-in for this drive. It keeps \
              a session rather than a token, and a session ends when the \
              password changes or the account signs out everywhere. Open the \
@@ -1468,7 +1486,10 @@ mod mount_escape_tests {
 
 #[cfg(test)]
 mod error_tests {
-    use super::{friendly_cloud_error, friendly_signin_error, CONFIG_LOCKED, CONFIG_LOCKED_BAD};
+    use super::{
+        friendly_cloud_error, friendly_signin_error, CONFIG_LOCKED, CONFIG_LOCKED_BAD,
+        SIGNIN_REFUSED,
+    };
 
     /// Both messages below were copied from rclone v1.75.0 answering
     /// `config/dump` over the RC API with an encrypted config. They differ by
@@ -1672,6 +1693,31 @@ mod error_tests {
         );
         assert!(mega.contains("sign in again"), "{mega}");
         assert!(mega.contains("unexpected end of JSON"), "raw text dropped");
+
+        // Everything that means "sign in again" carries the mark, so the
+        // window does not answer an expired token with "the network is still
+        // coming up" and retry it every ten seconds. Everything that heals on
+        // its own must not carry it.
+        for raw in [
+            "failed to get token: oauth2: cannot fetch token: 400 invalid_grant",
+            "couldn't initialize a new proton drive instance: this account \
+             requires a 2FA code. Can be provided with --protondrive-2fa=000000",
+            "login with previous auth keys failed: unexpected end of JSON input",
+            "failed to get oauth token: unexpected EOF",
+        ] {
+            let shown = friendly_cloud_error(raw);
+            assert!(shown.starts_with(SIGNIN_REFUSED), "unmarked: {shown}");
+            // The mark is a line of its own, never part of what is read.
+            assert!(!shown[SIGNIN_REFUSED.len()..].contains("monti:"), "{shown}");
+            // In front of a form it is meaningless, and must be gone.
+            assert!(!friendly_signin_error(&shown, None).contains("monti:"));
+        }
+        for raw in [
+            "dial tcp: lookup example.com: no such host",
+            "googleapi: Error 403: Rate Limit Exceeded, userRateLimitExceeded",
+        ] {
+            assert!(!friendly_cloud_error(raw).contains(SIGNIN_REFUSED), "{raw}");
+        }
 
         // Every rc_raw error is explained already, so a caller explaining it
         // again must change nothing. It did once: the dialog showed the same

@@ -4,8 +4,17 @@ Notable changes per release. Dates are the release date.
 
 ## Unreleased
 
-Four things found by reading a real engine log rather than by looking for
+Every fix below came out of reading a real engine log rather than looking for
 them.
+
+**An expired sign-in is no longer answered with "the network is still
+coming up".** The two look alike from inside the window and heal in opposite
+ways, and telling them apart was left to nobody: a drive whose token the
+provider had refused was retried every ten seconds for four minutes under a
+banner blaming a network that was working. Monti now says what actually
+happened, straight away, and asks the provider again once an hour instead —
+often enough to notice a token renewed in a web interface, rarely enough to
+stay out of the way.
 
 **A drive that failed to mount at login is no longer given up on.** Four
 attempts inside four minutes were the whole of it, and after that the drive
