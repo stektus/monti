@@ -376,6 +376,13 @@ a:hover { text-decoration: underline; }
   50% { opacity: 0.45; }
 }
 
+/* Mounted, and refusing every read: the folder is there and empty. */
+.chip.state.bad {
+  color: var(--err);
+  border-color: color-mix(in srgb, var(--err) 40%, transparent);
+  background: color-mix(in srgb, var(--err) 12%, transparent);
+  cursor: help;
+}
 .chip.state.ext {
   color: var(--warn-text);
   border-color: color-mix(in srgb, var(--warn) 35%, transparent);

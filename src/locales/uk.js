@@ -344,6 +344,7 @@ export default {
   "disconnected": "не під'єднано",
   "The engine stopped, so this folder is not connected.": "Рушій зупинено, тому тека зараз не під'єднана.",
   "not mounted": "не підключено",
+  "not answering": "не відповідає",
   "The encrypted copy is stored here": "Тут зберігається зашифрована копія",
   "Connected through your own API key": "Підключено через власний ключ API",
   "own key": "власний ключ",

@@ -1752,6 +1752,30 @@ struct AboutInfo {
     trashed: Option<u64>,
 }
 
+/// Whether a mounted drive still answers the provider behind it.
+///
+/// Mounting proves less than it looks. WebDAV mounts without ever sending
+/// the password; a drive whose keys were withdrawn stays mounted, green and
+/// empty, and rclone reports every refusal into its own log — where nobody
+/// is looking. One `stat` of the root settles it, and the answer comes back
+/// through the same explaining path as any other failure, mark and all.
+#[tauri::command]
+async fn drive_reachable(state: State<'_, EngineState>, name: String) -> Result<(), String> {
+    let fs_name = fs_name_of(&name)?;
+    let (port, pass) = {
+        let eng = state.0.lock().unwrap();
+        (eng.port, eng.pass.clone())
+    };
+    engine::rc_raw_with_timeout(
+        port,
+        &pass,
+        "operations/stat",
+        &json!({ "fs": fs_name, "remote": "" }),
+        15,
+    )?;
+    Ok(())
+}
+
 /// What a drive is told when its backend has no quota to report. The window
 /// treats any failure here as "this provider does not answer that", so the
 /// words only ever reach a log.
@@ -2755,6 +2779,7 @@ pub fn run() {
             delete_remote,
             vfs_cache_size,
             remote_about,
+            drive_reachable,
             cache_info,
             disk_free,
             notify_user,

@@ -234,6 +234,34 @@ pub fn utc_stamp() -> String {
     format!("{y:04}-{mo:02}-{d:02} {h:02}:{m:02}:{s:02}")
 }
 
+/// The same moment on the wall clock, for the diary a person reads.
+///
+/// The sync history is kept in UTC on purpose — a stored stamp has to mean
+/// the same thing after a flight — but a log is read beside rclone's own,
+/// and rclone writes local time. Two files describing one event three hours
+/// apart made every comparison between them a subtraction done in somebody's
+/// head, and one of those subtractions went wrong.
+pub fn local_stamp() -> String {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0) as libc::time_t;
+    let mut tm: libc::tm = unsafe { std::mem::zeroed() };
+    // Reads /etc/localtime. If that cannot be had, UTC is the honest answer.
+    if unsafe { libc::localtime_r(&now, &mut tm) }.is_null() {
+        return utc_stamp();
+    }
+    format!(
+        "{:04}-{:02}-{:02} {:02}:{:02}:{:02}",
+        tm.tm_year + 1900,
+        tm.tm_mon + 1,
+        tm.tm_mday,
+        tm.tm_hour,
+        tm.tm_min,
+        tm.tm_sec
+    )
+}
+
 /// Append one line to monti.log (plain text diary of engine/mount/auth
 /// events — never secrets). Rotates to .old at 512 KiB.
 pub fn log_line(app: &AppHandle, msg: &str) {
@@ -262,7 +290,7 @@ pub fn log_line(app: &AppHandle, msg: &str) {
     }
     if let Ok(mut f) = opts.open(&path) {
         use std::io::Write;
-        let _ = writeln!(f, "{} {}", utc_stamp(), msg);
+        let _ = writeln!(f, "{} {}", local_stamp(), msg);
     }
 }
 
@@ -1487,9 +1515,26 @@ mod mount_escape_tests {
 #[cfg(test)]
 mod error_tests {
     use super::{
-        friendly_cloud_error, friendly_signin_error, CONFIG_LOCKED, CONFIG_LOCKED_BAD,
-        SIGNIN_REFUSED,
+        friendly_cloud_error, friendly_signin_error, local_stamp, utc_stamp, CONFIG_LOCKED,
+        CONFIG_LOCKED_BAD, SIGNIN_REFUSED,
     };
+
+    /// Both clocks must produce the same shape, whatever the machine's zone:
+    /// the log is read by eye beside rclone's, and a line that suddenly
+    /// changed format would be worse than one that changed hour.
+    #[test]
+    fn both_stamps_are_written_the_same_way() {
+        for s in [utc_stamp(), local_stamp()] {
+            assert_eq!(s.len(), 19, "{s}");
+            assert_eq!(&s[4..5], "-");
+            assert_eq!(&s[10..11], " ");
+            assert_eq!(&s[13..14], ":");
+            assert!(
+                s.chars().all(|c| c.is_ascii_digit() || " -:".contains(c)),
+                "{s}"
+            );
+        }
+    }
 
     /// Both messages below were copied from rclone v1.75.0 answering
     /// `config/dump` over the RC API with an encrypted config. They differ by

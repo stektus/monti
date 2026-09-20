@@ -344,6 +344,7 @@ export default {
   "disconnected": "не подключён",
   "The engine stopped, so this folder is not connected.": "Движок остановлен, поэтому папка сейчас не подключена.",
   "not mounted": "не подключён",
+  "not answering": "не отвечает",
   "The encrypted copy is stored here": "Здесь хранится зашифрованная копия",
   "Connected through your own API key": "Подключён через свой ключ API",
   "own key": "свой ключ",

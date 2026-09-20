@@ -2,6 +2,24 @@
 
 Notable changes per release. Dates are the release date.
 
+## Unreleased
+
+**A mounted drive that has stopped answering now says so.** Mounting proves
+less than it looks: a WebDAV drive mounts without the password ever being
+sent, and a drive whose keys the provider withdrew stays mounted and green
+while every read inside it fails. One machine logged six hundred refusals in
+an afternoon behind a card that said "mounted". Each mounted drive is now
+asked, every ten minutes, whether it can still see its own root; one that
+cannot is marked *not answering*, with the provider's own words in the
+tooltip. Only a refused sign-in is marked — a slow provider or a network
+blip is not something to paint on a card.
+
+**Monti's log and rclone's now share a clock.** `monti.log` was written in
+UTC and `engine.log` in local time, so one event appeared in the two files
+hours apart and every comparison between them was a subtraction done in
+somebody's head. Both are local now. The sync history stays in UTC, where a
+stored moment has to keep its meaning.
+
 ## v0.9.6 — 2026-09-20
 
 **A security fix in a dependency.** rustls, the TLS library underneath the

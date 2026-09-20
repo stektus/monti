@@ -575,6 +575,7 @@ async function applyBwLimit() {
 // ---------- engine health ----------
 
 let healthTimer = null;
+let reachTimer = null;
 let engineDown = false;
 let healthTicks = 0;
 
@@ -752,6 +753,59 @@ async function pollActivity() {
     );
   } catch {
     pill.classList.add("hidden"); // engine restarting — go quiet, retry next tick
+  }
+}
+
+
+// ---------- is a mounted drive actually answering? ----------
+
+// Mounting is not proof. WebDAV mounts without sending the password at all,
+// and a drive whose keys the provider withdrew stays mounted and green while
+// every read inside it fails — six hundred refusals in one afternoon, all of
+// them in rclone's log and none of them anywhere a person looks. So each
+// mounted drive is asked, rarely, whether it can still see its own root.
+const REACH_EVERY = 10 * 60 * 1000;
+const reach = new Map(); // name -> { at, error }
+
+async function checkReachable(name) {
+  const seen = reach.get(name);
+  if (seen && Date.now() - seen.at < REACH_EVERY) return seen;
+  let error = "";
+  try {
+    await invoke("drive_reachable", { name });
+  } catch (e) {
+    error = String(e);
+  }
+  const got = { at: Date.now(), error };
+  reach.set(name, got);
+  return got;
+}
+
+// Only what is mounted, and only what the backend marked as a refused
+// sign-in: a slow provider or a network blip is not something to paint on a
+// card, and asking again in ten minutes costs nothing.
+function mountedNames() {
+  return [...document.querySelectorAll(".remote-card")]
+    .filter((c) => c.querySelector(".chip.state.on"))
+    .map((c) => c.dataset.name);
+}
+
+async function markUnreachable(names) {
+  for (const name of names) {
+    const { error } = await checkReachable(name);
+    const card = document.querySelector(
+      `.remote-card[data-name="${CSS.escape(name)}"] .chip.state.on`
+    );
+    if (!card) continue;
+    if (error.startsWith(SIGNIN_REFUSED)) {
+      card.textContent = t("not answering");
+      card.classList.add("bad");
+      card.title = error.replace(SIGNIN_REFUSED + "\n", "");
+    } else {
+      card.textContent = t("mounted");
+      card.classList.remove("bad");
+      card.title = "";
+    }
   }
 }
 
@@ -1177,6 +1231,10 @@ async function refreshRemotes(opts = {}) {
     }
     list.append(card);
   }
+
+  // Ask the mounted ones whether they can still see their own root. Never
+  // awaited: a list that draws in a moment must not wait on a provider.
+  markUnreachable(mountedNames()).catch(() => {});
 }
 
 // Mount everything marked "mount automatically".
@@ -2413,6 +2471,13 @@ async function boot() {
     startSyncSchedules();
     if (!activityTimer) activityTimer = setInterval(pollActivity, 2000);
     if (!healthTimer) healthTimer = setInterval(healthTick, 5000);
+    // Halved on purpose: checkReachable keeps its own ten-minute memory, so
+    // this only ever turns into a real question every other tick.
+    if (!reachTimer)
+      reachTimer = setInterval(
+        () => markUnreachable(mountedNames()).catch(() => {}),
+        REACH_EVERY / 2
+      );
   } catch (e) {
     setEngine("err", "engine failed");
     showError(String(e));
