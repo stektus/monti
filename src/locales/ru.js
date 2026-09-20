@@ -404,8 +404,9 @@ export default {
   // карточка синхронизации
   ready: "готово",
   "not synced yet": "ещё не синхронизировано",
-  "last sync {when} UTC": "последняя синхронизация {when} UTC",
-  "last sync failed: {error}": "последняя синхронизация не удалась: {error}",
+  "last sync {when}": "последняя синхронизация {when}",
+  "last sync failed {when}: {error}":
+    "последняя синхронизация не удалась {when}: {error}",
   "never synced": "ни разу не синхронизировано",
   Stop: "Остановить",
   "Sync now": "Синхронизировать",

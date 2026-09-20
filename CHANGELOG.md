@@ -4,7 +4,14 @@ Notable changes per release. Dates are the release date.
 
 ## Unreleased
 
-Every fix below came out of reading a real engine log rather than looking for
+**A synced folder now says when it last ran, in your own time.** A failure
+said only "last sync failed" — whether that was an hour ago or last month was
+not written down anywhere you could see. And a successful run was stamped in
+UTC, so on a machine three hours off that, the time on the card disagreed
+with the clock on the wall. Both lines now carry the local date and time, and
+the exact original, to the second and in UTC, is in the tooltip.
+
+The fixes below came out of reading a real engine log rather than looking for
 them.
 
 **An expired sign-in is no longer answered with "the network is still

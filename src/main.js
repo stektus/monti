@@ -283,6 +283,23 @@ function setPath(el, text, title = text) {
   el.title = title;
 }
 
+// A sync stamp is recorded in UTC and shown in the time zone the person
+// lives in: three hours off the wall clock is worse than no stamp at all.
+// The exact original stays one hover away, so nothing is hidden — the same
+// arrangement the drive paths use.
+function syncWhen(stamp) {
+  const raw = String(stamp);
+  const d = new Date(raw.replace(" ", "T") + "Z");
+  if (Number.isNaN(d.getTime())) return { text: raw, title: "" };
+  const p2 = (n) => String(n).padStart(2, "0");
+  const day = `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}`;
+  const hm = `${p2(d.getHours())}:${p2(d.getMinutes())}`;
+  return {
+    text: `${day} ${hm}`,
+    title: `${day} ${hm}:${p2(d.getSeconds())} · ${raw} UTC`,
+  };
+}
+
 // ---------- browser-authorization state (shared by both dialogs) ----------
 
 let authInProgress = false;
@@ -1374,13 +1391,21 @@ async function refreshPairs() {
 
     const line = card.querySelector(".sync-progress");
     if (p.lastRun) {
+      // A failure used to carry no time at all, so "last sync failed" said
+      // nothing about whether that was an hour ago or last month.
+      const when = syncWhen(p.lastRun);
       line.textContent =
         p.lastResult === "ok"
-          ? t("last sync {when} UTC", { when: p.lastRun })
-          : t("last sync failed: {error}", { error: p.lastResult });
+          ? t("last sync {when}", { when: when.text })
+          : t("last sync failed {when}: {error}", {
+              when: when.text,
+              error: p.lastResult,
+            });
+      line.title = when.title;
       line.classList.toggle("failed-text", p.lastResult !== "ok");
     } else {
       line.textContent = t("never synced");
+      line.title = "";
     }
 
     const actions = card.querySelector(".remote-actions");
