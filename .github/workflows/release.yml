@@ -84,28 +84,39 @@ jobs:
           d=~/.cache/tauri
           mkdir -p "$d"
           arch=${{ matrix.arch }}
-          # Known good, recorded 2026-08-20. These four files are executed
-          # during the build, from mutable tags and a moving branch — a
-          # silent change upstream would go straight into every AppImage.
-          # A mismatch stops the release; updating a line here is a decision
-          # someone makes on purpose.
+          # Known good. These files are executed during the build, from
+          # mutable tags and a moving branch — a silent change upstream would
+          # go straight into every AppImage. A mismatch stops the release;
+          # updating a line here is a decision someone makes on purpose.
+          #
+          # Recorded 2026-08-20. Refreshed 2026-09-20 for the GTK plugin,
+          # which tauri-apps moved on 2026-08-26 by merging upstream: the
+          # diff is a rename of two variables and a new helper that copies
+          # lib directories to one consistent path, signed by a maintainer.
+          # A name may appear twice — see check().
           cat > "$d/SHA256SUMS" <<'SUMS'
           f30140a43a0a59e46db21bdefdf749b9e9f2c6946e92afabbacf98b8ae73fb4f  AppRun-x86_64
           072f17c0895a85c490282fe5395c5007e5fc75da727e553b3b8fb680feb11578  AppRun-aarch64
           e762bea85c8eb0d4b3508d46e5c1f037f717d0f9303ae3b4aafc8b04991fa1ef  linuxdeploy-x86_64.AppImage
           b12b5cc57bd0921e1f98d73f58aa364503bc1a27f54b7a69fd2870bce7fa2f55  linuxdeploy-aarch64.AppImage
-          cb379f9b0733e9ad9f8bd78f8c2fa038aef2478523bb7d4c8e64ff6a1ea3501a  linuxdeploy-plugin-gtk.sh
+          7804c9eef13e59bf2783aad9882ef9db8f3f3f9e8d631874b1d348d550a3693f  linuxdeploy-plugin-gtk.sh
+          06a56df39e65806170ebae570e593ea14ad9aecf97f668694c343f461482b4c4  linuxdeploy-plugin-gtk.sh
           c107b49d84edbffc6ab226ed1007e0626a4f7aa2c3a36b7782bef62351d49e94  linuxdeploy-plugin-gstreamer.sh
+          2a15ce9da8de6e20159e1ab27861a7a5ef8758c81a6278ba4ab30cefa1d74c9f  linuxdeploy-plugin-gstreamer.sh
           SUMS
           sed -i 's/^ *//' "$d/SHA256SUMS"
           check() {
-            want=$(grep " $1\$" "$d/SHA256SUMS" | cut -d' ' -f1)
             got=$(sha256sum "$d/$1" | cut -d' ' -f1)
-            if [ -z "$want" ] || [ "$want" != "$got" ]; then
-              echo "::error::$1 is not the file this build expects (got $got, expected ${want:-nothing})"
-              rm -f "$d/$1"
-              return 1
+            # A name may have more than one line below. The copy on
+            # raw.githubusercontent and the one vendored in tauri-bundler are
+            # both legitimate and are not byte for byte the same, so either
+            # answer is accepted — but only these answers.
+            if grep -qxF "$got  $1" "$d/SHA256SUMS"; then
+              return 0
             fi
+            echo "::error::$1 is not a file this build expects (got $got)"
+            rm -f "$d/$1"
+            return 1
           }
           get() {
             # Failure must be visible: with `get … || fallback` the shell
@@ -135,7 +146,7 @@ jobs:
             get "https://raw.githubusercontent.com/tauri-apps/linuxdeploy-plugin-$plugin/master/$f" "$f" || {
               echo "raw.githubusercontent refused $f — taking the crate's copy"
               v=$(curl -fsSL -A monti-ci https://crates.io/api/v1/crates/tauri-bundler \
-                  | python3 -c 'import json,sys; print(json.load(sys.stdin)["crate"]["max_version"])')
+                  | python3 -c 'import json,sys; print(json.load(sys.stdin)["crate"]["max_stable_version"])')
               curl -fsSL -A monti-ci --retry 5 --retry-all-errors \
                   "https://crates.io/api/v1/crates/tauri-bundler/$v/download" | tar xz -C /tmp
               install -m 755 "/tmp/tauri-bundler-$v/src/bundle/linux/appimage/$f" "$d/$f"

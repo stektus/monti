@@ -2,7 +2,7 @@
 
 Notable changes per release. Dates are the release date.
 
-## v0.9.7 — 2026-09-20
+## v0.9.8 — 2026-09-20
 
 **A mounted drive that has stopped answering now says so.** Mounting proves
 less than it looks: a WebDAV drive mounts without the password ever being
