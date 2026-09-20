@@ -2,6 +2,17 @@
 
 Notable changes per release. Dates are the release date.
 
+## v0.9.6 — 2026-09-20
+
+**A security fix in a dependency.** rustls, the TLS library underneath the
+engine downloader, accepted TLS 1.3 handshake messages that arrived at the
+wrong encryption level — RFC 8446 requires ending the connection instead
+([RUSTSEC-2026-0285](https://rustsec.org/advisories/RUSTSEC-2026-0285), 5.3
+medium, published six days before this release). Monti reaches it through
+`ureq`, which fetches the rclone engine and the checksums it is verified
+against. Every release up to and including 0.9.5 carries the affected
+version; this one carries 0.23.45. Nothing else changed.
+
 ## v0.9.5 — 2026-09-20
 
 **A synced folder now says when it last ran, in your own time.** A failure
