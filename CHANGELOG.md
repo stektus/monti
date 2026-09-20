@@ -2,7 +2,7 @@
 
 Notable changes per release. Dates are the release date.
 
-## Unreleased
+## v0.9.5 — 2026-09-20
 
 **A synced folder now says when it last ran, in your own time.** A failure
 said only "last sync failed" — whether that was an hour ago or last month was
