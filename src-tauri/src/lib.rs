@@ -2220,8 +2220,15 @@ async fn mount_remote(
         .filter(|s| !s.is_empty())
     {
         Some(custom) => {
+            // A bare name has exactly one sensible reading here — a folder
+            // beside the other drives — and somebody who typed "GoogleDrive"
+            // into a box labelled "Mount folder" meant that. Refusing it
+            // taught nobody anything: the refusal arrived days later, at an
+            // auto-mount, nowhere near the box.
+            let plain_name = !custom.contains('/') && custom != "." && custom != "..";
             let path = match custom.strip_prefix("~/") {
                 Some(rest) => home.join(rest),
+                None if plain_name => home.join("CloudDrives").join(&custom),
                 None => PathBuf::from(custom),
             };
             if !path.is_absolute() {

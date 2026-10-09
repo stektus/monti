@@ -495,6 +495,8 @@ export default {
     "В следующий раз, когда вы их откроете, они загрузятся снова.",
   "\"{value}\" is not a size — try something like 500M or 10G.":
     "«{value}» — не размер, попробуйте что-то вроде 500M или 10G.",
+  "\"{value}\" is not a folder — give a full path, or ~/ to start from home.":
+    "«{value}» — это не папка. Укажите полный путь или начните с ~/, чтобы считать от домашнего каталога.",
   "\"{value}\" is not a duration — try something like 30m, 24h or 7d.":
     "«{value}» — не длительность, попробуйте что-то вроде 30m, 24h или 7d.",
   "Enter the Client secret that pairs with the new Client ID.":

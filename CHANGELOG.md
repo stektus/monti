@@ -2,6 +2,16 @@
 
 Notable changes per release. Dates are the release date.
 
+## Unreleased
+
+**A mount folder typed as a plain name now works.** The box is labelled
+"Mount folder" and took anything, so "GoogleDrive" went in and was saved —
+and then the drive refused to mount, days later, at an auto-mount, with a
+complaint about absolute paths nowhere near the box it came from. A plain
+name is now read the only way it can sensibly be read: a folder beside the
+other drives, `~/CloudDrives/GoogleDrive`. Anything else that is not a path
+is refused in the dialog, while the field is still on screen.
+
 ## v0.9.8 — 2026-09-20
 
 **A mounted drive that has stopped answering now says so.** Mounting proves

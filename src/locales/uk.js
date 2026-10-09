@@ -495,6 +495,8 @@ export default {
     "Наступного разу, коли ви їх відкриєте, вони завантажаться знову.",
   "\"{value}\" is not a size — try something like 500M or 10G.":
     "«{value}» — не розмір, спробуйте щось на кшталт 500M або 10G.",
+  "\"{value}\" is not a folder — give a full path, or ~/ to start from home.":
+    "«{value}» — це не тека. Вкажіть повний шлях або почніть з ~/, щоб рахувати від домівки.",
   "\"{value}\" is not a duration — try something like 30m, 24h or 7d.":
     "«{value}» — не тривалість, спробуйте щось на кшталт 30m, 24h або 7d.",
   "Enter the Client secret that pairs with the new Client ID.":

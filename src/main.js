@@ -3113,11 +3113,30 @@ window.addEventListener("DOMContentLoaded", () => {
       );
       return;
     }
+    // The box says "Mount folder" and takes anything. A bare name is read as
+    // a folder beside the other drives — that is what somebody typing
+    // "GoogleDrive" means — and anything else that is not a path is refused
+    // here, where the box is, rather than at the next auto-mount.
+    const typed = $("remote-mountpoint").value.trim();
+    let mountPoint = typed || null;
+    if (typed && !typed.startsWith("/") && !typed.startsWith("~/")) {
+      if (typed.includes("/") || typed === "." || typed === "..") {
+        showError(
+          t('"{value}" is not a folder — give a full path, or ~/ to start from home.', {
+            value: typed,
+          })
+        );
+        return;
+      }
+      mountPoint = `~/CloudDrives/${typed}`;
+      $("remote-mountpoint").value = mountPoint;
+    }
+
     const name = dialogRemote;
     const foldersChanged =
       JSON.stringify(excludesFor(name)) !== JSON.stringify(dialogExcludes);
     setPref(name, {
-      mountPoint: $("remote-mountpoint").value.trim() || null,
+      mountPoint,
       automount: $("remote-automount").checked,
       excludes: dialogExcludes,
       vfs: {
