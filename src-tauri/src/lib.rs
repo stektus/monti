@@ -2265,7 +2265,7 @@ async fn mount_remote(
         excludes: excludes.unwrap_or_default(),
     };
     let mut eng = state.0.lock().unwrap();
-    engine::mount_guarded(eng.port, &eng.pass, &fs_wanted, &entry).map_err(&cleanup)?;
+    engine::mount_guarded(eng.port, &eng.pass, &fs_wanted, &entry).map_err(cleanup)?;
     eng.mounts.insert(fs_wanted, entry);
     eng.record_saved = save_engine_file(&app, &eng);
     log_line(
