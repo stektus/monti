@@ -4,6 +4,21 @@ Notable changes per release. Dates are the release date.
 
 ## Unreleased
 
+**Security fixes in dependencies.** rustls had three advisories published
+on 14 October — a `Debug` implementation that could print TLS secrets, a
+certificate decompression that could allocate a gigabyte before authenticating
+anything, and buffered data sent to the wrong server after an ECH rejection —
+and its certificate verifier accepted intermediates that had been distrusted.
+The bundled root certificates trusted a distrusted emSign intermediate.
+`zip`, which unpacks the downloaded rclone, carried three more, one of them
+rated critical. All are gone: rustls 0.23.46, rustls-webpki 0.103.16,
+webpki-roots 1.0.11, zip 9.
+
+The zip advisories were all about `ZipArchive::extract`, which Monti does not
+call — it verifies the download's checksum first, then copies one entry out
+by hand and sets the permissions itself. The upgrade happened anyway, because
+an audit that is red for a reason nobody reads stops being read.
+
 **A mount folder typed as a plain name now works.** The box is labelled
 "Mount folder" and took anything, so "GoogleDrive" went in and was saved —
 and then the drive refused to mount, days later, at an auto-mount, with a

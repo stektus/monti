@@ -365,7 +365,14 @@ async fn install_rclone(app: AppHandle) -> Result<String, String> {
 
     for i in 0..zip.len() {
         let mut entry = zip.by_index(i).map_err(|e| e.to_string())?;
-        if entry.name().ends_with("/rclone") {
+        // zip 9 hands the name back as a Result: an entry can carry a name
+        // that is not valid UTF-8. The borrow ends with the statement, which
+        // it has to — the entry is read mutably a few lines down.
+        let is_rclone = entry
+            .name()
+            .map_err(|e| e.to_string())?
+            .ends_with("/rclone");
+        if is_rclone {
             // Unpack next to the target and rename into place so a crash or
             // full disk never leaves a half-written binary at the final path.
             let tmp = bin_dir.join("rclone.download");
