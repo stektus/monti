@@ -76,26 +76,31 @@ tested.
 
 ## Known advisories in the dependency tree
 
-`cargo audit` runs on every push and once a week, and reports seventeen
-warnings. None of them is a vulnerability, and none can be fixed here.
+`cargo audit` runs on every push and once a week. It reports five warnings,
+none of them a vulnerability and none fixable here.
 
-- **The GTK3 bindings** — `gtk`, `gdk`, `atk`, `gtk3-macros` and their `-sys`
-  companions — are no longer maintained by gtk-rs. Tauri 2 is built on them.
 - **`glib` 0.18.5** carries
   [RUSTSEC-2024-0429](https://rustsec.org/advisories/RUSTSEC-2024-0429), an
   unsoundness in the `Iterator` implementations for `VariantStrIter`. It is
   fixed in glib 0.20, which requires gtk-rs 0.20, which Tauri 2 does not use.
   Monti's own code never names glib.
-- **`proc-macro-error` and the five `unic-*` crates** arrive the same way,
-  through `glib-macros` and through Tauri's `urlpattern`.
+- **`proc-macro-error`** is unmaintained and arrives through `glib-macros`.
+- **`zbus`, `zvariant` and `zbus_names`** are unmaintained and arrive through
+  `notify-rust`, which sends the desktop notifications, and through
+  `tauri-plugin-single-instance`.
 
-All seventeen are reached through Tauri, and Monti is already on the newest
-Tauri there is. They go when Tauri moves to maintained bindings, and not
-before — pinning around them here would mean forking the framework. This is
-why the audit job reports warnings without failing: a build that is red every
-day for something nobody can act on stops being read.
+Every one of them is reached through a dependency, not through a choice made
+here, and Monti is on the newest Tauri there is. This is why the audit job
+reports warnings without failing: a build that is red every day for something
+nobody can act on stops being read. Actual vulnerabilities do fail it, and
+have; the changelog says which releases answered them.
 
-Last checked against Tauri 2.11.5 on 2026-09-07.
+The GTK3 bindings — `gtk`, `gdk`, `atk` and their companions — used to be
+listed here too. RustSec withdrew those advisories on 2026-08-14. The
+bindings are still what Tauri 2 is built on; they are simply no longer
+flagged.
+
+Last checked against Tauri 2.12.5 on 2026-10-26.
 
 ## Scope
 
