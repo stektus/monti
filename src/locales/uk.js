@@ -348,6 +348,11 @@ export default {
   "The encrypted copy is stored here": "Тут зберігається зашифрована копія",
   "Connected through your own API key": "Підключено через власний ключ API",
   "own key": "власний ключ",
+  "Signing in with the key rclone shares with every user — Google stops accepting it during 2026":
+    "Вхід через ключ, спільний для всіх користувачів rclone — Google перестане його приймати протягом 2026 року",
+  "shared key": "спільний ключ",
+  "Google is retiring the key rclone signs in with, during 2026. Still using it: {names}. Each drive's ⚙ settings has an API key section that walks through making your own.":
+    "Google згортає ключ, яким входить rclone, протягом 2026 року. Досі на ньому: {names}. У налаштуваннях диска (⚙) є розділ API key, який проведе через створення власного.",
   "Read-only: files cannot be changed": "Лише читання: файли не можна змінювати",
   "read-only": "лише читання",
   "in {name}": "у {name}",
@@ -479,8 +484,10 @@ export default {
   "{name} — settings": "{name} — налаштування",
   "unchanged — enter a new one to replace": "без змін — введіть новий, щоб замінити",
   "Using your own API key.": "Використовується власний ключ API.",
-  "Using rclone's shared key — it is being retired during 2026, switching to your own key is recommended.":
-    "Використовується спільний ключ rclone — його згортають протягом 2026 року, тож радимо перейти на власний.",
+  "Using the key rclone shares — Google stops accepting it during 2026, so this drive needs its own before then.":
+    "Використовується спільний ключ rclone — Google перестане його приймати протягом 2026 року, тож цьому диску потрібен власний.",
+  "Using the key rclone shares with every user, which means sharing the provider's rate limits with them too. Your own key has its own limits.":
+    "Використовується ключ, спільний для всіх користувачів rclone, а отже й обмеження провайдера спільні з ними. У власного ключа обмеження свої.",
   "{limit} · e.g. 10G": "{limit} · напр. 10G",
   "counting…": "рахуємо…",
   "nothing cached": "кеш порожній",

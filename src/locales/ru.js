@@ -348,6 +348,11 @@ export default {
   "The encrypted copy is stored here": "Здесь хранится зашифрованная копия",
   "Connected through your own API key": "Подключён через свой ключ API",
   "own key": "свой ключ",
+  "Signing in with the key rclone shares with every user — Google stops accepting it during 2026":
+    "Вход через ключ, общий для всех пользователей rclone — Google перестанет его принимать в течение 2026 года",
+  "shared key": "общий ключ",
+  "Google is retiring the key rclone signs in with, during 2026. Still using it: {names}. Each drive's ⚙ settings has an API key section that walks through making your own.":
+    "Google сворачивает ключ, которым входит rclone, в течение 2026 года. Всё ещё на нём: {names}. В настройках диска (⚙) есть раздел API key, который проведёт через создание своего.",
   "Read-only: files cannot be changed": "Только чтение: файлы нельзя изменять",
   "read-only": "только чтение",
   "in {name}": "в {name}",
@@ -479,8 +484,10 @@ export default {
   "{name} — settings": "{name} — настройки",
   "unchanged — enter a new one to replace": "без изменений — введите новый, чтобы заменить",
   "Using your own API key.": "Используется свой ключ API.",
-  "Using rclone's shared key — it is being retired during 2026, switching to your own key is recommended.":
-    "Используется общий ключ rclone — его сворачивают в течение 2026 года, поэтому советуем перейти на свой.",
+  "Using the key rclone shares — Google stops accepting it during 2026, so this drive needs its own before then.":
+    "Используется общий ключ rclone — Google перестанет его принимать в течение 2026 года, так что этому диску нужен свой.",
+  "Using the key rclone shares with every user, which means sharing the provider's rate limits with them too. Your own key has its own limits.":
+    "Используется ключ, общий для всех пользователей rclone, а значит и ограничения провайдера общие с ними. У своего ключа ограничения свои.",
   "{limit} · e.g. 10G": "{limit} · напр. 10G",
   "counting…": "считаем…",
   "nothing cached": "кэш пуст",

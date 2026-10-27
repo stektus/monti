@@ -1043,6 +1043,8 @@ async function refreshRemotes(opts = {}) {
     .then((free) => lowDiskWarning($("disk-warning"), free))
     .catch(() => {});
 
+  sharedKeyWarning($("shared-key-warning"), remotes);
+
   for (const { name, type, hasOwnKey: ownKey, mountedReadOnly, wraps } of remotes) {
     const ownPoint = own.get(name);
     const extPoint = external.get(name);
@@ -1076,6 +1078,11 @@ async function refreshRemotes(opts = {}) {
             : ""
         }
         ${ownKey ? `<span class="chip key" title="${t("Connected through your own API key")}">${t("own key")}</span>` : ""}
+        ${
+          type === "drive" && !ownKey
+            ? `<span class="chip warn" title="${t("Signing in with the key rclone shares with every user — Google stops accepting it during 2026")}">${t("shared key")}</span>`
+            : ""
+        }
         ${readOnly ? `<span class="chip" title="${t("Read-only: files cannot be changed")}">${t("read-only")}</span>` : ""}
       </div>
       <div class="remote-path muted mono"></div>
@@ -1984,12 +1991,22 @@ async function openRemoteDialog(name) {
   $("remote-client-secret").placeholder = info.hasOwnKey
     ? t("unchanged — enter a new one to replace")
     : "";
+  // Said once, accurately: only Google is retiring its shared key, and
+  // telling a Dropbox or pCloud drive that it will stop working during 2026
+  // would be a plain untruth. The others share a key, and share its limits
+  // with everyone using it — which is worth knowing and is not a deadline.
   $("remote-key-status").textContent = dialogKey.id
     ? t("Using your own API key.")
-    : t(
-        "Using rclone's shared key — it is being retired during 2026, " +
-          "switching to your own key is recommended."
-      );
+    : info.type === "drive"
+      ? t(
+          "Using the key rclone shares — Google stops accepting it during " +
+            "2026, so this drive needs its own before then."
+        )
+      : t(
+          "Using the key rclone shares with every user, which means sharing " +
+            "the provider's rate limits with them too. Your own key has its " +
+            "own limits."
+        );
 
   // Say what the empty limit field actually means, instead of "unlimited".
   invoke("cache_info")
@@ -2050,6 +2067,28 @@ function lowDiskWarning(el, free) {
     el.classList.add("hidden");
     lowDiskTold = false;
   }
+}
+
+// Google is retiring the client_id rclone ships with, during 2026 — rclone's
+// own engine log repeats that every time such a drive is touched, where
+// nobody reads it. Of the six providers here that have an API key at all,
+// Google is the only one retiring anything, so this names the drives it is
+// actually true for rather than warning everybody about everything.
+//
+// On the page and nowhere else: these drives still work today, and a desktop
+// notification about a deadline months out is nagging, not helping.
+function sharedKeyWarning(el, remotes) {
+  const names = remotes
+    .filter((r) => r.type === "drive" && !r.hasOwnKey)
+    .map((r) => r.name);
+  el.classList.toggle("hidden", names.length === 0);
+  if (!names.length) return;
+  el.textContent = t(
+    "Google is retiring the key rclone signs in with, during 2026. Still " +
+      "using it: {names}. Each drive's ⚙ settings has an API key section " +
+      "that walks through making your own.",
+    { names: names.join(", ") }
+  );
 }
 
 // Cache size for the open settings dialog, plus the state of its button.

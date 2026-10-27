@@ -389,6 +389,14 @@ a:hover { text-decoration: underline; }
   background: color-mix(in srgb, var(--warn) 12%, transparent);
   cursor: help;
 }
+/* The counterpart of .chip.key: signing in with the key rclone shares with
+   everyone, which for Google stops working during 2026. */
+.chip.warn {
+  color: var(--warn-text);
+  border-color: color-mix(in srgb, var(--warn) 35%, transparent);
+  background: color-mix(in srgb, var(--warn) 12%, transparent);
+  cursor: help;
+}
 .chip.key {
   color: var(--accent);
   border-color: color-mix(in srgb, var(--accent) 35%, transparent);
@@ -548,6 +556,17 @@ a:hover { text-decoration: underline; }
   margin-top: 18px;
   padding: 12px 16px;
   background: var(--danger-bg);
+  border-radius: 12px;
+}
+
+/* Same shape as an error, in the colour of something that has not broken
+   yet: a deadline worth acting on before it arrives. */
+.notice {
+  color: var(--warn-text);
+  font-size: 13.5px;
+  margin-top: 18px;
+  padding: 12px 16px;
+  background: color-mix(in srgb, var(--warn) 12%, transparent);
   border-radius: 12px;
 }
 
