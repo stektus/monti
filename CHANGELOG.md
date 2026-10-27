@@ -2,6 +2,33 @@
 
 Notable changes per release. Dates are the release date.
 
+## v0.9.10 — 2026-10-27
+
+**Google is retiring the key rclone signs in with, and Monti now says so.**
+rclone has been repeating that warning into its own log for months — "the
+shared client_id is being retired and will stop working during 2026" — where
+nobody reads it. A Google Drive still on that key now carries a *shared key*
+tag, and the drives page names the drives it is true for and points at the
+settings section that already walks through making your own. On the page and
+nowhere else: those drives work today, and a desktop notification about a
+deadline months out is nagging rather than helping.
+
+Only Google drives are named, because Google is the only one of the six
+providers here with an API key that is retiring anything. The settings
+dialog used to tell a Dropbox or pCloud drive that its key would stop
+working during 2026, which was not true of either; it now says what is —
+that the key is shared with every other rclone user, and the provider's
+rate limits are shared with them too.
+
+**One more way Google says "slow down" is explained.** It has two phrasings
+and Monti knew one. The other — "Quota exceeded for quota metric 'Queries'
+and limit 'Requests per minute'" — matched neither the rate-limit wording
+nor the out-of-space wording, because Google writes "Quota exceeded" with a
+space here and "quotaExceeded" without one when an account is full. So it
+reached people as raw googleapi text. It now says the provider is asking
+Monti to slow down, and the two 403s are pinned apart by a test built from
+the real message out of a real log.
+
 ## v0.9.9 — 2026-10-27
 
 **Security fixes in dependencies.** rustls had three advisories published
