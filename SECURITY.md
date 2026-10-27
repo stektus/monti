@@ -85,9 +85,9 @@ none of them a vulnerability and none fixable here.
   fixed in glib 0.20, which requires gtk-rs 0.20, which Tauri 2 does not use.
   Monti's own code never names glib.
 - **`proc-macro-error`** is unmaintained and arrives through `glib-macros`.
-- **`zbus`, `zvariant` and `zbus_names`** are unmaintained and arrive through
-  `notify-rust`, which sends the desktop notifications, and through
-  `tauri-plugin-single-instance`.
+- **`zvariant`, `zvariant_derive` and `zbus_names`** are unmaintained. They
+  arrive underneath `zbus`, which comes from `notify-rust` — the desktop
+  notifications — and from `tauri-plugin-single-instance`.
 
 Every one of them is reached through a dependency, not through a choice made
 here, and Monti is on the newest Tauri there is. This is why the audit job
@@ -100,7 +100,7 @@ listed here too. RustSec withdrew those advisories on 2026-08-14. The
 bindings are still what Tauri 2 is built on; they are simply no longer
 flagged.
 
-Last checked against Tauri 2.12.5 on 2026-10-26.
+Last checked against Tauri 2.12.5 on 2026-10-27.
 
 ## Scope
 

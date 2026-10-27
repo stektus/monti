@@ -2,7 +2,7 @@
 
 Notable changes per release. Dates are the release date.
 
-## Unreleased
+## v0.9.9 — 2026-10-27
 
 **Security fixes in dependencies.** rustls had three advisories published
 on 14 October — a `Debug` implementation that could print TLS secrets, a
