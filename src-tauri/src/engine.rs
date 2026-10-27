@@ -845,9 +845,19 @@ pub fn friendly_cloud_error(raw: &str) -> String {
     // Google answers 403 for both "you are out of space" and "you are going
     // too fast", and the word "quota" appears in both — so decide which one
     // this is before saying anything.
+    //
+    // Its per-minute refusal says neither "rate limit" nor "quotaExceeded".
+    // It reads "Quota exceeded for quota metric 'Queries' and limit
+    // 'Requests per minute'" — two words where the storage refusal has one,
+    // so both of those phrases are matched literally or the whole message
+    // falls through to the raw googleapi text. The storage refusal is
+    // "storage quota has been exceeded" and names no metric, which is what
+    // keeps the two apart.
     let rate_limited = low.contains("ratelimitexceeded")
         || low.contains("userratelimit")
         || low.contains("rate limit")
+        || low.contains("requests per minute")
+        || low.contains("quota exceeded for quota metric")
         || low.contains("too many requests")
         || low.contains("error 429");
     if !rate_limited
@@ -1583,6 +1593,19 @@ mod error_tests {
             "googleapi: Error 403: Rate Limit Exceeded, userRateLimitExceeded",
         );
         assert!(fast.contains("slow down"), "{fast}");
+
+        // The other way Google says "too fast", copied out of a real
+        // engine.log. It shares no wording with the one above and only one
+        // word with the storage refusal, and that word has a space in it
+        // here — which is how it used to reach people as raw API text.
+        let metric = friendly_cloud_error(
+            "couldn't list directory: googleapi: Error 403: Quota exceeded \
+             for quota metric 'Queries' and limit 'Previous quota: Requests \
+             per minute' of service 'drive.googleapis.com' for consumer \
+             'project_number:0'.",
+        );
+        assert!(metric.contains("slow down"), "{metric}");
+        assert!(!metric.starts_with("The cloud is full"), "{metric}");
 
         let stale = friendly_cloud_error(
             "failed to get token: oauth2: cannot fetch token: 400 Bad Request \
