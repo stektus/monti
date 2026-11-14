@@ -10,14 +10,11 @@ your own Nextcloud — fifteen of them, and any one becomes a normal folder on
 your Linux desktop: open it in your file manager, edit files, save them. No
 terminal, no config files, no sync folder eating your disk.
 
-https://github.com/user-attachments/assets/84918187-e32b-4b96-8ed3-ab1ab629ae1c
+[![Ninety seconds of Monti](https://i.ytimg.com/vi/YKLINXf5r9Q/maxresdefault.jpg)](https://www.youtube.com/shorts/YKLINXf5r9Q)
 
-<sub>Eighty-five seconds, start to finish: the drives, a mount, a cloud folder
-open in the file manager, a two-way sync, and an encrypted drive whose file
-names the provider never sees. Also on
-[YouTube](https://www.youtube.com/watch?v=fRZxYJxDItg), or
-[ninety seconds of it](https://www.youtube.com/shorts/YKLINXf5r9Q) made for
-a phone screen.</sub>
+<sub>Ninety seconds, start to finish: adding a cloud, choosing which folders
+it carries, the folder open in the file manager, a two-way sync, an encrypted
+drive whose file names the provider never sees, and the tray it lives in.</sub>
 
 There is a page too, if you would rather read than watch:
 **[stektus.github.io/monti](https://stektus.github.io/monti/)** — the same
