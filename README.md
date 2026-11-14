@@ -15,7 +15,9 @@ https://github.com/user-attachments/assets/84918187-e32b-4b96-8ed3-ab1ab629ae1c
 <sub>Eighty-five seconds, start to finish: the drives, a mount, a cloud folder
 open in the file manager, a two-way sync, and an encrypted drive whose file
 names the provider never sees. Also on
-[YouTube](https://www.youtube.com/watch?v=fRZxYJxDItg).</sub>
+[YouTube](https://www.youtube.com/watch?v=fRZxYJxDItg), or
+[ninety seconds of it](https://www.youtube.com/shorts/YKLINXf5r9Q) made for
+a phone screen.</sub>
 
 There is a page too, if you would rather read than watch:
 **[stektus.github.io/monti](https://stektus.github.io/monti/)** — the same
