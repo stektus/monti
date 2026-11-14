@@ -351,18 +351,20 @@ tokens.
 Monti is in beta, and a bug report is the fastest way it gets better: most of
 what I have fixed so far, I fixed because somebody opened an issue.
 **[Report a problem](https://github.com/stektus/monti/issues/new/choose)**, and
-please include:
+tell me what you did, what you expected, and what happened instead.
 
-- your distro and desktop (e.g. *Manjaro, KDE Plasma 6, Wayland*) and the Monti
-  version — `~/Applications/Monti.AppImage --version` prints it without
-  opening the window;
-- what you did, what you expected, what happened instead;
-- the end of `monti.log` and `engine.log` from the folder above — and, for a
-  window that never draws anything, the output of running the AppImage from a
-  terminal, or `journalctl --user -b | grep -i monti`.
+For the rest of it, **Settings → About → Collect a problem report** gathers the
+versions, the desktop underneath, your drives and the end of both logs into one
+block, shows it to you, and copies it when you press Copy. Nothing leaves your
+computer until you paste it. Tokens and passwords are stripped out of it and
+your home folder is written as `~`, but your drive names and the folders they
+are mounted at are in there — read it before you send it, and trim anything you
+would rather not publish.
 
-Logs hold no passwords or tokens, but they do contain your remote names and
-file paths — trim anything you would rather not publish.
+If the window never draws at all, the button is out of reach; in that case send
+the output of running the AppImage from a terminal, or
+`journalctl --user -b | grep -i monti`, and the end of `monti.log` and
+`engine.log` from the folder above.
 
 ## How it works
 

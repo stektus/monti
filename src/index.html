@@ -280,6 +280,18 @@
             <a class="btn" href="https://github.com/stektus/monti" target="_blank" rel="noreferrer" id="about-github">GitHub</a>
           </div>
           <p class="muted hidden" id="reinstall-status"></p>
+
+          <div class="setting-name">Problem report</div>
+          <p class="muted" data-i18n="report.note">
+            Versions, the desktop underneath, your drives and the tail of both
+            logs, gathered into one block. Read it, then paste it into a bug
+            report. Tokens and passwords are stripped out of it and your home
+            folder is written as <code>~</code>.
+          </p>
+          <div class="about-actions">
+            <button class="btn" id="report-btn">Collect a problem report</button>
+          </div>
+
           <p class="muted" data-i18n="about.license">
             Free and open source, MIT license. Powered by
             <a href="https://rclone.org" target="_blank" rel="noreferrer">rclone</a>.
@@ -843,6 +855,23 @@
           <span class="spacer"></span>
           <button class="btn" type="button" id="link-copy">Copy</button>
           <button class="btn primary" type="submit" id="link-close">Done</button>
+        </div>
+      </form>
+    </dialog>
+
+    <!-- ============ PROBLEM REPORT ============ -->
+    <dialog id="report-dialog">
+      <form method="dialog" id="report-form">
+        <h2>Problem report</h2>
+        <p class="muted">
+          Nothing has left this computer. Read it, then paste it wherever you
+          are reporting the problem.
+        </p>
+        <textarea id="report-text" class="mono" readonly rows="18"></textarea>
+        <div class="dialog-actions">
+          <span class="spacer"></span>
+          <button class="btn" type="button" id="report-copy">Copy</button>
+          <button class="btn primary" type="submit">Done</button>
         </div>
       </form>
     </dialog>

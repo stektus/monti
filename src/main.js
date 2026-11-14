@@ -2807,6 +2807,32 @@ window.addEventListener("DOMContentLoaded", () => {
     }
   });
 
+  // --- a problem report ---
+  //
+  // "Send me your log" means finding a file under a reversed domain name in
+  // a hidden folder, which is where most bug reports stop. The button does
+  // the finding, shows the result, and leaves the sending to the person.
+  $("report-btn").addEventListener("click", async () => {
+    const btn = $("report-btn");
+    btn.disabled = true;
+    try {
+      $("report-text").value = await invoke("problem_report");
+      $("report-copy").textContent = t("Copy");
+      $("report-dialog").showModal();
+    } catch (e) {
+      showError(String(e));
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  $("report-copy").addEventListener("click", () => {
+    const field = $("report-text");
+    field.select();
+    const done = document.execCommand("copy");
+    $("report-copy").textContent = done ? t("Copied") : t("Press Ctrl+C");
+  });
+
   // --- a link to a file ---
   $("link-copy").addEventListener("click", () => {
     const field = $("link-url");

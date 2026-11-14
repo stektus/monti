@@ -2451,6 +2451,165 @@ async fn app_info(app: AppHandle, flags: State<'_, Flags>) -> Result<AppInfo, St
     })
 }
 
+// ---------- problem report ----------
+
+/// Words that introduce something nobody should paste into a bug tracker.
+/// The logs are written to hold no secrets, which is exactly why a stray
+/// one would go unnoticed — so the report is scrubbed on the way out as
+/// well, and the person sees the scrubbed text before it goes anywhere.
+const SECRET_WORDS: [&str; 10] = [
+    "token",
+    "password",
+    "passwd",
+    "secret",
+    "client_secret",
+    "authorization",
+    "cookie",
+    "api_key",
+    "access_key",
+    "credential",
+];
+
+/// Redact anything that looks like a secret, and write the home directory
+/// as `~` so a report does not hand over somebody's account name.
+fn scrub(text: &str, home: Option<&str>) -> String {
+    let mut out = String::with_capacity(text.len());
+    for line in text.lines() {
+        let line = match home {
+            Some(h) if !h.is_empty() => line.replace(h, "~"),
+            _ => line.to_string(),
+        };
+        let low = line.to_lowercase();
+        let hit = SECRET_WORDS
+            .iter()
+            .find_map(|w| low.find(w).map(|i| i + w.len()));
+        let cleaned = match hit {
+            // Keep the name of the thing, drop its value: "token=ya29.A0…"
+            // becomes "token=<redacted>", which still says which field the
+            // line was about.
+            Some(after) => match line[after..].find(['=', ':']) {
+                Some(sep) => format!("{}<redacted>", &line[..after + sep + 1]),
+                None => line,
+            },
+            None => line,
+        };
+        out.push_str(&cleaned);
+        out.push('\n');
+    }
+    out
+}
+
+/// The last `n` lines of a file, or a note saying why there are none.
+fn log_tail(path: Option<PathBuf>, n: usize) -> String {
+    let Some(path) = path else {
+        return "(no path)".into();
+    };
+    match fs::read_to_string(&path) {
+        Ok(body) => {
+            let lines: Vec<&str> = body.lines().collect();
+            let from = lines.len().saturating_sub(n);
+            lines[from..].join("\n")
+        }
+        Err(e) => format!("(cannot read: {e})"),
+    }
+}
+
+fn first_line_of(path: &str, key: &str) -> Option<String> {
+    fs::read_to_string(path).ok().and_then(|s| {
+        s.lines()
+            .find(|l| l.starts_with(key))
+            .map(|l| l[key.len()..].trim_matches(['=', '"']).to_string())
+    })
+}
+
+/// Everything a bug report needs, in one block a person can read before
+/// they paste it.
+///
+/// Asking somebody to find `~/.local/share/io.github.stektus.monti/monti.log`
+/// is a good way not to receive a bug report. This builds the whole thing —
+/// versions, the desktop underneath, the drives by name and type, and the
+/// tail of both logs — scrubbed, and hands it back for the person to look
+/// at and copy.
+#[tauri::command]
+async fn problem_report(app: AppHandle, state: State<'_, EngineState>) -> Result<String, String> {
+    let home = app.path().home_dir().ok().map(|p| p.display().to_string());
+    let rclone = find_rclone(&app);
+    let rclone_version = rclone
+        .as_ref()
+        .and_then(|p| {
+            Command::new(p)
+                .arg("version")
+                .output()
+                .ok()
+                .and_then(|o| String::from_utf8(o.stdout).ok())
+                .and_then(|s| s.lines().next().map(str::to_string))
+        })
+        .unwrap_or_else(|| "not found".into());
+
+    let (port_known, mounts) = {
+        let eng = state.0.lock().unwrap();
+        (eng.port != 0, eng.mounts.clone())
+    };
+
+    let mut r = String::new();
+    r.push_str("--- Monti problem report ---\n");
+    r.push_str(&format!("Monti        {}\n", app.package_info().version));
+    r.push_str(&format!("rclone       {rclone_version}\n"));
+    r.push_str(&format!(
+        "engine       {}\n",
+        if port_known { "running" } else { "not running" }
+    ));
+    r.push_str(&format!(
+        "distro       {}\n",
+        first_line_of("/etc/os-release", "PRETTY_NAME").unwrap_or_else(|| "unknown".into())
+    ));
+    r.push_str(&format!(
+        "kernel       {}\n",
+        fs::read_to_string("/proc/sys/kernel/osrelease")
+            .map(|s| s.trim().to_string())
+            .unwrap_or_else(|_| "unknown".into())
+    ));
+    r.push_str(&format!(
+        "desktop      {} on {}\n",
+        std::env::var("XDG_CURRENT_DESKTOP").unwrap_or_else(|_| "?".into()),
+        std::env::var("XDG_SESSION_TYPE").unwrap_or_else(|_| "?".into())
+    ));
+    r.push_str(&format!(
+        "package      {}\n",
+        if std::env::var_os("APPIMAGE").is_some() {
+            "AppImage"
+        } else {
+            "system package or build"
+        }
+    ));
+    r.push_str(&format!("arch         {}\n", std::env::consts::ARCH));
+
+    r.push_str(&format!("\nMounts made by Monti ({})\n", mounts.len()));
+    for (name, entry) in &mounts {
+        let excl = entry.excludes.len();
+        r.push_str(&format!(
+            "  {name} -> {}{}\n",
+            entry.mount_point,
+            if excl > 0 {
+                format!("  ({excl} folder(s) left out)")
+            } else {
+                String::new()
+            }
+        ));
+    }
+
+    r.push_str("\n--- monti.log (last 120 lines) ---\n");
+    r.push_str(&log_tail(
+        app.path().app_data_dir().ok().map(|d| d.join("monti.log")),
+        120,
+    ));
+    r.push_str("\n\n--- engine.log (last 80 lines) ---\n");
+    r.push_str(&log_tail(engine::engine_log_path(&app), 80));
+    r.push('\n');
+
+    Ok(scrub(&r, home.as_deref()))
+}
+
 // ---------- tray ----------
 
 /// One drive as the tray shows it.
@@ -2828,6 +2987,7 @@ pub fn run() {
             set_close_to_tray,
             set_keep_mounts,
             app_info,
+            problem_report,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
@@ -2909,6 +3069,54 @@ mod name_tests {
         assert_eq!(fs_name_of("gdrive").unwrap(), "gdrive:");
         assert_eq!(fs_name_of("My Drive").unwrap(), "My Drive:");
         assert_eq!(fs_name_of("work.backup").unwrap(), "work.backup:");
+    }
+}
+
+#[cfg(test)]
+mod report_tests {
+    use super::scrub;
+
+    /// A report is meant to be pasted into a public issue, so the one thing
+    /// it must never carry is the thing that would let a stranger into
+    /// somebody's cloud.
+    #[test]
+    fn secrets_are_cut_out_of_a_report() {
+        let src = "\
+GET /drive failed: token=ya29.a0AfB_very_long_secret_value
+Authorization: Bearer abc.def.ghi
+password: hunter2
+client_secret = GOCSPX-nope
+mounted gdrive at /home/ann/CloudDrives/gdrive
+";
+        let out = scrub(src, Some("/home/ann"));
+
+        for leak in [
+            "ya29.a0AfB_very_long_secret_value",
+            "abc.def.ghi",
+            "hunter2",
+            "GOCSPX-nope",
+        ] {
+            assert!(
+                !out.contains(leak),
+                "the report still carries {leak}:\n{out}"
+            );
+        }
+        // The field names survive, or the line stops saying what it was about.
+        assert!(out.contains("token=<redacted>"), "{out}");
+        assert!(out.contains("password:<redacted>"), "{out}");
+
+        // A home directory names its owner. Reports go to strangers.
+        assert!(!out.contains("/home/ann"), "{out}");
+        assert!(out.contains("~/CloudDrives/gdrive"), "{out}");
+
+        // And a line with nothing to hide is left exactly as it was.
+        assert!(out.contains("mounted gdrive at"), "{out}");
+    }
+
+    #[test]
+    fn an_ordinary_log_survives_untouched() {
+        let src = "2026-11-14 21:44 monti 0.9.11 starting\nengine started (pid 42, port 1234)\n";
+        assert_eq!(scrub(src, None), src);
     }
 }
 
