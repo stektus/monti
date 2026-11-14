@@ -777,6 +777,10 @@ details#add-advanced label { margin-bottom: 10px; }
 }
 .key-section .setting-name { margin-bottom: 2px; }
 .key-section label { margin-bottom: 10px; }
+/* The one irreversible thing in this dialog, kept apart from Save and Cancel
+   so it is never reached by aiming at one of them. */
+.danger-zone { margin-top: 20px; }
+.danger-zone p { margin: 2px 0 10px; }
 dialog input.mono { font-size: 12px; }
 
 /* Last on purpose: .hidden must beat display rules of equal specificity

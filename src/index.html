@@ -732,6 +732,17 @@
           </p>
         </div>
 
+        <!-- Removing a drive lives here rather than on its card: the card's
+             buttons change with the mount state, and a destructive one that
+             lands where a harmless one just was is a trap. -->
+        <div class="key-section danger-zone">
+          <div class="setting-name">Remove this drive</div>
+          <p class="muted" id="remote-remove-note">
+            Monti stops managing it. The files in your cloud are not touched.
+          </p>
+          <button class="btn danger" type="button" id="remote-remove">Remove</button>
+        </div>
+
         <p class="error hidden" id="remote-error"></p>
         <div class="dialog-actions">
           <button class="btn" type="button" id="remote-reconnect" title="Re-run the browser sign-in for this drive">Re-authorize</button>

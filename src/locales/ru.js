@@ -482,6 +482,9 @@ export default {
 
   // окно настроек диска
   "{name} — settings": "{name} — настройки",
+  "Remove this drive": "Удалить этот диск",
+  "Monti stops managing it. The files in your cloud are not touched.":
+    "Monti перестанет им управлять. Файлы в облаке не трогаются.",
   "unchanged — enter a new one to replace": "без изменений — введите новый, чтобы заменить",
   "Using your own API key.": "Используется свой ключ API.",
   "Using the key rclone shares — Google stops accepting it during 2026, so this drive needs its own before then.":

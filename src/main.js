@@ -1189,51 +1189,7 @@ async function refreshRemotes(opts = {}) {
           );
           await refreshRemotes();
         }),
-        makeBtn("⚙", "icon", () => openRemoteDialog(name), t("Drive settings")),
-        makeBtn(t("Remove"), "danger", async () => {
-          // Everything is decided in one dialog, before anything happens:
-          // asking about the cache afterwards meant asking a question the
-          // person could no longer answer with the drive in front of them.
-          const mountPoint = prefFor(name).mountPoint || null;
-          const cached = await invoke("vfs_cache_size", { name }).catch(() => 0);
-          const points = [
-            t("Files in the cloud are not touched."),
-            t("The saved sign-in for this drive is removed from the rclone config on this machine."),
-          ];
-          if (mountFolderOf(name, mountPoint)) {
-            points.push(
-              t("The empty mount folder {folder} is removed.", {
-                folder: mountFolderOf(name, mountPoint),
-              })
-            );
-          }
-          const { ok, extra } = await ask({
-            title: t('Disconnect "{name}" from this computer?', { name }),
-            text: t("The drive disappears from Monti. You can add it back later by signing in again."),
-            points,
-            okLabel: t("Disconnect"),
-            danger: true,
-            extra: cached
-              ? {
-                  label: t("Also delete {size} of cached file copies", {
-                    size: fmtBytes(cached),
-                  }),
-                  checked: true,
-                }
-              : null,
-          });
-          if (!ok) return;
-          await unlocked(() => invoke("delete_remote", { name, mountPoint }));
-          // Only forget the prefs once the remote is really gone — a failed
-          // delete (e.g. still mounted) keeps the drive fully configured.
-          const all = loadPrefs();
-          delete all[name];
-          savePrefs(all);
-          if (extra) {
-            await invoke("clear_vfs_cache", { name }).catch((e) => showError(String(e)));
-          }
-          await refreshRemotes();
-        })
+        makeBtn("⚙", "icon", () => openRemoteDialog(name), t("Drive settings"))
       );
     }
     list.append(card);
@@ -1932,6 +1888,56 @@ function startSyncSchedules() {
       }
     }
   }, 60000);
+}
+
+// Disconnect a drive. Reached from its settings dialog — never from the card,
+// where the buttons shift with the mount state and this one would sometimes
+// take the place a harmless button had a moment earlier.
+//
+// Everything is decided in one dialog, before anything happens: asking about
+// the cache afterwards meant asking a question the person could no longer
+// answer with the drive in front of them.
+async function removeDrive(name) {
+  const mountPoint = prefFor(name).mountPoint || null;
+  const cached = await invoke("vfs_cache_size", { name }).catch(() => 0);
+  const points = [
+    t("Files in the cloud are not touched."),
+    t("The saved sign-in for this drive is removed from the rclone config on this machine."),
+  ];
+  if (mountFolderOf(name, mountPoint)) {
+    points.push(
+      t("The empty mount folder {folder} is removed.", {
+        folder: mountFolderOf(name, mountPoint),
+      })
+    );
+  }
+  const { ok, extra } = await ask({
+    title: t('Disconnect "{name}" from this computer?', { name }),
+    text: t("The drive disappears from Monti. You can add it back later by signing in again."),
+    points,
+    okLabel: t("Disconnect"),
+    danger: true,
+    extra: cached
+      ? {
+          label: t("Also delete {size} of cached file copies", {
+            size: fmtBytes(cached),
+          }),
+          checked: true,
+        }
+      : null,
+  });
+  if (!ok) return false;
+  await unlocked(() => invoke("delete_remote", { name, mountPoint }));
+  // Only forget the prefs once the remote is really gone — a failed delete
+  // (e.g. still mounted) keeps the drive fully configured.
+  const all = loadPrefs();
+  delete all[name];
+  savePrefs(all);
+  if (extra) {
+    await invoke("clear_vfs_cache", { name }).catch((e) => showError(String(e)));
+  }
+  await refreshRemotes();
+  return true;
 }
 
 // ---------- drive settings dialog ----------
@@ -3087,6 +3093,17 @@ window.addEventListener("DOMContentLoaded", () => {
     $("remote-dialog").close();
   });
   $("remote-dialog").addEventListener("cancel", () => abortAuth());
+
+  // The drive is gone, so the dialog describing it has nothing left to show.
+  // It stays open when the question is declined or the delete fails.
+  $("remote-remove").addEventListener("click", async () => {
+    if (!dialogRemote) return;
+    try {
+      if (await removeDrive(dialogRemote)) $("remote-dialog").close();
+    } catch (e) {
+      showError(String(e));
+    }
+  });
 
   $("remote-cache-clear").addEventListener("click", async () => {
     if (!dialogRemote) return;
