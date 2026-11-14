@@ -640,6 +640,11 @@ function markDrivesDisconnected() {
       b.disabled = true;
     }
   }
+  // These cards were changed behind the redraw's back, so their signatures
+  // no longer describe them. Drop the signatures: the next redraw has to
+  // build them again, or the buttons would stay disabled after the engine
+  // comes back.
+  for (const entry of cardCache.values()) entry.sig = null;
 }
 
 
@@ -683,9 +688,13 @@ async function healthTick() {
 // ---------- activity indicator ----------
 
 let ownMounts = new Map(); // remote name -> mount point, kept fresh by refreshRemotes
-// Drive names drawn on the last pass, so a redraw can tell a card that is
-// genuinely new from one that was already there.
-let shownDrives = new Set();
+// The cards on screen, by drive name, each with a signature of everything
+// visible on it. The list is redrawn after every action, on every switch
+// back to this view, and whenever a mount is lost — often while a hand is
+// still on the mouse. A card whose signature has not moved is left exactly
+// where it is, so none of those redraws takes the hover or the keyboard
+// focus with it, and none of them repaints a list that did not change.
+let cardCache = new Map();
 let activityTimer = null;
 
 // rclone size strings ("20480M") are for rclone, not for people.
@@ -1027,7 +1036,7 @@ async function refreshRemotes(opts = {}) {
       lockSkipped = true;
       $("remotes-list").innerHTML = "";
       // Nothing is on screen now, so everything is new again once unlocked.
-      shownDrives = new Set();
+      cardCache = new Map();
       $("empty-hint").classList.add("hidden");
       $("locked-hint").classList.remove("hidden");
       return;
@@ -1058,12 +1067,15 @@ async function refreshRemotes(opts = {}) {
     labels: trayLabels(engineRunning, trayDrives),
   }).catch(() => {});
   const list = $("remotes-list");
-  list.innerHTML = "";
-  // Which drives were already on screen. Only the others are worth animating
-  // in: this list is rebuilt whole on timers too, and cards that did not
-  // change must not twitch every few seconds.
-  const alreadyShown = shownDrives;
-  shownDrives = new Set(remotes.map((r) => r.name));
+  // Built this pass. Cards are moved into place rather than recreated, so
+  // what survives here is the very same element the person was pointing at.
+  const next = new Map();
+  let placed = null;
+  const place = (card) => {
+    const at = placed ? placed.nextSibling : list.firstChild;
+    if (card !== at) list.insertBefore(card, at);
+    placed = card;
+  };
   $("empty-hint").classList.toggle("hidden", remotes.length > 0);
 
   invoke("disk_free")
@@ -1080,9 +1092,31 @@ async function refreshRemotes(opts = {}) {
     const readOnly = ownPoint != null && mountedReadOnly != null
       ? mountedReadOnly
       : !!prefFor(name).vfs?.readOnly;
+    // The line is truncated to keep every card the same shape; the full
+    // path is one hover away.
+    const point = ownPoint || extPoint || prefFor(name).mountPoint || `~/CloudDrives/${name}`;
+
+    // Everything the card shows. If none of it moved there is nothing to
+    // redraw — the language belongs in here too, because a card reused
+    // across a language change would keep the old words.
+    const sig = JSON.stringify([
+      type, !!ownKey, wraps || null, readOnly, point,
+      ownPoint ? "own" : extPoint ? "ext" : "off",
+      getLang(),
+    ]);
+    const had = cardCache.get(name);
+    if (had && had.sig === sig) {
+      // Same card, same contents. Only the parts that are fetched rather
+      // than drawn can have gone stale, and those are written in place.
+      refreshCardData(had.el, name);
+      had.el.classList.remove("fresh");
+      place(had.el);
+      next.set(name, had);
+      continue;
+    }
 
     const card = document.createElement("div");
-    card.className = "card remote-card" + (alreadyShown.has(name) ? "" : " fresh");
+    card.className = "card remote-card" + (cardCache.has(name) ? "" : " fresh");
     card.dataset.name = name;
     card.innerHTML = `
       <div class="remote-head">
@@ -1122,9 +1156,6 @@ async function refreshRemotes(opts = {}) {
     card.querySelector(".remote-name").textContent = name;
     card.querySelector(".provider").textContent = t(PROVIDER_LABELS[type] || type);
     if (wraps) card.querySelector(".wraps").textContent = t("in {name}", { name: wraps });
-    // The line is truncated to keep every card the same shape; the full
-    // path is one hover away.
-    const point = ownPoint || extPoint || prefFor(name).mountPoint || `~/CloudDrives/${name}`;
     // Short on the card, whole in the tooltip: nothing is hidden, it is
     // just not shouted.
     setPath(card.querySelector(".remote-path"), withTilde(point), point);
@@ -1225,12 +1256,36 @@ async function refreshRemotes(opts = {}) {
         makeBtn("⚙", "icon", () => openRemoteDialog(name), t("Drive settings"))
       );
     }
-    list.append(card);
+    place(card);
+    next.set(name, { sig, el: card });
   }
+
+  // Everything from the last pass that is not on this one goes: a drive
+  // dropped from the config, and equally the old element of a card that had
+  // to be built again. Forget the second and the list grows a duplicate of
+  // every card each time the language changes.
+  for (const [name, { el }] of cardCache) if (next.get(name)?.el !== el) el.remove();
+  cardCache = next;
 
   // Ask the mounted ones whether they can still see their own root. Never
   // awaited: a list that draws in a moment must not wait on a provider.
   markUnreachable(mountedNames()).catch(() => {});
+}
+
+// The two things on a card that are fetched rather than drawn: what the
+// provider says about space, and what the cache weighs on this disk. Both
+// are written into the card that is already on screen, so keeping them
+// current costs no DOM and no flicker.
+function refreshCardData(card, name) {
+  showQuota(card.querySelector(".remote-quota"), name);
+  invoke("vfs_cache_size", { name })
+    .then((used) => {
+      const el = card.querySelector(".remote-cache");
+      if (!used) return el.classList.add("hidden");
+      el.textContent = t("{size} cached on this computer", { size: fmtBytes(used) });
+      el.classList.remove("hidden");
+    })
+    .catch(() => {});
 }
 
 // Mount everything marked "mount automatically".
