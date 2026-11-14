@@ -2,6 +2,26 @@
 
 Notable changes per release. Dates are the release date.
 
+## v0.9.11 — 2026-11-14
+
+**Removing a drive has moved off its card.** The buttons on a card change
+with the mount state: mounted, the row ended with the settings gear;
+unmounted, the same place held *Remove*. The card redraws itself on a timer,
+so a drive that unmounted between deciding to open its settings and
+clicking could put deletion under the pointer through nobody's mistake.
+Removing now lives at the foot of the drive's own settings dialog, apart
+from Save and Cancel, and the gear is last on every card in every state.
+
+**The window moves when something changes.** Four transitions covered the
+whole interface, so every change was a substitution: tabs swapped with no
+hint that the screen had changed, dialogs simply existed where the list had
+been, and a drive that takes ten seconds to mount showed nothing but a
+greyed-out button. Tabs and dialogs now ease in, a drive being mounted says
+*mounting…* while the provider thinks, and drives arriving on screen come in
+one after another — only the ones that were not there a moment ago, because
+the list is rebuilt on timers too. A desktop asking for reduced motion gets
+none of it.
+
 ## v0.9.10 — 2026-10-27
 
 **Google is retiring the key rclone signs in with, and Monti now says so.**

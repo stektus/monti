@@ -100,7 +100,7 @@ listed here too. RustSec withdrew those advisories on 2026-08-14. The
 bindings are still what Tauri 2 is built on; they are simply no longer
 flagged.
 
-Last checked against Tauri 2.12.5 on 2026-10-27.
+Last checked against Tauri 2.12.5 on 2026-11-14.
 
 ## Scope
 
