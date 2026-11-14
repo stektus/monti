@@ -372,6 +372,15 @@ a:hover { text-decoration: underline; }
   background: color-mix(in srgb, var(--accent) 10%, transparent);
   animation: sync-pulse 1.6s ease-in-out infinite;
 }
+/* Mounting or unmounting right now. The provider can take a while, and
+   until this chip existed the only sign that the button had worked was the
+   button going grey. */
+.chip.state.working {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 35%, transparent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  animation: sync-pulse 1.6s ease-in-out infinite;
+}
 @keyframes sync-pulse {
   50% { opacity: 0.45; }
 }
@@ -590,6 +599,17 @@ dialog {
    run out past the dialog's edge. */
 dialog p, dialog li { overflow-wrap: anywhere; }
 dialog::backdrop { background: rgb(0 0 0 / 40%); backdrop-filter: blur(3px); }
+/* A dialog that simply exists where the list was gives the eye nothing to
+   follow. The animation runs on `open`, so it needs no JavaScript and no
+   change at the twelve places that call showModal(). */
+dialog[open] { animation: dialog-in 0.18s cubic-bezier(0.2, 0.8, 0.3, 1); }
+dialog[open]::backdrop { animation: backdrop-in 0.18s ease-out; }
+@keyframes dialog-in {
+  from { opacity: 0; transform: translateY(10px) scale(0.975); }
+}
+@keyframes backdrop-in {
+  from { opacity: 0; }
+}
 dialog h2 { margin: 0 0 16px; font-size: 17px; letter-spacing: -0.01em; }
 
 dialog label { display: block; margin-bottom: 13px; font-size: 13.5px; font-weight: 550; }
@@ -782,6 +802,49 @@ details#add-advanced label { margin-bottom: 10px; }
 .danger-zone { margin-top: 20px; }
 .danger-zone p { margin: 2px 0 10px; }
 dialog input.mono { font-size: 12px; }
+
+/* ---------- motion ---------- */
+
+/* Switching tabs was an instant substitution, which reads as a flicker
+   rather than a change of screen. */
+#view-drives:not(.hidden),
+#view-sync:not(.hidden),
+#view-settings:not(.hidden) {
+  animation: view-in 0.2s ease-out;
+}
+@keyframes view-in {
+  from { opacity: 0; transform: translateY(7px); }
+}
+
+/* Drives arrive one after another rather than all at once — but only the
+   ones that were not on screen a moment ago. The list is rebuilt whole on
+   every refresh, including refreshes nobody asked for, and cards that just
+   sat there re-animating every few seconds would be worse than no animation
+   at all. main.js marks the new ones. */
+.remote-card.fresh { animation: card-in 0.26s ease-out backwards; }
+.remote-card.fresh:nth-child(2) { animation-delay: 0.04s }
+.remote-card.fresh:nth-child(3) { animation-delay: 0.08s }
+.remote-card.fresh:nth-child(4) { animation-delay: 0.12s }
+.remote-card.fresh:nth-child(5) { animation-delay: 0.16s }
+.remote-card.fresh:nth-child(n + 6) { animation-delay: 0.2s }
+@keyframes card-in {
+  from { opacity: 0; transform: translateY(10px); }
+}
+
+/* A desktop that asks for less movement gets none of it. The interface has
+   to stay readable and instant, not merely slower. */
+@media (prefers-reduced-motion: reduce) {
+  dialog[open],
+  dialog[open]::backdrop,
+  #view-drives:not(.hidden),
+  #view-sync:not(.hidden),
+  #view-settings:not(.hidden),
+  .remote-card.fresh,
+  .chip.state.sync,
+  .chip.state.working {
+    animation: none;
+  }
+}
 
 /* Last on purpose: .hidden must beat display rules of equal specificity
    further up the file (.check-row's flex, for one). */

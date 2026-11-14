@@ -228,6 +228,23 @@ function closeOnBackdropClick(dlg) {
   });
 }
 
+// Say that a press reached the engine. Mounting goes over the network and
+// through FUSE, so seconds can pass; until this, the only sign that anything
+// was happening was the button going grey. Returns the undo, for the path
+// where the drive does not end up mounted and the card is not redrawn.
+function markWorking(card, label) {
+  const chip = card.querySelector(".chip.state");
+  if (!chip) return () => {};
+  const text = chip.textContent;
+  const cls = chip.className;
+  chip.textContent = label;
+  chip.className = "chip state working";
+  return () => {
+    chip.textContent = text;
+    chip.className = cls;
+  };
+}
+
 function makeBtn(label, extra, onClick, title = "") {
   const b = document.createElement("button");
   b.className = `btn ${extra}`;
@@ -666,6 +683,9 @@ async function healthTick() {
 // ---------- activity indicator ----------
 
 let ownMounts = new Map(); // remote name -> mount point, kept fresh by refreshRemotes
+// Drive names drawn on the last pass, so a redraw can tell a card that is
+// genuinely new from one that was already there.
+let shownDrives = new Set();
 let activityTimer = null;
 
 // rclone size strings ("20480M") are for rclone, not for people.
@@ -1006,6 +1026,8 @@ async function refreshRemotes(opts = {}) {
     if (opts.quiet || !(await askConfigPassword(String(e) === CONFIG_LOCKED_BAD))) {
       lockSkipped = true;
       $("remotes-list").innerHTML = "";
+      // Nothing is on screen now, so everything is new again once unlocked.
+      shownDrives = new Set();
       $("empty-hint").classList.add("hidden");
       $("locked-hint").classList.remove("hidden");
       return;
@@ -1037,6 +1059,11 @@ async function refreshRemotes(opts = {}) {
   }).catch(() => {});
   const list = $("remotes-list");
   list.innerHTML = "";
+  // Which drives were already on screen. Only the others are worth animating
+  // in: this list is rebuilt whole on timers too, and cards that did not
+  // change must not twitch every few seconds.
+  const alreadyShown = shownDrives;
+  shownDrives = new Set(remotes.map((r) => r.name));
   $("empty-hint").classList.toggle("hidden", remotes.length > 0);
 
   invoke("disk_free")
@@ -1055,7 +1082,7 @@ async function refreshRemotes(opts = {}) {
       : !!prefFor(name).vfs?.readOnly;
 
     const card = document.createElement("div");
-    card.className = "card remote-card";
+    card.className = "card remote-card" + (alreadyShown.has(name) ? "" : " fresh");
     card.dataset.name = name;
     card.innerHTML = `
       <div class="remote-head">
@@ -1178,15 +1205,21 @@ async function refreshRemotes(opts = {}) {
     } else {
       actions.append(
         makeBtn(t("Mount"), "primary", async () => {
-          const mp = prefFor(name).mountPoint || null;
-          await unlocked(() =>
-            invoke("mount_remote", {
-              name,
-              mountPoint: mp,
-              vfs: vfsOptFor(name),
-              excludes: excludesFor(name),
-            })
-          );
+          const undo = markWorking(card, t("mounting…"));
+          try {
+            const mp = prefFor(name).mountPoint || null;
+            await unlocked(() =>
+              invoke("mount_remote", {
+                name,
+                mountPoint: mp,
+                vfs: vfsOptFor(name),
+                excludes: excludesFor(name),
+              })
+            );
+          } catch (e) {
+            undo(); // the card is not being redrawn, so put the chip back
+            throw e;
+          }
           await refreshRemotes();
         }),
         makeBtn("⚙", "icon", () => openRemoteDialog(name), t("Drive settings"))
