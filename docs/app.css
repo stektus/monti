@@ -1,0 +1,851 @@
+:root {
+  --bg: #f5f5f7;
+  --surface: #ffffff;
+  --surface-2: #f0f0f2;
+  --text: #1d1d1f;
+  --muted: #6e6e73;
+  --border: #e3e3e6;
+  --accent: #0071e3;
+  --accent-hover: #0077ed;
+  --accent-text: #ffffff;
+  --ok: #34c759;
+  --ok-text: #1d7a35;
+  --warn: #ff9500;
+  --warn-text: #b26800;
+  --err: #ff3b30;
+  --danger-bg: #ffefef;
+  --shadow: 0 1px 2px rgb(0 0 0 / 5%), 0 4px 16px rgb(0 0 0 / 6%);
+  --radius: 16px;
+  font-family: system-ui, -apple-system, "SF Pro Text", "Segoe UI", Roboto,
+    "Noto Sans", sans-serif;
+}
+
+/* Three theme states, in this order: the system's choice, unless the person
+   picked one in Settings — then data-theme on <html> decides, in both
+   directions. color-scheme keeps scrollbars and native controls in step. */
+:root { color-scheme: light; }
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #161617;
+    --surface: #1d1d1f;
+    --surface-2: #272729;
+    --text: #f5f5f7;
+    --muted: #98989d;
+    --border: #38383a;
+    --accent: #0a84ff;
+    --accent-hover: #2492ff;
+    --ok-text: #4fd870;
+    --warn-text: #ffb340;
+    --danger-bg: #3a2323;
+    --shadow: 0 1px 2px rgb(0 0 0 / 40%), 0 4px 16px rgb(0 0 0 / 30%);
+  }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #161617;
+  --surface: #1d1d1f;
+  --surface-2: #272729;
+  --text: #f5f5f7;
+  --muted: #98989d;
+  --border: #38383a;
+  --accent: #0a84ff;
+  --accent-hover: #2492ff;
+  --ok-text: #4fd870;
+  --warn-text: #ffb340;
+  --danger-bg: #3a2323;
+  --shadow: 0 1px 2px rgb(0 0 0 / 40%), 0 4px 16px rgb(0 0 0 / 30%);
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 14.5px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/* ---------- top bar ---------- */
+
+/* The bar itself spans the window, so its background and border do; what
+   sits in it lines up with the cards below instead of drifting to the far
+   corner of a wide monitor. */
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  padding: 12px 0;
+  background: color-mix(in srgb, var(--surface) 82%, transparent);
+  backdrop-filter: blur(20px) saturate(180%);
+  border-bottom: 1px solid var(--border);
+}
+
+.topbar-inner {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  /* The same cap and the same side padding as the cards below, so the
+     logo starts exactly where the first card does. */
+  max-width: 1800px;
+  margin: 0 auto;
+  padding: 0 22px;
+}
+
+.brand { display: flex; align-items: center; gap: 11px; min-width: 0; }
+.brand-logo { width: 38px; height: 38px; flex: none; border-radius: 9px; }
+.brand h1 { margin: 0; font-size: 19px; letter-spacing: -0.02em; }
+.tagline { margin: 0; font-size: 12px; color: var(--muted); }
+
+/* segmented control, macOS style */
+.seg {
+  display: flex;
+  background: var(--surface-2);
+  border-radius: 10px;
+  padding: 3px;
+  gap: 2px;
+}
+.seg-btn {
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 500;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  padding: 5px 18px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.seg-btn.active {
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 0 1px 3px rgb(0 0 0 / 12%);
+}
+
+.engine-pill {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 13px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 12px;
+  color: var(--muted);
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  background: var(--surface);
+}
+
+.pills {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  max-width: 34%;
+  flex: none;
+}
+
+.engine-pill.activity {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 35%, transparent);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  font-variant-numeric: tabular-nums;
+}
+
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex: none; }
+.dot.ok { background: var(--ok); box-shadow: 0 0 6px color-mix(in srgb, var(--ok) 60%, transparent); }
+.dot.warn { background: var(--warn); }
+.dot.err { background: var(--err); }
+
+/* ---------- layout ---------- */
+
+/* Wide screens are the norm now; capping the page at a laptop's width left
+   two thirds of a 27" monitor empty. Cards flow into as many columns as fit
+   and the cap only stops a single card from stretching absurdly wide. */
+.container {
+  max-width: 1800px;
+  margin: 0 auto;
+  padding: 26px 22px 40px;
+}
+
+.section-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin: 4px 2px 16px;
+}
+.section-head h2 { margin: 0; font-size: 21px; letter-spacing: -0.02em; }
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: 14px;
+}
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 18px 20px;
+  box-shadow: var(--shadow);
+}
+
+/* Settings is one column at every width, the way a settings page is read:
+   top to bottom, one thing at a time. Two columns fitted more on a wide
+   screen and cost more than they gave — the eye had to choose a side, the
+   short cards left a hole under the long ones, and which card sat where
+   changed with the size of the window.
+
+   The column is capped at a reading width and centred rather than stretched
+   across the monitor: a switch three feet from the sentence explaining it
+   helps nobody. */
+.settings-grid {
+  display: grid;
+  gap: 14px;
+  max-width: 860px;
+  margin: 0 auto;
+}
+/* A grid item is as wide as its widest unbreakable thing unless told
+   otherwise, and About holds a file path on one line: without this the card
+   pushes past the edge of the window instead of shortening the path to fit. */
+.settings-grid > .card { min-width: 0; }
+
+#view-settings h2 { margin: 0 0 6px; font-size: 17px; }
+
+.install-card { max-width: 560px; margin: 40px auto; text-align: center; }
+.install-card h2 { margin-top: 0; }
+
+/* ---------- drive cards ---------- */
+
+/* Every card is built from the same fixed rows — name, tags, path, quota,
+   buttons — each keeping its height whether it has content or not. Without
+   that, one drive with an extra chip pushes its path and buttons down and
+   nothing lines up with the card beside it. */
+.remote-card { display: flex; flex-direction: column; gap: 8px; height: 100%; }
+
+.remote-head { display: flex; align-items: center; gap: 8px; flex-wrap: nowrap; }
+.remote-name {
+  font-weight: 650;
+  font-size: 16.5px;
+  letter-spacing: -0.01em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.spacer { flex: 1; }
+
+.remote-tags {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  min-height: 21px;
+}
+
+/* One line, truncated from the left: the tail of a path is the part that
+   says which folder this is. */
+.remote-path {
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  text-align: left;
+  min-height: 18px;
+}
+
+/* `direction: rtl` puts the ellipsis at the front, and on its own it also
+   drags the leading "/" to the other end — "/tmp/x" reads as "tmp/x/". The
+   text sits in an explicitly left-to-right inline box (see setPath) so the
+   order survives the truncation. */
+.remote-path > span,
+.transfer-name > span {
+  direction: ltr;
+  unicode-bidi: embed;
+}
+
+.remote-cache { font-size: 12px; margin-top: 3px; min-height: 18px; }
+
+/* Recent transfers: one line per file, name truncated from the left so the
+   part that identifies it — the file name — is the part that survives. */
+.transfer-list { font-size: 12px; margin-top: 6px; }
+.transfer-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 3px 0;
+  border-bottom: 1px solid var(--border);
+}
+.transfer-row:last-child { border-bottom: 0; }
+.transfer-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  text-align: left;
+}
+.transfer-meta { flex: none; }
+.transfer-meta.failed { color: var(--err); }
+
+/* How full the cloud is. The bar carries the glance; the line under it
+   carries the numbers, because a bar alone never answers "how much left". */
+.remote-quota { margin-top: 8px; min-height: 26px; }
+.quota-bar {
+  height: 5px;
+  border-radius: 3px;
+  background: var(--border);
+  overflow: hidden;
+}
+.quota-bar > span {
+  display: block;
+  height: 100%;
+  width: 0;
+  background: var(--accent);
+  transition: width 0.3s ease;
+}
+.quota-bar.full > span { background: var(--warn); }
+.quota-text { font-size: 12px; margin-top: 4px; }
+.mono { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+
+/* Pinned to the bottom edge, so the buttons of every card sit on one line
+   across the row no matter how much text is above them. */
+.remote-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: auto;
+  padding-top: 4px;
+}
+
+/* ---------- synced folders ---------- */
+
+.sync-progress { font-size: 12px; min-height: 18px; }
+.failed-text { color: var(--err); }
+
+/* Files that changed on both sides. They sit inside the pair's card because
+   they belong to it, and each row carries its own decision. */
+.conflict-box {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+.conflict-head { font-size: 12px; color: var(--warn-text); margin-bottom: 6px; }
+.conflict-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 0;
+  font-size: 12px;
+}
+.conflict-row .transfer-name { flex: 1; min-width: 0; }
+.btn.small { padding: 3px 9px; font-size: 11.5px; }
+
+.chip {
+  font-size: 11px;
+  font-weight: 500;
+  padding: 2.5px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  background: var(--surface-2);
+}
+.chip.state.on {
+  color: var(--ok-text);
+  border-color: color-mix(in srgb, var(--ok) 35%, transparent);
+  background: color-mix(in srgb, var(--ok) 12%, transparent);
+}
+.chip.state.sync {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 35%, transparent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  animation: sync-pulse 1.6s ease-in-out infinite;
+}
+/* Mounting or unmounting right now. The provider can take a while, and
+   until this chip existed the only sign that the button had worked was the
+   button going grey. */
+.chip.state.working {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 35%, transparent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  animation: sync-pulse 1.6s ease-in-out infinite;
+}
+@keyframes sync-pulse {
+  50% { opacity: 0.45; }
+}
+
+/* Mounted, and refusing every read: the folder is there and empty. */
+.chip.state.bad {
+  color: var(--err);
+  border-color: color-mix(in srgb, var(--err) 40%, transparent);
+  background: color-mix(in srgb, var(--err) 12%, transparent);
+  cursor: help;
+}
+.chip.state.ext {
+  color: var(--warn-text);
+  border-color: color-mix(in srgb, var(--warn) 35%, transparent);
+  background: color-mix(in srgb, var(--warn) 12%, transparent);
+  cursor: help;
+}
+/* The counterpart of .chip.key: signing in with the key rclone shares with
+   everyone, which for Google stops working during 2026. */
+.chip.warn {
+  color: var(--warn-text);
+  border-color: color-mix(in srgb, var(--warn) 35%, transparent);
+  background: color-mix(in srgb, var(--warn) 12%, transparent);
+  cursor: help;
+}
+.chip.key {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 35%, transparent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  cursor: help;
+}
+.chip.rec {
+  color: var(--accent);
+  border-color: transparent;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  margin-left: 6px;
+}
+
+/* ---------- buttons ---------- */
+
+.btn {
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 500;
+  padding: 7px 17px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+  transition: background 0.12s, filter 0.12s, transform 0.05s;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.btn:hover:not(:disabled) { background: var(--surface-2); text-decoration: none; }
+.btn:active:not(:disabled) { transform: scale(0.98); }
+.btn:disabled { opacity: 0.5; cursor: default; }
+.btn.primary {
+  background: var(--accent);
+  border-color: transparent;
+  color: var(--accent-text);
+}
+.btn.primary:hover:not(:disabled) { background: var(--accent-hover); }
+.btn.danger { color: var(--err); background: var(--danger-bg); border-color: transparent; }
+.btn.icon { padding: 7px 12px; font-size: 15px; line-height: 1; }
+
+/* ---------- settings rows ---------- */
+
+.setting-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 20px;
+  padding: 13px 0;
+  border-top: 1px solid var(--border);
+}
+.setting-row:first-of-type { border-top: 0; }
+.setting-name { font-weight: 550; }
+/* The card is as wide as a settings row wants to be, which is wider than a
+   sentence wants to be read: past sixty-odd characters the eye loses the
+   line on the way back. */
+.setting-row .muted { max-width: 62ch; }
+
+/* Settings had raw system dropdowns next to hand-made switches — white
+   boxes in a dark window. Same look as the ones in the dialogs. */
+.setting-row select {
+  flex: none;
+  min-width: 150px;
+  padding: 8px 34px 8px 12px;
+  font: inherit;
+  font-size: 13.5px;
+  color: var(--text);
+  background-color: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%2398989d' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 13px center;
+}
+.setting-row select:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 25%, transparent);
+}
+
+/* macOS-style switch */
+.switch { position: relative; display: inline-block; width: 46px; height: 28px; flex: none; }
+.switch input { opacity: 0; width: 0; height: 0; }
+.slider {
+  position: absolute;
+  inset: 0;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  transition: background 0.18s;
+}
+.slider::before {
+  content: "";
+  position: absolute;
+  width: 24px;
+  height: 24px;
+  left: 1px;
+  top: 1px;
+  background: #fff;
+  border-radius: 50%;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 25%);
+  transition: transform 0.18s;
+}
+.switch input:checked + .slider { background: var(--ok); border-color: transparent; }
+.switch input:checked + .slider::before { transform: translateX(18px); }
+.switch input:disabled + .slider { opacity: 0.45; }
+
+/* ---------- about ---------- */
+
+.about-rows { margin: 8px 0 14px; }
+.about-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 7px 0;
+  border-top: 1px solid var(--border);
+  font-size: 13.5px;
+}
+.about-row:first-child { border-top: 0; }
+/* Paths here are long enough to wrap into three ragged lines and push the
+   label out of the way. One line, cut at the front — the end of a path is
+   the part that identifies it — and the whole of it on hover. */
+.about-row span:last-child { text-align: right; }
+.about-row .path-value {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+}
+.about-row .path-value > span {
+  direction: ltr;
+  unicode-bidi: embed;
+}
+/* Three buttons that fit side by side in a wide card and stop fitting in a
+   narrow one, where a row of them turns into three squeezed columns of
+   stacked words. Wrapping keeps each button as wide as its own label. */
+.about-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
+.about-actions .btn { flex: 0 1 auto; white-space: nowrap; }
+
+/* ---------- misc ---------- */
+
+.muted { color: var(--muted); font-size: 13px; }
+
+.empty { text-align: center; padding: 56px 0 40px; }
+.empty-cloud { font-size: 52px; margin-bottom: 6px; }
+.empty h3 { margin: 0 0 6px; font-size: 17px; }
+.empty p { max-width: 420px; margin: 0 auto; }
+
+.error {
+  color: var(--err);
+  font-size: 13.5px;
+  white-space: pre-wrap;
+  margin-top: 18px;
+  padding: 12px 16px;
+  background: var(--danger-bg);
+  border-radius: 12px;
+}
+
+/* Same shape as an error, in the colour of something that has not broken
+   yet: a deadline worth acting on before it arrives. */
+.notice {
+  color: var(--warn-text);
+  font-size: 13.5px;
+  margin-top: 18px;
+  padding: 12px 16px;
+  background: color-mix(in srgb, var(--warn) 12%, transparent);
+  border-radius: 12px;
+}
+
+/* ---------- dialogs ---------- */
+
+dialog {
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: var(--surface);
+  color: var(--text);
+  padding: 24px 26px;
+  width: min(440px, 92vw);
+  /* A short window must scroll the dialog instead of cutting its buttons
+     off: the drive settings are taller than a half-height window. */
+  max-height: 88vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  box-shadow: 0 24px 60px rgb(0 0 0 / 30%);
+}
+/* A path or a remote name has no spaces to break at, and a long one used to
+   run out past the dialog's edge. */
+dialog p, dialog li { overflow-wrap: anywhere; }
+dialog::backdrop { background: rgb(0 0 0 / 40%); backdrop-filter: blur(3px); }
+/* A dialog that simply exists where the list was gives the eye nothing to
+   follow. The animation runs on `open`, so it needs no JavaScript and no
+   change at the twelve places that call showModal(). */
+dialog[open] { animation: dialog-in 0.18s cubic-bezier(0.2, 0.8, 0.3, 1); }
+dialog[open]::backdrop { animation: backdrop-in 0.18s ease-out; }
+@keyframes dialog-in {
+  from { opacity: 0; transform: translateY(10px) scale(0.975); }
+}
+@keyframes backdrop-in {
+  from { opacity: 0; }
+}
+dialog h2 { margin: 0 0 16px; font-size: 17px; letter-spacing: -0.01em; }
+
+dialog label { display: block; margin-bottom: 13px; font-size: 13.5px; font-weight: 550; }
+
+dialog input:not([type="checkbox"]),
+dialog select {
+  display: block;
+  width: 100%;
+  margin-top: 6px;
+  padding: 9px 12px;
+  font: inherit;
+  font-weight: 400;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+/* WebKitGTK paints selects with a native (light) background that ignores
+   our colors — turn the native look off and draw our own chevron. */
+dialog select {
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%2398989d' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 13px center;
+  padding-right: 34px;
+}
+
+dialog input:focus-visible,
+dialog select:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 60%, transparent);
+  outline-offset: 0;
+  border-color: var(--accent);
+}
+
+.two-col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.check-row {
+  display: flex !important;
+  align-items: center;
+  gap: 10px;
+  font-weight: 500 !important;
+}
+.check-row input { width: 17px; height: 17px; accent-color: var(--accent); }
+
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 9px;
+  margin-top: 18px;
+}
+
+.auth-wait { font-weight: 500; }
+
+.confirm-text { margin: 0 0 14px; font-size: 13.5px; line-height: 1.5; }
+.confirm-points {
+  margin: 0 0 14px;
+  padding-left: 18px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--muted);
+}
+.confirm-warn {
+  margin: 0 0 14px;
+  padding: 10px 13px;
+  border-radius: 11px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--err);
+  background: var(--danger-bg);
+}
+#confirm-dialog .check-row { margin-bottom: 0; }
+
+.cache-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin: 0 0 4px;
+  padding: 12px 0 2px;
+  border-top: 1px solid var(--border);
+}
+.cache-row .setting-name { margin-bottom: 2px; }
+
+/* A line that has turned into a caution — "it will not all fit". */
+.warn-text { color: var(--warn-text); }
+
+/* A path field with its Browse… button beside it. */
+.path-row {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+.path-row input { flex: 1; min-width: 0; }
+.path-row .btn { flex: none; white-space: nowrap; }
+
+/* ---------- folder picker ---------- */
+
+.tree {
+  max-height: 46vh;
+  overflow-y: auto;
+  margin: 4px 0 10px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface-2);
+  font-size: 13.5px;
+}
+.tree.loading { color: var(--muted); }
+
+.tree-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 2px;
+  border-radius: 8px;
+}
+.tree-row:hover { background: var(--surface); }
+.tree-row label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-weight: 450;
+  min-width: 0;
+  cursor: pointer;
+}
+/* One line per folder, ellipsis rather than a row that grows: the tree is
+   read by scanning down the names. */
+.tree-row label span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tree-row input[type="checkbox"] { flex: none; }
+
+.btn.tree-toggle {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  font-size: 11px;
+  line-height: 1;
+  border-color: transparent;
+  background: none;
+  color: var(--muted);
+}
+.btn.tree-toggle:hover { color: var(--text); }
+
+/* A folder that will not be carried, and everything under it. */
+.tree-item.off > .tree-row label span { color: var(--muted); text-decoration: line-through; }
+
+/* ---------- own API key ---------- */
+
+details#add-advanced {
+  margin: 4px 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px 14px;
+  background: var(--surface-2);
+}
+details#add-advanced summary {
+  cursor: pointer;
+  font-size: 13.5px;
+  font-weight: 550;
+  list-style-position: inside;
+}
+details#add-advanced[open] summary { margin-bottom: 8px; }
+details#add-advanced label { margin-bottom: 10px; }
+
+.key-help { font-size: 12.5px; }
+.key-help p { margin: 4px 0 6px; }
+.key-help ol { margin: 0 0 10px; padding-left: 20px; }
+.key-help li { margin-bottom: 3px; }
+
+.key-section {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+.key-section .setting-name { margin-bottom: 2px; }
+.key-section label { margin-bottom: 10px; }
+/* The one irreversible thing in this dialog, kept apart from Save and Cancel
+   so it is never reached by aiming at one of them. */
+.danger-zone { margin-top: 20px; }
+.danger-zone p { margin: 2px 0 10px; }
+dialog input.mono { font-size: 12px; }
+
+/* ---------- motion ---------- */
+
+/* Switching tabs was an instant substitution, which reads as a flicker
+   rather than a change of screen. */
+#view-drives:not(.hidden),
+#view-sync:not(.hidden),
+#view-settings:not(.hidden) {
+  animation: view-in 0.2s ease-out;
+}
+@keyframes view-in {
+  from { opacity: 0; transform: translateY(7px); }
+}
+
+/* Drives arrive one after another rather than all at once — but only the
+   ones that were not on screen a moment ago. The list is rebuilt whole on
+   every refresh, including refreshes nobody asked for, and cards that just
+   sat there re-animating every few seconds would be worse than no animation
+   at all. main.js marks the new ones. */
+.remote-card.fresh { animation: card-in 0.26s ease-out backwards; }
+.remote-card.fresh:nth-child(2) { animation-delay: 0.04s }
+.remote-card.fresh:nth-child(3) { animation-delay: 0.08s }
+.remote-card.fresh:nth-child(4) { animation-delay: 0.12s }
+.remote-card.fresh:nth-child(5) { animation-delay: 0.16s }
+.remote-card.fresh:nth-child(n + 6) { animation-delay: 0.2s }
+@keyframes card-in {
+  from { opacity: 0; transform: translateY(10px); }
+}
+
+/* A desktop that asks for less movement gets none of it. The interface has
+   to stay readable and instant, not merely slower. */
+@media (prefers-reduced-motion: reduce) {
+  dialog[open],
+  dialog[open]::backdrop,
+  #view-drives:not(.hidden),
+  #view-sync:not(.hidden),
+  #view-settings:not(.hidden),
+  .remote-card.fresh,
+  .chip.state.sync,
+  .chip.state.working {
+    animation: none;
+  }
+}
+
+/* Last on purpose: .hidden must beat display rules of equal specificity
+   further up the file (.check-row's flex, for one). */
+.hidden { display: none !important; }

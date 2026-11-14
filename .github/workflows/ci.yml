@@ -81,6 +81,19 @@ jobs:
       - name: Translations
         run: node scripts/check-translations.mjs
 
+      # The site builds its windows out of the app's own stylesheet, which is
+      # the whole point: it cannot show an interface the app does not have.
+      # GitHub Pages serves docs/ as the site root and cannot reach src/, so
+      # the file is a copy — and a copy nobody compares drifts the first time
+      # anyone touches the real one.
+      - name: The site's stylesheet still matches the app's
+        run: |
+          if ! diff -q src/styles.css docs/app.css >/dev/null; then
+            echo "::error::docs/app.css is out of date — copy src/styles.css over it"
+            diff src/styles.css docs/app.css | head -40
+            exit 1
+          fi
+
   # Monti holds the keys to somebody's cloud account, so "which of the 496
   # crates under us has a known hole" is not a question to answer by hand
   # every few months.

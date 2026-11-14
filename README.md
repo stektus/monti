@@ -17,6 +17,11 @@ open in the file manager, a two-way sync, and an encrypted drive whose file
 names the provider never sees. Also on
 [YouTube](https://www.youtube.com/watch?v=fRZxYJxDItg).</sub>
 
+There is a page too, if you would rather read than watch:
+**[stektus.github.io/monti](https://stektus.github.io/monti/)** — the same
+tour in text, including what a cloud actually says when it refuses and what
+Monti says instead.
+
 *Monti* — from **mount**, and Italian for *mountains*: the place where clouds
 come down to earth.
 

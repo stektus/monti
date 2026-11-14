@@ -1,0 +1,534 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Monti — Mount your clouds</title>
+<meta name="description" content="A friendly GUI for rclone on Linux. Google Drive, Dropbox, OneDrive and twelve more as ordinary folders — and refusals explained in words." />
+<!-- The product's own stylesheet, byte for byte. Every window below is built
+     from the classes the app itself uses, so this page cannot quietly drift
+     away from what people see when they run it. The markup has to be copied
+     exactly too, not approximately: .remote-path is rtl so its ellipsis lands
+     at the front, and only the inner <span> puts the text back to ltr. -->
+<script>document.documentElement.className = "js";</script>
+<link rel="stylesheet" href="app.css" />
+<style>
+  /* ---------- page shell: the only CSS this page adds ---------- */
+  body { font-size: 16px; }
+  .page { max-width: 1080px; margin: 0 auto; padding: 0 20px; }
+  section { padding: 84px 0; border-top: 1px solid var(--border); }
+  section:first-of-type { border-top: 0; padding-top: 64px; }
+  h1 { font-size: clamp(32px, 6vw, 54px); line-height: 1.06; margin: 0 0 16px; letter-spacing: -0.025em; }
+  h2 { font-size: clamp(23px, 3.6vw, 32px); margin: 0 0 12px; letter-spacing: -0.015em; }
+  h3.eyebrow { font-size: 12px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); font-weight: 600; margin: 0 0 12px; }
+  .lede { font-size: clamp(17px, 2.2vw, 20px); color: var(--muted); max-width: 46ch; margin: 0 0 28px; }
+  .sub { color: var(--muted); max-width: 62ch; margin: 0 0 28px; font-size: 16px; }
+
+  /* Sections ease in when they come into view. Gated on html.js, which the
+     script sets before anything else: without it every .rise would start at
+     opacity 0 and the observer would never arrive to undo that, leaving a
+     blank page to anyone whose JavaScript did not run. The animation is the
+     decoration; the words are the page. */
+  html.js .rise { opacity: 0; transform: translateY(18px); transition: opacity .6s ease, transform .6s ease; }
+  html.js .in .rise { opacity: 1; transform: none; }
+  html.js .in .rise:nth-child(2) { transition-delay: .08s }
+  html.js .in .rise:nth-child(3) { transition-delay: .16s }
+
+  /* A grid column is min-width:auto by default, so it refuses to shrink
+     below its widest unbreakable child — the nowrap terminal lines — and
+     pushes the whole page sideways on a phone. Letting the columns shrink
+     is what makes the terminal's own overflow-x actually scroll. */
+  .hero > *, .mount-grid > *, .vs > *, .crypt > *, .cols > * { min-width: 0; }
+
+  /* ---------- the window frame around real app markup ---------- */
+  .win { background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); overflow: hidden; }
+  .win-bar { display: flex; align-items: center; gap: 7px; padding: 11px 14px; background: var(--surface-2); border-bottom: 1px solid var(--border); }
+  .win-bar i { width: 11px; height: 11px; border-radius: 50%; background: var(--border); }
+  .win-bar b { margin-left: 8px; font-weight: 600; font-size: 12.5px; color: var(--muted); }
+  .win-body { padding: 18px; display: grid; gap: 14px; }
+
+  /* ---------- 1. hero ---------- */
+  .hero { display: grid; gap: 40px; grid-template-columns: 1fr; align-items: center; }
+  @media (min-width: 920px) { .hero { grid-template-columns: .9fr 1.1fr; gap: 56px; } }
+  .term { background: #0e0e10; color: #d6d6da; border-radius: var(--radius); padding: 18px 20px;
+          font: 13.5px/1.75 ui-monospace, "SF Mono", Menlo, monospace; border: 1px solid #2a2a2e; overflow-x: auto; }
+  .term .l { white-space: nowrap; }
+  html.js .term .l { opacity: 0; }
+  html.js .in .term .l { animation: termIn .45s ease forwards; }
+  .in .term .l:nth-child(1) { animation-delay: .15s }
+  .in .term .l:nth-child(2) { animation-delay: .75s }
+  .in .term .l:nth-child(3) { animation-delay: 1.35s }
+  .in .term .l:nth-child(4) { animation-delay: 1.95s }
+  .in .term .l:nth-child(5) { animation-delay: 2.55s }
+  .term .p { color: #6ee787; }
+  .term .c { color: #6e6e73; }
+  @keyframes termIn { from { opacity: 0; transform: translateY(6px) } to { opacity: 1; transform: none } }
+  html.js .after { opacity: 0; }
+  html.js .in .after { animation: swapIn .8s ease 3.2s both; }
+  @keyframes swapIn { from { opacity: 0; transform: translateY(16px) scale(.985) } to { opacity: 1; transform: none } }
+
+  /* ---------- 2. providers ---------- */
+  .tiles { display: flex; flex-wrap: wrap; gap: 10px; }
+  .tile { border: 1px solid var(--border); background: var(--surface); border-radius: 999px;
+          padding: 9px 17px; font-size: 14.5px; }
+  html.js .tile { opacity: 0; transform: translateY(8px); }
+  html.js .in .tile { animation: tileIn .4s ease forwards; }
+  @keyframes tileIn { to { opacity: 1; transform: none } }
+
+  /* ---------- 3. mount ---------- */
+  .mount-grid { display: grid; gap: 22px; grid-template-columns: 1fr; align-items: center; }
+  @media (min-width: 860px) { .mount-grid { grid-template-columns: 1fr auto 1fr; gap: 28px; } }
+  .arrow { font-size: 26px; color: var(--muted); text-align: center; }
+  .folder { border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); overflow: hidden; }
+  .folder-bar { padding: 10px 14px; border-bottom: 1px solid var(--border); background: var(--surface-2);
+                font: 12.5px ui-monospace, Menlo, monospace; color: var(--muted); }
+  .folder ul { list-style: none; margin: 0; padding: 8px; }
+  .folder li { padding: 7px 10px; border-radius: 8px; font-size: 14px; display: flex; gap: 9px; align-items: center; }
+  .folder li:nth-child(odd) { background: var(--surface-2); }
+
+  /* ---------- 4. errors ---------- */
+  .vs { display: grid; gap: 16px; grid-template-columns: 1fr; }
+  @media (min-width: 860px) { .vs { grid-template-columns: 1fr 1fr; gap: 20px; } }
+  .vs .pane { border: 1px solid var(--border); border-radius: var(--radius); padding: 18px 20px; background: var(--surface); }
+  .vs .pane.raw { background: #0e0e10; border-color: #2a2a2e; }
+  .vs .pane.raw h3.eyebrow { color: #76767c; }
+  .vs .raw pre { margin: 0; white-space: pre-wrap; word-break: break-word;
+                 font: 13px/1.65 ui-monospace, "SF Mono", Menlo, monospace; color: #ff8a80; }
+  .vs .said { font-size: 15.5px; line-height: 1.6; margin: 0; }
+  .vs .act { margin-top: 16px; }
+  .picker { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 20px; }
+  .picker button { font: inherit; font-size: 13.5px; cursor: pointer; padding: 7px 14px; border-radius: 999px;
+                   border: 1px solid var(--border); background: var(--surface); color: var(--text); }
+  .picker button[aria-selected="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+  .fade { animation: fade .3s ease both; }
+  @keyframes fade { from { opacity: 0; transform: translateY(5px) } to { opacity: 1; transform: none } }
+
+  /* ---------- 6. encryption ---------- */
+  .crypt { display: grid; gap: 18px; grid-template-columns: 1fr; }
+  @media (min-width: 860px) { .crypt { grid-template-columns: 1fr 1fr; gap: 22px; } }
+  .names { border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); padding: 16px 18px; }
+  .names.cipher { background: #0e0e10; border-color: #2a2a2e; }
+  .names ul { list-style: none; margin: 0; padding: 0; font: 13px/2.1 ui-monospace, Menlo, monospace; }
+  .names.cipher ul { color: #7d7d85; word-break: break-all; }
+
+  /* ---------- 7/8 ---------- */
+  .cols { display: grid; gap: 24px; grid-template-columns: 1fr; }
+  @media (min-width: 780px) { .cols { grid-template-columns: repeat(3, 1fr); } }
+  .cols h4 { margin: 0 0 7px; font-size: 16.5px; }
+  .cols p { margin: 0; color: var(--muted); font-size: 14.5px; }
+  .cta { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+  a.btn { text-decoration: none; display: inline-flex; align-items: center; }
+  code.inline { font: 13.5px ui-monospace, Menlo, monospace; background: var(--surface-2);
+                border: 1px solid var(--border); border-radius: 10px; padding: 11px 15px; display: inline-block;
+                max-width: 100%; overflow-x: auto; }
+  footer { padding: 40px 0 72px; color: var(--muted); font-size: 13.5px; border-top: 1px solid var(--border); }
+  footer a { color: var(--accent); }
+
+  /* Film mode hides every scrollbar, the page's and the ones inside the
+     terminal and the code blocks: a recording should show the product, not
+     the furniture of a browser. */
+  html.film, html.film * { scrollbar-width: none; }
+  html.film ::-webkit-scrollbar, html.film::-webkit-scrollbar { width: 0; height: 0; display: none; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .rise { opacity: 1 !important; transform: none !important; transition: none !important; }
+    .term .l, .after, .tile { animation: none !important; opacity: 1 !important; transform: none !important; }
+    .fade { animation: none !important; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <!-- ===== 1. the ritual, and the end of it ===== -->
+  <section class="hero" data-scene="hero">
+    <div>
+      <h1 class="rise">Your clouds,<br />as ordinary folders.</h1>
+      <p class="lede rise">rclone already does the work. Monti is the window,
+        so none of this has to happen in a terminal again.</p>
+      <div class="cta rise">
+        <a class="btn primary" href="#install">Install it</a>
+        <a class="btn" href="https://github.com/stektus/monti">See the code</a>
+      </div>
+    </div>
+    <div>
+      <div class="term" aria-hidden="true">
+        <div class="l"><span class="p">$</span> rclone config <span class="c"># fourteen questions</span></div>
+        <div class="l"><span class="p">$</span> nano ~/.config/rclone/rclone.conf</div>
+        <div class="l"><span class="p">$</span> rclone mount gdrive: ~/Drive \</div>
+        <div class="l">&nbsp;&nbsp;&nbsp;&nbsp;--vfs-cache-mode full --dir-cache-time 1h …</div>
+        <div class="l"><span class="p">$</span> systemctl --user edit --force --full rclone-gdrive</div>
+      </div>
+      <div class="after" style="margin-top:18px">
+        <div class="win">
+          <div class="win-bar"><i></i><i></i><i></i><b>Monti</b></div>
+          <div class="win-body">
+            <div class="card remote-card">
+              <div class="remote-head">
+                <span class="remote-name">GoogleDrive</span><span class="spacer"></span>
+                <span class="chip state on">mounted</span>
+              </div>
+              <div class="remote-tags">
+                <span class="chip provider">Google Drive</span>
+                <span class="chip key">own key</span>
+              </div>
+              <div class="remote-path muted mono"><span>~/CloudDrives/GoogleDrive</span></div>
+              <div class="remote-actions">
+                <button class="btn primary">Open folder</button>
+                <button class="btn">Unmount</button>
+                <button class="btn icon">⚙</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== 2. fifteen providers ===== -->
+  <section data-scene="providers">
+    <h3 class="eyebrow rise">Fifteen providers</h3>
+    <h2 class="rise">Pick one, give it a name, sign in.</h2>
+    <p class="sub rise">Google and Dropbox send you to the browser, the way they
+      are supposed to — Monti never sees the password. The rest are a form.</p>
+    <div class="tiles" id="tiles"></div>
+  </section>
+
+  <!-- ===== 3. mount: a cloud becomes a folder ===== -->
+  <section data-scene="mount">
+    <h3 class="eyebrow rise">One click</h3>
+    <h2 class="rise">A cloud, then a folder.</h2>
+    <p class="sub rise">Mounted with <code>--vfs-cache-mode full</code>, because
+      with anything less your office suite and your password manager cannot save
+      a file into a cloud folder. Your file manager opens it like any other.</p>
+    <div class="mount-grid">
+      <div class="rise">
+        <div class="win">
+          <div class="win-bar"><i></i><i></i><i></i><b>Monti</b></div>
+          <div class="win-body">
+            <div class="card remote-card" id="mount-card">
+              <div class="remote-head">
+                <span class="remote-name">Photos</span><span class="spacer"></span>
+                <span class="chip state" id="mount-chip">not mounted</span>
+              </div>
+              <div class="remote-tags"><span class="chip provider">pCloud</span></div>
+              <div class="remote-path muted mono"><span>~/CloudDrives/Photos</span></div>
+              <div class="remote-actions">
+                <button class="btn primary" id="mount-btn">Mount</button>
+                <button class="btn icon">⚙</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="arrow rise" aria-hidden="true">→</div>
+      <div class="rise">
+        <div class="folder">
+          <div class="folder-bar">~/CloudDrives/Photos</div>
+          <ul>
+            <li>📁 2026-summer</li>
+            <li>📁 raw</li>
+            <li>🖼 cover.jpg <span class="muted" style="font-size:12px">· 4.2 MB</span></li>
+            <li>🖼 hillside.jpg <span class="muted" style="font-size:12px">· 6.1 MB</span></li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== 4. the difference: refusals in words ===== -->
+  <section data-scene="errors" id="errors">
+    <h3 class="eyebrow rise">What nobody else does</h3>
+    <h2 class="rise">When a cloud says no.</h2>
+    <p class="sub rise">Every line on the left is a real refusal out of a real
+      log. On the right is what Monti puts on the screen instead. This is the
+      work the app exists for, and the part that took longest to write.</p>
+    <div class="picker rise" id="picker" role="tablist"></div>
+    <div class="vs">
+      <div class="pane raw rise">
+        <h3 class="eyebrow">What the provider says</h3>
+        <pre id="raw"></pre>
+      </div>
+      <div class="pane rise">
+        <h3 class="eyebrow">What Monti says</h3>
+        <p class="said" id="said"></p>
+        <div class="act"><button class="btn primary" id="act"></button></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== 5. two-way sync ===== -->
+  <section data-scene="sync">
+    <h3 class="eyebrow rise">Two-way sync</h3>
+    <h2 class="rise">A real copy, kept the same on both sides.</h2>
+    <p class="sub rise">For the folder you work in, rather than the drive you
+      browse. The first run is the only one that can overwrite, and it asks
+      before it does. When both sides changed the same file you settle it in
+      the window — not by finding a <code>.conflict</code> file afterwards.</p>
+    <div class="rise" style="max-width:640px">
+      <div class="win">
+        <div class="win-bar"><i></i><i></i><i></i><b>Monti — Sync</b></div>
+        <div class="win-body">
+          <div class="card remote-card">
+            <div class="remote-head">
+              <span class="remote-name">Documents</span><span class="spacer"></span>
+              <span class="chip state on">ready</span>
+            </div>
+            <div class="remote-tags"><span class="chip">every hour</span></div>
+            <div class="remote-path muted mono"><span>~/Documents  ⇄  GoogleDrive:Documents</span></div>
+            <div class="sync-progress muted">last sync 27 Oct, 20:14</div>
+            <div class="conflict-box">
+              <div class="conflict-head">1 file changed on both sides</div>
+              <div class="conflict-row">
+                <span class="transfer-name"><span>invoice-2026-10.odt</span></span>
+                <button class="btn small">Keep mine</button>
+                <button class="btn small">Keep cloud</button>
+              </div>
+            </div>
+            <div class="remote-actions">
+              <button class="btn primary">Sync now</button>
+              <button class="btn icon">⚙</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== 6. encryption ===== -->
+  <section data-scene="crypt">
+    <h3 class="eyebrow rise">Encrypted drives</h3>
+    <h2 class="rise">The provider stores gibberish.</h2>
+    <p class="sub rise">Files are encrypted on this computer before they leave
+      it — contents and names alike. You use the drive like any other: mount it,
+      or sync a folder with it. What the provider keeps is on the right.</p>
+    <div class="crypt">
+      <div class="names rise">
+        <h3 class="eyebrow">In your folder</h3>
+        <ul>
+          <li>tax-return-2026.pdf</li>
+          <li>passport-scan.jpg</li>
+          <li>recovery-codes.txt</li>
+        </ul>
+      </div>
+      <div class="names cipher rise">
+        <h3 class="eyebrow">In the cloud</h3>
+        <ul>
+          <li>7k2qh9v1m4f0sb3t8dprn6ulc5</li>
+          <li>e1x8jt0qw5ga2zm7v9hk4bncd3</li>
+          <li>p6rs3bf7y0ku9em2tx1lqa8vnj</li>
+        </ul>
+      </div>
+    </div>
+    <p class="sub rise" style="margin-top:22px">Monti says the part most tools
+      leave in the small print: the password is kept on this machine the way
+      rclone keeps passwords — obscured, which is reversible by design.
+      Encryption protects the copy in the cloud. It does not protect the
+      machine holding the key.</p>
+  </section>
+
+  <!-- ===== 7. honesty ===== -->
+  <section data-scene="honest">
+    <h3 class="eyebrow rise">Built for one desktop</h3>
+    <h2 class="rise">And honest about the rest.</h2>
+    <div class="cols" style="margin-top:28px">
+      <div class="rise">
+        <h4>Linux first, not third</h4>
+        <p>Not the third build of a cross-platform app. The defaults are chosen
+          for this desktop, and the tray, the file-manager picker and the
+          notifications are the real ones.</p>
+      </div>
+      <div class="rise">
+        <h4>No account, no server, no telemetry</h4>
+        <p>Monti talks to your clouds, and to rclone.org to fetch the engine.
+          That is the entire list. MIT licence, and every package carries
+          GitHub build provenance you can verify yourself.</p>
+      </div>
+      <div class="rise">
+        <h4>No Flatpak, and why</h4>
+        <p>Mounting from a sandbox needs a permission that lets the app run
+          anything outside it. An install that looks isolated and is not is
+          worse than an AppImage that never claimed to be.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== 8. install ===== -->
+  <section data-scene="install" id="install">
+    <h2 class="rise">Install it.</h2>
+    <p class="sub rise">The script checks FUSE, verifies the download against
+      the published checksums and installs into your home directory. No root.</p>
+    <div class="cta rise">
+      <code class="inline">curl -fsSL https://raw.githubusercontent.com/stektus/monti/main/install.sh | bash</code>
+    </div>
+    <p class="sub rise" style="margin-top:18px">Or take the AppImage,
+      <code>.deb</code> or <code>.rpm</code> from the releases page — x86_64 and
+      arm64. On Arch, build the PKGBUILD in the repository.</p>
+  </section>
+
+  <footer>
+    <a href="https://github.com/stektus/monti">github.com/stektus/monti</a>
+    · MIT · Monti is a window; rclone does the work.
+  </footer>
+</div>
+
+<script>
+const params = new URLSearchParams(location.search);
+
+// Theme: follow the system unless asked, the same way data-theme on :root
+// overrides it when somebody picks one in the app's Settings.
+const theme = params.get("theme");
+if (theme === "dark" || theme === "light") {
+  document.documentElement.dataset.theme = theme;
+}
+
+// ?zoom=1.35 — for recording. Chrome's --force-device-scale-factor lays the
+// page out at the window's CSS width and then scales past the screen edge;
+// zooming from inside keeps the layout viewport honest, so the column still
+// centres and the media queries still see a sensible width.
+const zoom = Number(params.get("zoom") || 0);
+if (zoom > 0) document.documentElement.style.zoom = String(zoom);
+
+// ---- providers, named exactly as PROVIDER_LABELS names them ----
+const PROVIDERS = ["Google Drive", "Dropbox", "OneDrive", "Box", "pCloud",
+  "Yandex Disk", "MEGA", "Proton Drive", "Koofr", "Storj", "Jottacloud",
+  "WebDAV", "S3", "Backblaze B2", "SFTP"];
+const tiles = document.getElementById("tiles");
+PROVIDERS.forEach((p, i) => {
+  const el = document.createElement("span");
+  el.className = "tile";
+  el.textContent = p;
+  el.style.animationDelay = (i * 55) + "ms";
+  tiles.append(el);
+});
+
+// ---- the refusals: the provider's words and ours, both verbatim ----
+const CASES = [
+  {
+    tab: "Proton · 2FA",
+    raw: 'Failed to create file system for "proton:": missing "2FA" code: use --protondrive-2fa=000000',
+    said: "Proton wants the six-digit code from your authenticator app. Enter it below and press Connect — the rest of the form is still filled in.",
+    act: "Enter the code",
+  },
+  {
+    tab: "MEGA · session",
+    raw: 'Failed to create file system for "mega:": couldn\'t login: login with previous auth keys failed',
+    said: "MEGA no longer accepts the saved sign-in for this drive. It keeps a session rather than a token, and a session ends when the password changes or the account signs out everywhere. Open the drive's settings and sign in again.",
+    act: "Sign in again",
+  },
+  {
+    tab: "Google · too fast",
+    raw: "couldn't list directory: googleapi: Error 403: Quota exceeded for quota metric 'Queries' and limit 'Requests per minute' of service 'drive.googleapis.com'",
+    said: "The provider is asking Monti to slow down (too many requests in a short time). It usually clears in a few minutes; a speed limit in Settings → Transfers makes it much less likely.",
+    act: "Open Transfers",
+  },
+  {
+    tab: "Jottacloud · token",
+    raw: 'Failed to create file system for "jotta:": failed to get oauth token: unexpected EOF',
+    said: "Jottacloud did not sign in with that token. A personal login token is good for one use and for a few minutes: one that was already spent, or copied with a piece missing, comes back like this. Make a fresh one on the account's security page and paste it whole.",
+    act: "Paste a new token",
+  },
+  {
+    tab: "Storj · grant",
+    raw: 'Failed to create file system for "storj:": invalid access grant',
+    said: "That is not an access grant. The console prints one as a single unbroken line — no spaces, no line breaks — so a piece of one, or a copy that got wrapped on the way, fails before Storj is even asked.",
+    act: "Take it again",
+  },
+];
+
+const picker = document.getElementById("picker");
+const rawEl = document.getElementById("raw");
+const saidEl = document.getElementById("said");
+const actEl = document.getElementById("act");
+
+function showCase(i) {
+  const c = CASES[i];
+  rawEl.textContent = c.raw;
+  saidEl.textContent = c.said;
+  actEl.textContent = c.act;
+  for (const el of [rawEl, saidEl, actEl]) {
+    el.classList.remove("fade");
+    void el.offsetWidth;
+    el.classList.add("fade");
+  }
+  [...picker.children].forEach((b, n) => b.setAttribute("aria-selected", String(n === i)));
+}
+CASES.forEach((c, i) => {
+  const b = document.createElement("button");
+  b.textContent = c.tab;
+  b.setAttribute("role", "tab");
+  b.addEventListener("click", () => showCase(i));
+  picker.append(b);
+});
+showCase(0);
+
+// ---- the mount card flips while its scene is on screen ----
+const chip = document.getElementById("mount-chip");
+const mountBtn = document.getElementById("mount-btn");
+let mountTimer = null;
+function mountLoop(on) {
+  clearInterval(mountTimer);
+  if (!on) return;
+  let mounted = false;
+  mountTimer = setInterval(() => {
+    mounted = !mounted;
+    chip.textContent = mounted ? "mounted" : "not mounted";
+    chip.classList.toggle("on", mounted);
+    mountBtn.textContent = mounted ? "Open folder" : "Mount";
+  }, 2200);
+}
+
+// ---- scenes ease in when seen ----
+// Wiring the observer is deferred in film mode: the hero is on screen at
+// load, so it would play its animation while the recorder is still starting
+// up and the opening would be missing from the video.
+function beginScenes() {
+  const seen = new IntersectionObserver((entries) => {
+    for (const e of entries) {
+      if (e.isIntersecting) e.target.classList.add("in");
+      if (e.target.dataset.scene === "mount") mountLoop(e.isIntersecting);
+    }
+  }, { threshold: 0.2 });
+  document.querySelectorAll("section").forEach((s) => seen.observe(s));
+}
+
+// ---- film mode: the page plays itself, for recording ----
+// One timeline, so the video is reproducible and the page stays the single
+// source for both. ?film=1 — add &speed=3 to rehearse it quickly.
+if (!params.get("film")) beginScenes();
+
+if (params.get("film")) {
+  document.documentElement.classList.add("film");
+  const speed = Number(params.get("speed") || 1);
+  const beat = (ms) => new Promise((r) => setTimeout(r, ms / speed));
+  const go = (sel) =>
+    document.querySelector(sel).scrollIntoView({ behavior: "smooth", block: "start" });
+
+  // The recorder presses a key once it is rolling; until then the page sits
+  // on a still first frame.
+  const started = new Promise((go) =>
+    addEventListener("keydown", go, { once: true })
+  );
+
+  (async () => {
+    await started;
+    beginScenes();
+    await beat(600);
+    await beat(6200);                                   // the ritual, then the window
+    go('[data-scene="providers"]'); await beat(4400);
+    go('[data-scene="mount"]');     await beat(6200);
+    go('[data-scene="errors"]');    await beat(2800);
+    for (let i = 0; i < CASES.length; i++) {            // every refusal, in turn
+      showCase(i);
+      await beat(3400);
+    }
+    go('[data-scene="sync"]');      await beat(5400);
+    go('[data-scene="crypt"]');     await beat(5800);
+    go('[data-scene="honest"]');    await beat(5400);
+    go('[data-scene="install"]');   await beat(5200);
+    document.body.dataset.filmDone = "1";               // the recorder waits for this
+  })();
+}
+</script>
+</body>
+</html>
