@@ -2,6 +2,24 @@
 
 Notable changes per release. Dates are the release date.
 
+## v0.9.12 — 2026-11-15
+
+- **A problem report you can collect from inside the app.** Settings → About
+  gathers the versions, the distro and kernel, the desktop and session, how
+  Monti was packaged, the drives it has mounted and the end of both logs into
+  one block, shows it to you, and copies it on a press. Nothing is uploaded.
+  Asking somebody to find a file under a reversed domain name in a hidden
+  folder is where most bug reports stopped.
+  The report is scrubbed on the way out: a line naming a token, a password, a
+  secret, an authorization header or a cookie keeps the field name and loses
+  the value, and the home directory is written as `~` — a report goes to
+  strangers, and a home directory names its owner.
+- **The drive list stops throwing itself away.** It was rebuilt whole after
+  every action and on every switch back to the Drives view, so whatever the
+  pointer was over stopped existing mid-gesture and a button being tabbed to
+  lost the focus with it. Each card now carries a signature of everything it
+  shows, and a card whose signature has not moved is left where it is.
+
 ## v0.9.11 — 2026-11-14
 
 **Removing a drive has moved off its card.** The buttons on a card change
