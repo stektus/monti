@@ -436,7 +436,12 @@ fn fall_back_to_software(saved_stderr: i32) {
         }
         std::thread::sleep(Duration::from_millis(100));
     }
-    if let Ok(exe) = std::env::current_exe() {
+    // Inside an AppImage the running binary lives on a mount this process
+    // holds open, so the thing to start again is the .AppImage itself.
+    let again = std::env::var_os("APPIMAGE")
+        .map(PathBuf::from)
+        .or_else(|| std::env::current_exe().ok());
+    if let Some(exe) = again {
         use std::os::unix::process::CommandExt;
         let _ = std::process::Command::new(exe)
             .args(std::env::args_os().skip(1))
