@@ -294,11 +294,15 @@ folder; no root needed.
 ## If something goes wrong
 
 **The window is blank / white.** Every release is launched on the
-distributions listed above before it is published, so this should not happen —
-if it does, these two are worth trying, and either way please report it:
+distributions listed above before it is published, and Monti checks whether
+the machine can render in hardware before it opens a window — if WebKitGTK
+fails anyway, Monti notices, turns acceleration off and restarts itself once.
+So this should not happen. If a blank window survives that, turn
+**Hardware acceleration** off in Settings → General, or start Monti with the
+first of these, and either way please report it:
 
 ```bash
-WEBKIT_DISABLE_DMABUF_RENDERER=0 ~/Applications/Monti.AppImage   # accelerated
+WEBKIT_DISABLE_DMABUF_RENDERER=1 ~/Applications/Monti.AppImage   # software
 WEBKIT_DISABLE_COMPOSITING_MODE=1 ~/Applications/Monti.AppImage  # last resort
 ```
 

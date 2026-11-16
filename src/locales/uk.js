@@ -77,6 +77,12 @@ export default {
   "Desktop notifications": "Сповіщення",
   "Only when something needs you: the engine stops, or the disk is nearly full.":
     "Тільки коли потрібна ваша увага: рушій зупинився або диск майже заповнений.",
+  "Hardware acceleration": "Апаратне прискорення",
+  "Smoother scrolling. Turn it off if the window comes up blank or draws strangely. Applies when Monti starts again.":
+    "Плавне гортання. Вимкніть, якщо вікно відкривається порожнім або малюється неправильно. Застосується під час наступного запуску Monti.",
+  "Monti turned this off here: the accelerated renderer failed and the window would have stayed blank. Turning it back on tries again.":
+    "Monti вимкнув прискорення на цьому комп'ютері: воно не запрацювало, і вікно лишилося б порожнім. Увімкніть знову, щоб спробувати ще раз.",
+  "Applies when Monti starts again.": "Застосується під час наступного запуску Monti.",
 
   // ---------- налаштування: передавання ----------
   Transfers: "Передавання",

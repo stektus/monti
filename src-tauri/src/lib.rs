@@ -6,6 +6,7 @@
 
 mod config_lock;
 mod engine;
+mod render;
 mod sync;
 
 use std::{
@@ -2522,6 +2523,27 @@ fn first_line_of(path: &str, key: &str) -> Option<String> {
     })
 }
 
+/// What the rendering setting is, and what it amounts to on this machine.
+///
+/// Two separate answers on purpose: "auto" can mean either path, and a user
+/// looking at a blank-window workaround needs to know which one they got.
+#[tauri::command]
+fn render_mode() -> Value {
+    let (preference, accelerated) = render::state();
+    json!({
+        "preference": preference,
+        "accelerated": accelerated,
+        "fellBack": render::fallback_reason().is_some(),
+    })
+}
+
+/// Save the rendering preference: "auto", "on" or "off". Read on the next
+/// start, because the webview is created before there is a window to ask.
+#[tauri::command]
+fn set_render_mode(value: String) -> Result<(), String> {
+    render::set_preference(&value)
+}
+
 /// Everything a bug report needs, in one block a person can read before
 /// they paste it.
 ///
@@ -2574,6 +2596,7 @@ async fn problem_report(app: AppHandle, state: State<'_, EngineState>) -> Result
         std::env::var("XDG_CURRENT_DESKTOP").unwrap_or_else(|_| "?".into()),
         std::env::var("XDG_SESSION_TYPE").unwrap_or_else(|_| "?".into())
     ));
+    r.push_str(&render::report_line());
     r.push_str(&format!(
         "package      {}\n",
         if std::env::var_os("APPIMAGE").is_some() {
@@ -2805,6 +2828,11 @@ pub fn run() {
                 println!("monti {}", env!("CARGO_PKG_VERSION"));
                 return;
             }
+            // Monti asking itself whether EGL works here. Not in --help:
+            // it is not a thing to run by hand.
+            render::PROBE_ARG => {
+                std::process::exit(render::probe_exit_code());
+            }
             "--help" | "-h" => {
                 println!(
                     "monti {}\n\
@@ -2822,19 +2850,12 @@ pub fn run() {
         }
     }
 
-    // WebKitGTK renders through DMABUF by default, and on setups where that
-    // path cannot create an EGL display — NVIDIA's proprietary driver,
-    // hybrid graphics, VMs — it does not fall back: it prints "Could not
-    // create default EGL display: EGL_BAD_PARAMETER" and the window stays
-    // blank or the process aborts.
-    //
-    // This does not cover every blank window (the AppImage had its own
-    // cause: see the release workflow's libwayland-client step), but it is
-    // free for a page of static cards, so prefer it and let anyone who wants
-    // the accelerated path ask with WEBKIT_DISABLE_DMABUF_RENDERER=0.
-    if std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none() {
-        std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
-    }
+    // Accelerated rendering where it works, software where it does not —
+    // worked out per machine, because forcing software on everyone cost
+    // smooth scrolling and forcing it on nobody cost blank windows.
+    // See render.rs; WEBKIT_DISABLE_DMABUF_RENDERER still wins by hand.
+    render::choose();
+    render::watch_for_egl_failure();
 
     tauri::Builder::default()
         // Must be the first plugin. A second launch (tray apps get started
@@ -2876,6 +2897,10 @@ pub fn run() {
                     },
                 ),
             );
+            // Second line, before anything can go wrong: a blank-window
+            // report needs to say which renderer was in use.
+            log_line(&handle, &format!("rendering: {}", render::describe()));
+            render::remember_app(handle.clone());
 
             // libappindicator-sys PANICS (not errors) when the appindicator
             // .so is absent, which would crash the whole app on distros
@@ -2988,6 +3013,8 @@ pub fn run() {
             set_keep_mounts,
             app_info,
             problem_report,
+            render_mode,
+            set_render_mode,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

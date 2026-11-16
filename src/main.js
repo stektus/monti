@@ -2541,6 +2541,26 @@ async function initSettings() {
     localStorage.setItem(NOTIFY_KEY, e.target.checked ? "on" : "off");
   });
 
+  // Hardware acceleration. The webview is created long before this page
+  // runs, so the switch can only say what the next start will do — and it
+  // has to show what this start actually got, which "auto" alone does not.
+  const accel = await invoke("render_mode").catch(() => null);
+  if (accel) {
+    $("opt-accel").checked = accel.accelerated;
+    if (accel.fellBack) {
+      $("accel-hint").textContent = t(
+        "Monti turned this off here: the accelerated renderer failed and the " +
+          "window would have stayed blank. Turning it back on tries again."
+      );
+    }
+    $("opt-accel").addEventListener("change", async (e) => {
+      await invoke("set_render_mode", {
+        value: e.target.checked ? "on" : "off",
+      }).catch(() => {});
+      $("accel-hint").textContent = t("Applies when Monti starts again.");
+    });
+  }
+
   // Language. Switching redraws the page instead of restarting the app, so
   // whatever is on screen — a mounted drive, a running transfer — stays.
   const langSel = $("opt-lang");

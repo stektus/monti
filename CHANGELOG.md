@@ -2,6 +2,21 @@
 
 Notable changes per release. Dates are the release date.
 
+## Unreleased
+
+- **Hardware acceleration is back on, where it works.** Monti used to turn
+  WebKitGTK's accelerated renderer off on every machine, because on some it
+  cannot create an EGL display and the window comes up blank (v0.4.4). That
+  cost everybody else smooth scrolling: with software compositing a list of
+  drives scrolls in visible steps. Monti now asks EGL for a display before
+  the window is built — surfaceless, on a render node, or the display
+  server's own — and only falls back to software when none of them answers.
+  If WebKitGTK still gives up, Monti recognises its complaint, writes down
+  that acceleration does not work here, and restarts itself in software
+  once; the log and the problem report say which path a run used.
+  There is also a switch for it in Settings → General, for anyone who wants
+  the choice made by hand.
+
 ## v0.9.12 — 2026-11-15
 
 - **A problem report you can collect from inside the app.** Settings → About

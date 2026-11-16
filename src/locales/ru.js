@@ -77,6 +77,12 @@ export default {
   "Desktop notifications": "Уведомления",
   "Only when something needs you: the engine stops, or the disk is nearly full.":
     "Только когда нужно ваше внимание: движок остановился или диск почти заполнен.",
+  "Hardware acceleration": "Аппаратное ускорение",
+  "Smoother scrolling. Turn it off if the window comes up blank or draws strangely. Applies when Monti starts again.":
+    "Плавная прокрутка. Выключите, если окно открывается пустым или рисуется неправильно. Применится при следующем запуске Monti.",
+  "Monti turned this off here: the accelerated renderer failed and the window would have stayed blank. Turning it back on tries again.":
+    "Monti выключил ускорение на этом компьютере: оно не заработало, и окно осталось бы пустым. Включите снова, чтобы попробовать ещё раз.",
+  "Applies when Monti starts again.": "Применится при следующем запуске Monti.",
 
   // ---------- настройки: передача ----------
   Transfers: "Передача",
