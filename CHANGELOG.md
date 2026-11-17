@@ -2,8 +2,24 @@
 
 Notable changes per release. Dates are the release date.
 
-## v0.9.13 — 2026-11-17
+## v0.9.14 — 2026-11-17
 
+v0.9.13 was tagged with everything below except the two fixes at the
+top, and never published: its own release build caught the AppImage
+failure, which is what that check is for.
+
+- **The AppImage no longer dies where the graphics stack is half there.**
+  Turning the accelerated renderer back on (below) puts WebKit on libepoxy,
+  which opens `libGLESv2` by name while it runs — so nothing links
+  against it, nothing bundles it, and on a machine that has EGL but not that
+  library epoxy prints one line and kills the process before a window
+  exists. Too early for the fallback to catch. Monti now asks for the
+  library as well as for a display before choosing acceleration, and says
+  which of the two was missing in the log and the problem report.
+- **A fallback can restart the AppImage without FUSE.** Starting the
+  `.AppImage` again means mounting it again; where there is no FUSE the
+  runtime refuses and the restart lost the application instead of saving
+  it. It now asks the runtime to unpack itself instead.
 - **The empty screens draw their own icons.** The three "nothing here yet"
   screens showed an emoji — a cloud, a padlock, a pair of arrows. An emoji is
   not a picture, it is a character, and a machine with no emoji font draws it
