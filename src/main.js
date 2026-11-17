@@ -2414,6 +2414,85 @@ function configPasswordModes() {
   };
 }
 
+// A password nobody has to invent.
+//
+// An encryption password is the one secret here that is born in this dialog
+// rather than brought to it, and a person asked to think one up on the spot
+// writes down something they already use. Characters that look alike are
+// left out, because this one does get written on paper and typed back.
+const PASSWORD_ALPHABET = "abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+
+function generatePassword(groups = 5, size = 4) {
+  // Rejection sampling: taking a remainder of a random number would make the
+  // first few letters of the alphabet slightly likelier than the rest.
+  const n = PASSWORD_ALPHABET.length;
+  const ceiling = Math.floor(0x100000000 / n) * n;
+  const pick = () => {
+    const one = new Uint32Array(1);
+    for (;;) {
+      crypto.getRandomValues(one);
+      if (one[0] < ceiling) return PASSWORD_ALPHABET[one[0] % n];
+    }
+  };
+  const parts = [];
+  for (let g = 0; g < groups; g += 1) {
+    let part = "";
+    for (let i = 0; i < size; i += 1) part += pick();
+    parts.push(part);
+  }
+  return parts.join("-");
+}
+
+// Fill a pair of "type it twice" fields with one generated password, and
+// show it: a password that cannot be read cannot be written down, and this
+// one has to be.
+function fillGenerated(firstId, secondId) {
+  const value = generatePassword();
+  for (const id of [firstId, secondId]) {
+    const el = $(id);
+    if (!el) continue;
+    el.value = value;
+    revealPassword(el, true);
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+  }
+}
+
+function revealPassword(input, shown) {
+  input.type = shown ? "text" : "password";
+  const btn = input.parentNode?.querySelector(".pw-eye");
+  if (!btn) return;
+  const label = shown ? t("Hide the password") : t("Show the password");
+  btn.setAttribute("aria-label", label);
+  btn.setAttribute("aria-pressed", String(shown));
+  btn.title = label;
+}
+
+// Every password field gets an eye. A token pasted blind is the most common
+// way these forms go wrong, and whoever is typing is the only one looking at
+// this screen anyway.
+function addPasswordToggles() {
+  for (const input of document.querySelectorAll('input[type="password"]')) {
+    if (input.dataset.eyed) continue;
+    input.dataset.eyed = "1";
+    const wrap = document.createElement("span");
+    wrap.className = "pw-wrap";
+    input.parentNode.insertBefore(wrap, input);
+    wrap.append(input);
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "pw-eye";
+    btn.setAttribute("aria-pressed", "false");
+    btn.innerHTML =
+      '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" ' +
+      'stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">' +
+      '<path d="M2.5 12S6 5.8 12 5.8 21.5 12 21.5 12 18 18.2 12 18.2 2.5 12 2.5 12Z"/>' +
+      '<circle cx="12" cy="12" r="3.1"/></svg>';
+    btn.addEventListener("click", () => revealPassword(input, input.type === "password"));
+    wrap.append(btn);
+    revealPassword(input, false); // sets the label the first time
+  }
+}
+
 function configPasswordDialog(mode) {
   const spec = configPasswordModes()[mode];
   const dlg = $("cfgpass-dialog");
@@ -2430,12 +2509,17 @@ function configPasswordDialog(mode) {
     ["cfgpass-current-row", spec.needsCurrent],
     ["cfgpass-new-row", spec.needsNew],
     ["cfgpass-again-row", spec.needsNew],
+    // Nothing to generate when the dialog is only asking for the password
+    // that is already in use.
+    ["cfgpass-generate-row", spec.needsNew],
   ]) {
     $(row).classList.toggle("hidden", !wanted);
   }
   current.value = "";
   next.value = "";
   again.value = "";
+  // A password left on screen from the time before belongs to nobody now.
+  for (const el of [current, next, again]) revealPassword(el, false);
   err.textContent = "";
   err.classList.add("hidden");
 
@@ -2723,6 +2807,13 @@ async function boot() {
 window.addEventListener("DOMContentLoaded", () => {
   applyTheme(); // before anything is painted, so there is no flash
   applyDom(); // and the same for the language, for the same reason
+  addPasswordToggles();
+  $("crypt-generate").addEventListener("click", () =>
+    fillGenerated("crypt-pass", "crypt-pass2")
+  );
+  $("cfgpass-generate").addEventListener("click", () =>
+    fillGenerated("cfgpass-new", "cfgpass-again")
+  );
 
   // Everything drawn from JavaScript has to be drawn again in the new
   // language; the static markup is handled inside setLang().

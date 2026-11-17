@@ -683,4 +683,10 @@ export default {
     "Диск с именем «{name}» уже есть.",
   "Use {name}":
     "Взять {name}",
+  "Generate a password":
+    "Придумать за меня",
+  "Hide the password":
+    "Скрыть пароль",
+  "Show the password":
+    "Показать пароль",
 };

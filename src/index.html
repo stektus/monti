@@ -573,10 +573,11 @@
               <button class="btn" type="button" id="crypt-path-browse">Browse…</button>
             </span>
           </label>
-          <div class="two-col">
-            <label>Password <input id="crypt-pass" type="password" autocomplete="new-password" /></label>
-            <label>Repeat password <input id="crypt-pass2" type="password" autocomplete="new-password" /></label>
-          </div>
+          <label>Password <input id="crypt-pass" type="password" autocomplete="new-password" /></label>
+          <label>Repeat password <input id="crypt-pass2" type="password" autocomplete="new-password" /></label>
+          <p class="pw-generate">
+            <button class="btn" type="button" id="crypt-generate">Generate a password</button>
+          </p>
           <p class="warn-text">
             There is no way to recover this password. Lose it and the files
             stay encrypted forever — nobody, including you, can read them.
@@ -696,6 +697,9 @@
           Type it again
           <input type="password" id="cfgpass-again" autocomplete="off" />
         </label>
+        <p class="pw-generate" id="cfgpass-generate-row">
+          <button class="btn" type="button" id="cfgpass-generate">Generate a password</button>
+        </p>
         <p class="muted" id="cfgpass-what"></p>
         <p class="error hidden" id="cfgpass-error"></p>
         <div class="dialog-actions">

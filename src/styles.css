@@ -553,6 +553,37 @@ a:hover { text-decoration: underline; }
 
 .muted { color: var(--muted); font-size: 13px; }
 
+/* The eye that shows a password. The field keeps its own styling; the
+   button sits on top of its right end. */
+.pw-wrap { position: relative; display: block; margin-top: 6px; }
+dialog .pw-wrap input:not([type="checkbox"]):not([type="radio"]) {
+  margin-top: 0;
+  padding-inline-end: 40px;
+}
+.pw-eye {
+  position: absolute;
+  inset-inline-end: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  color: var(--muted);
+  background: none;
+  border: 0;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.pw-eye svg { width: 18px; height: 18px; }
+.pw-eye:hover { color: var(--text); background: var(--surface); }
+.pw-eye[aria-pressed="true"] { color: var(--accent); }
+.pw-eye:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+.pw-generate { margin: -4px 0 13px; }
+
 /* "That name is taken" sits under the field with the way out beside it. */
 .name-problem {
   display: flex;
