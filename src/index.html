@@ -372,6 +372,10 @@
         <label id="add-name-row">
           Name <span class="muted">(the folder will be called this)</span>
           <input id="add-name" placeholder="e.g. gdrive" pattern="[A-Za-z0-9_-]+" required />
+          <span class="name-problem hidden" id="add-name-problem">
+            <span id="add-name-problem-text"></span>
+            <button class="btn hidden" type="button" id="add-name-fix"></button>
+          </span>
         </label>
         <div id="params-webdav" class="params hidden">
           <label>

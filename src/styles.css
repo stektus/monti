@@ -553,6 +553,19 @@ a:hover { text-decoration: underline; }
 
 .muted { color: var(--muted); font-size: 13px; }
 
+/* "That name is taken" sits under the field with the way out beside it. */
+.name-problem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--err);
+}
+.name-problem .btn { padding: 4px 10px; font-size: 12.5px; }
+
 .empty { text-align: center; padding: 56px 0 40px; }
 .empty-cloud { color: var(--muted); margin-bottom: 10px; }
 .empty-icon { width: 56px; height: 56px; display: block; margin: 0 auto; opacity: .5; }

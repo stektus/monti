@@ -677,4 +677,10 @@ export default {
     "Выберите папку. Разверните папку, чтобы увидеть, что внутри.",
   "Could not open the link":
     "Не удалось открыть ссылку",
+  "Letters, digits, - and _ only.":
+    "Только буквы, цифры, - и _.",
+  "A drive named \"{name}\" already exists.":
+    "Диск с именем «{name}» уже есть.",
+  "Use {name}":
+    "Взять {name}",
 };

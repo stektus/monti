@@ -767,6 +767,9 @@ async function healthTick() {
 // ---------- activity indicator ----------
 
 let ownMounts = new Map(); // remote name -> mount point, kept fresh by refreshRemotes
+// Names already in the config, so the Add dialog can say "that one is taken"
+// while it is being typed rather than after the whole form is filled in.
+let takenNames = new Set();
 // The cards on screen, by drive name, each with a signature of everything
 // visible on it. The list is redrawn after every action, on every switch
 // back to this view, and whenever a mount is lost — often while a hand is
@@ -1134,6 +1137,7 @@ async function refreshRemotes(opts = {}) {
   }
   const { remotes, own, external } = snapshot;
   ownMounts = own;
+  takenNames = new Set(remotes.map((r) => r.name));
   // The tray is drawn from the same state, so it never disagrees with the
   // window about what is mounted.
   const trayDrives = remotes.map((r) => ({
@@ -3059,6 +3063,47 @@ window.addEventListener("DOMContentLoaded", () => {
   // right, and one of the two would drift.
   let signInFor = null;
 
+  // The first free name of the "gdrive, gdrive2, gdrive3" shape. A trailing
+  // number is treated as a counter rather than part of the name, so a second
+  // attempt on "gdrive2" offers "gdrive3" and not "gdrive22".
+  const freeName = (wanted) => {
+    const base = wanted.replace(/\d+$/, "") || wanted;
+    let n = 2;
+    while (takenNames.has(base + n)) n += 1;
+    return base + n;
+  };
+
+  // rclone's `config create` overwrites a remote of the same name without a
+  // word, so the backend refuses one — but only once the whole form has been
+  // filled in and sent. The name is known to be taken the moment it is typed,
+  // and so is a free one to offer instead.
+  const checkAddName = () => {
+    const box = $("add-name-problem");
+    const fix = $("add-name-fix");
+    const say = (text) => {
+      $("add-name-problem-text").textContent = text;
+      box.classList.remove("hidden");
+    };
+    fix.classList.add("hidden");
+    box.classList.add("hidden");
+    const wanted = $("add-name").value.trim();
+    if (signInFor || !wanted) return;
+    if (!/^[A-Za-z0-9_-]+$/.test(wanted)) {
+      say(t("Letters, digits, - and _ only."));
+      return;
+    }
+    if (!takenNames.has(wanted)) return;
+    const free = freeName(wanted);
+    say(t('A drive named "{name}" already exists.', { name: wanted }));
+    fix.textContent = t("Use {name}", { name: free });
+    fix.classList.remove("hidden");
+    fix.onclick = () => {
+      $("add-name").value = free;
+      checkAddName();
+    };
+  };
+  $("add-name").addEventListener("input", checkAddName);
+
   const addDialogMode = (name, type) => {
     signInFor = name;
     $("add-title").textContent = name ? t("{name} — sign in again", { name }) : t("Add a cloud");
@@ -3075,6 +3120,7 @@ window.addEventListener("DOMContentLoaded", () => {
       $("add-name").value = name;
       $("add-provider").value = type;
     }
+    checkAddName();
   };
 
   // The way back from the locked state. The dialog itself refreshes the

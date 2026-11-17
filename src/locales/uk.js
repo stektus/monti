@@ -675,4 +675,10 @@ export default {
     "Оберіть папку. Розгорніть папку, щоб побачити, що всередині.",
   "Could not open the link":
     "Не вдалося відкрити посилання",
+  "Letters, digits, - and _ only.":
+    "Лише літери, цифри, - і _.",
+  "A drive named \"{name}\" already exists.":
+    "Диск з іменем «{name}» вже є.",
+  "Use {name}":
+    "Взяти {name}",
 };
