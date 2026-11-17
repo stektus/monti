@@ -222,6 +222,43 @@ fn open_folder(path: String) -> Result<(), String> {
     spawn_opener(&p.display().to_string())
 }
 
+/// Ask the desktop portal to open a link.
+///
+/// `xdg-open` does reach the browser — it hands the URL over and the browser
+/// does load it. What it cannot do on Wayland is bring that window forward:
+/// raising a window needs an activation token, and a program launched from a
+/// shell has none to give. The tab appears behind everything and the button
+/// looks dead, which is exactly how this was reported on COSMIC.
+///
+/// The portal is the mechanism that owns this: it runs inside the session,
+/// it is what Flatpak applications already use, and every desktop that
+/// matters ships a backend for it. Where there is none, the caller falls
+/// back to `xdg-open` and the link still opens, just without the raise.
+fn portal_open_uri(uri: &str) -> Result<(), String> {
+    use zbus::zvariant::Value;
+    let conn = zbus::blocking::Connection::session().map_err(|e| e.to_string())?;
+    let mut options: HashMap<&str, Value> = HashMap::new();
+    // Hand the compositor's own token over when this process was given one:
+    // it is what lets the portal raise the window without being accused of
+    // stealing focus.
+    if let Ok(token) = std::env::var("XDG_ACTIVATION_TOKEN") {
+        if !token.is_empty() {
+            options.insert("activation_token", Value::new(token));
+        }
+    }
+    conn.call_method(
+        Some("org.freedesktop.portal.Desktop"),
+        "/org/freedesktop/portal/desktop",
+        Some("org.freedesktop.portal.OpenURI"),
+        "OpenURI",
+        // (parent_window, uri, options) — no parent: Monti's window is not
+        // the one that should be blocked while a browser starts.
+        &("", uri, options),
+    )
+    .map(|_| ())
+    .map_err(|e| e.to_string())
+}
+
 /// Open an https link in the browser. Only https, so a crafted link can't
 /// reach file:// or a custom scheme handler.
 #[tauri::command(async)]
@@ -229,7 +266,13 @@ fn open_link(url: String) -> Result<(), String> {
     if !url.starts_with("https://") {
         return Err("only https links can be opened".into());
     }
-    spawn_opener(&url)
+    match portal_open_uri(&url) {
+        Ok(()) => Ok(()),
+        // Both ways failing is worth both reasons: "could not run xdg-open"
+        // alone sends people looking in the wrong place.
+        Err(portal) => spawn_opener(&url)
+            .map_err(|direct| format!("the desktop portal said: {portal}; and {direct}")),
+    }
 }
 
 // ---------- commands ----------

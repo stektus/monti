@@ -675,4 +675,6 @@ export default {
     "Сначала выберите облако.",
   "Pick the folder to use. Open a folder to see what is inside it.":
     "Выберите папку. Разверните папку, чтобы увидеть, что внутри.",
+  "Could not open the link":
+    "Не удалось открыть ссылку",
 };

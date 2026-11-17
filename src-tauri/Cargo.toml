@@ -31,6 +31,10 @@ base64 = "0.22"
 zip = { version = "9", default-features = false, features = ["deflate"] }
 sha2 = "0.10"
 libc = "0.2"
+# Only to reach the desktop portal, which is the one way to open a link so
+# that the browser's window actually comes forward on Wayland. Already in
+# the tree underneath notify-rust and the single-instance plugin.
+zbus = "5"
 # Native folder chooser. GTK3 rather than the XDG portal on purpose: Monti
 # is a GTK app already, so the dialog needs no portal service running and
 # appears on the app's own display like the rest of it.

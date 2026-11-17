@@ -673,4 +673,6 @@ export default {
     "Спочатку оберіть хмару.",
   "Pick the folder to use. Open a folder to see what is inside it.":
     "Оберіть папку. Розгорніть папку, щоб побачити, що всередині.",
+  "Could not open the link":
+    "Не вдалося відкрити посилання",
 };

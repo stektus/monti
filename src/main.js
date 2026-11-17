@@ -2883,7 +2883,13 @@ window.addEventListener("DOMContentLoaded", () => {
     const a = e.target.closest("a[href^='http']");
     if (!a) return;
     e.preventDefault();
-    invoke("open_link", { url: a.href }).catch((err) => showError(String(err)));
+    invoke("open_link", { url: a.href }).catch((err) => {
+      // The error line lives on the Drives view; a link pressed in Settings
+      // would fail into a part of the window nobody is looking at, and a
+      // button that does nothing is the worst thing a button can do.
+      notify(t("Could not open the link"), `${a.href}\n${err}`);
+      showError(String(err));
+    });
   });
 
   // --- install engine ---
