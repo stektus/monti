@@ -554,7 +554,8 @@ a:hover { text-decoration: underline; }
 .muted { color: var(--muted); font-size: 13px; }
 
 .empty { text-align: center; padding: 56px 0 40px; }
-.empty-cloud { font-size: 52px; margin-bottom: 6px; }
+.empty-cloud { color: var(--muted); margin-bottom: 10px; }
+.empty-icon { width: 56px; height: 56px; display: block; margin: 0 auto; opacity: .5; }
 .empty h3 { margin: 0 0 6px; font-size: 17px; }
 .empty p { max-width: 420px; margin: 0 auto; }
 
