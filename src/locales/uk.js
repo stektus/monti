@@ -663,4 +663,14 @@ export default {
   "Collect a problem report": "Зібрати звіт про проблему",
   "Nothing has left this computer. Read it, then paste it wherever you are reporting the problem.":
     "З цього комп\u2019ютера нічого не пішло. Прочитайте й вставте туди, де повідомляєте про проблему.",
+  "Chosen: {folder}":
+    "Обрано: {folder}",
+  "Chosen: the whole drive":
+    "Обрано весь диск",
+  "The whole drive":
+    "Весь диск",
+  "Choose a cloud first.":
+    "Спочатку оберіть хмару.",
+  "Pick the folder to use. Open a folder to see what is inside it.":
+    "Оберіть папку. Розгорніть папку, щоб побачити, що всередині.",
 };

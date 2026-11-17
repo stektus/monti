@@ -561,11 +561,14 @@
               Drive to store it on
               <select id="crypt-remote"></select>
             </label>
-            <label>
-              Folder there
-              <input id="crypt-path" class="mono" placeholder="Encrypted" />
-            </label>
           </div>
+          <label>
+            Folder there
+            <span class="path-row">
+              <input id="crypt-path" class="mono" placeholder="Encrypted" />
+              <button class="btn" type="button" id="crypt-path-browse">Browse…</button>
+            </span>
+          </label>
           <div class="two-col">
             <label>Password <input id="crypt-pass" type="password" autocomplete="new-password" /></label>
             <label>Repeat password <input id="crypt-pass2" type="password" autocomplete="new-password" /></label>
@@ -820,11 +823,14 @@
             Cloud
             <select id="pair-remote"></select>
           </label>
-          <label>
-            Folder in the cloud
-            <input id="pair-path" class="mono" placeholder="Documents" />
-          </label>
         </div>
+        <label>
+          Folder in the cloud
+          <span class="path-row">
+            <input id="pair-path" class="mono" placeholder="Documents" />
+            <button class="btn" type="button" id="pair-path-browse">Browse…</button>
+          </span>
+        </label>
         <p class="muted">
           Leave the cloud folder empty to sync the whole drive — that is
           rarely what you want.

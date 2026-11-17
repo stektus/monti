@@ -665,4 +665,14 @@ export default {
   "Collect a problem report": "Собрать отчёт о проблеме",
   "Nothing has left this computer. Read it, then paste it wherever you are reporting the problem.":
     "С этого компьютера ничего не ушло. Прочитайте и вставьте туда, где сообщаете о проблеме.",
+  "Chosen: {folder}":
+    "Выбрано: {folder}",
+  "Chosen: the whole drive":
+    "Выбран весь диск",
+  "The whole drive":
+    "Весь диск",
+  "Choose a cloud first.":
+    "Сначала выберите облако.",
+  "Pick the folder to use. Open a folder to see what is inside it.":
+    "Выберите папку. Разверните папку, чтобы увидеть, что внутри.",
 };

@@ -417,6 +417,14 @@ function refreshPickerRows() {
   // Listing a cloud folder takes seconds, and the dialog can be closed
   // inside those seconds — then there is nothing left to refresh.
   if (!picker) return;
+  // Choosing one folder is the same tree with one answer instead of many.
+  if (picker.mode === "pick") {
+    for (const row of picker.rows) row.box.checked = row.rel === picker.chosen;
+    $("folders-count").textContent = picker.chosen
+      ? t("Chosen: {folder}", { folder: picker.chosen })
+      : t("Chosen: the whole drive");
+    return;
+  }
   for (const row of picker.rows) {
     const byParent = excludedByParent(row.rel);
     row.box.checked = !byParent && !excludedExactly(row.rel);
@@ -469,6 +477,21 @@ function folderRow(full, depth) {
 
   const label = document.createElement("label");
   const box = document.createElement("input");
+  if (picker.mode === "pick") {
+    box.type = "radio";
+    box.name = "cloud-folder";
+    box.addEventListener("change", () => {
+      picker.chosen = rel;
+      refreshPickerRows();
+    });
+    const text = document.createElement("span");
+    text.textContent = lastSegment(full);
+    label.append(box, text);
+    row.append(toggle, label);
+    wrap.append(row, kids);
+    picker.rows.push({ rel, box, wrap });
+    return wrap;
+  }
   box.type = "checkbox";
   box.addEventListener("change", () => {
     if (box.checked) {
@@ -500,17 +523,67 @@ function showPickerError(e) {
   el.classList.remove("hidden");
 }
 
+// The first row when one folder is being chosen: the drive itself, which is
+// what an empty path means everywhere else in Monti.
+function wholeDriveRow() {
+  const wrap = document.createElement("div");
+  wrap.className = "tree-item";
+  const row = document.createElement("div");
+  row.className = "tree-row";
+  const label = document.createElement("label");
+  const box = document.createElement("input");
+  box.type = "radio";
+  box.name = "cloud-folder";
+  box.addEventListener("change", () => {
+    picker.chosen = "";
+    refreshPickerRows();
+  });
+  const text = document.createElement("span");
+  text.textContent = t("The whole drive");
+  label.append(box, text);
+  row.append(label);
+  wrap.append(row);
+  picker.rows.push({ rel: "", box, wrap });
+  return wrap;
+}
+
 // Open the picker. Resolves to the new list of excluded folders, or null
 // when the person changed their mind.
 function chooseFolders({ remote, base, excluded, title, hint }) {
-  return new Promise((resolve) => {
-    picker = {
+  return openPicker(
+    {
+      mode: "exclude",
       remote,
       base: base || "",
       excluded: new Set(excluded || []),
-      rows: [],
-      resolve,
-    };
+    },
+    title,
+    hint
+  );
+}
+
+// The same tree, asked for one folder instead of many. Resolves to its path
+// relative to the drive root — "" is the whole drive — or null when the
+// person changed their mind.
+function chooseCloudFolder({ remote, current, title, hint }) {
+  return openPicker(
+    {
+      mode: "pick",
+      remote,
+      base: "",
+      excluded: new Set(),
+      chosen: (current || "").replace(/^\/+|\/+$/g, ""),
+    },
+    title,
+    hint
+  );
+}
+
+function openPicker(state, title, hint) {
+  return new Promise((resolve) => {
+    picker = { rows: [], ...state, resolve };
+    const choosing = picker.mode === "pick";
+    $("folders-all").classList.toggle("hidden", choosing);
     $("folders-title").textContent = title;
     $("folders-hint").textContent = hint;
     $("folders-error").classList.add("hidden");
@@ -524,7 +597,13 @@ function chooseFolders({ remote, base, excluded, title, hint }) {
       .then((n) => {
         tree.classList.remove("loading");
         tree.firstChild?.remove(); // the "reading" line
-        if (!n) tree.textContent = t("This folder has no subfolders.");
+        if (!n && !choosing) tree.textContent = t("This folder has no subfolders.");
+        // The drive itself goes on top, after the listing so that the line
+        // above does not take it away with the "reading" text.
+        if (choosing) {
+          tree.prepend(wholeDriveRow());
+          refreshPickerRows();
+        }
       })
       .catch((e) => {
         tree.classList.remove("loading");
@@ -2893,11 +2972,32 @@ window.addEventListener("DOMContentLoaded", () => {
   });
   $("folders-form").addEventListener("submit", (e) => {
     e.preventDefault();
-    const chosen = [...picker.excluded].sort();
-    picker.resolve(chosen);
+    const answer =
+      picker.mode === "pick" ? picker.chosen : [...picker.excluded].sort();
+    picker.resolve(answer);
     picker.resolve = null;
     $("folders-dialog").close();
   });
+
+  // Typing a cloud path is the one place where a typo costs something: rclone
+  // creates the folder it was given, so "Documnets" quietly becomes a second
+  // folder in the cloud and the sync fills it. Browsing cannot misspell.
+  const browseCloud = (selectId, pathId) => async () => {
+    const remote = $(selectId).value;
+    if (!remote) {
+      showError(t("Choose a cloud first."));
+      return;
+    }
+    const chosen = await chooseCloudFolder({
+      remote,
+      current: $(pathId).value,
+      title: t('Folders of "{name}"', { name: remote }),
+      hint: t("Pick the folder to use. Open a folder to see what is inside it."),
+    });
+    if (chosen !== null) $(pathId).value = chosen;
+  };
+  $("pair-path-browse").addEventListener("click", browseCloud("pair-remote", "pair-path"));
+  $("crypt-path-browse").addEventListener("click", browseCloud("crypt-remote", "crypt-path"));
 
   $("remote-folders-choose").addEventListener("click", async () => {
     const chosen = await chooseFolders({

@@ -615,7 +615,7 @@ dialog h2 { margin: 0 0 16px; font-size: 17px; letter-spacing: -0.01em; }
 
 dialog label { display: block; margin-bottom: 13px; font-size: 13.5px; font-weight: 550; }
 
-dialog input:not([type="checkbox"]),
+dialog input:not([type="checkbox"]):not([type="radio"]),
 dialog select {
   display: block;
   width: 100%;
@@ -750,7 +750,8 @@ dialog select:focus-visible {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.tree-row input[type="checkbox"] { flex: none; }
+.tree-row input[type="checkbox"],
+.tree-row input[type="radio"] { flex: none; }
 
 .btn.tree-toggle {
   flex: none;
