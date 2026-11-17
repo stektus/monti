@@ -36,9 +36,12 @@
       </div>
 
       <nav class="seg" role="tablist">
-        <button class="seg-btn active" data-view="drives">Drives</button>
-        <button class="seg-btn" data-view="sync">Sync</button>
-        <button class="seg-btn" data-view="settings">Settings</button>
+        <button class="seg-btn active" data-view="drives" role="tab" id="tab-drives"
+                aria-controls="view-drives" aria-selected="true" tabindex="0">Drives</button>
+        <button class="seg-btn" data-view="sync" role="tab" id="tab-sync"
+                aria-controls="view-sync" aria-selected="false" tabindex="-1">Sync</button>
+        <button class="seg-btn" data-view="settings" role="tab" id="tab-settings"
+                aria-controls="view-settings" aria-selected="false" tabindex="-1">Settings</button>
       </nav>
 
       <div class="pills">
@@ -47,7 +50,7 @@
           <span aria-hidden="true">⇅</span>
           <span id="activity-label"></span>
         </div>
-        <div class="engine-pill" id="engine-pill" title="Engine status">
+        <div class="engine-pill" id="engine-pill" title="Engine status" role="status">
           <span class="dot" id="engine-dot"></span>
           <span id="engine-label">starting…</span>
         </div>
@@ -55,9 +58,12 @@
       </div>
     </header>
 
+    <!-- Read out by a screen reader, invisible to everyone else. -->
+    <div id="say" class="sr-only" role="status" aria-live="polite"></div>
+
     <main class="container">
       <!-- ============ DRIVES VIEW ============ -->
-      <div id="view-drives">
+      <div id="view-drives" role="tabpanel" aria-labelledby="tab-drives">
         <!-- Shown only when rclone is missing -->
         <section class="card install-card hidden" id="install-card">
           <h2>One more step</h2>
@@ -75,10 +81,10 @@
         <section id="remotes-section" class="hidden">
           <div class="section-head">
             <h2>Your drives</h2>
-            <button class="btn primary" id="add-btn">＋ Add cloud</button>
+            <button class="btn primary" id="add-btn"><span aria-hidden="true">＋</span> Add cloud</button>
           </div>
-          <p class="error hidden" id="disk-warning"></p>
-          <p class="notice hidden" id="shared-key-warning"></p>
+          <p class="error hidden" id="disk-warning" role="status"></p>
+          <p class="notice hidden" id="shared-key-warning" role="status"></p>
           <div id="remotes-list" class="grid"></div>
           <div class="empty hidden" id="locked-hint">
             <div class="empty-cloud">
@@ -116,13 +122,13 @@
       </div>
 
       <!-- ============ SYNC VIEW ============ -->
-      <div id="view-sync" class="hidden">
+      <div id="view-sync" class="hidden" role="tabpanel" aria-labelledby="tab-sync">
         <section>
           <div class="section-head">
             <h2>Synced folders</h2>
-            <button class="btn primary" id="add-pair-btn">+&nbsp; New sync</button>
+            <button class="btn primary" id="add-pair-btn"><span aria-hidden="true">+&nbsp;</span> New sync</button>
           </div>
-          <p class="error hidden" id="sync-error"></p>
+          <p class="error hidden" id="sync-error" role="alert"></p>
           <div id="sync-list" class="grid"></div>
           <div class="empty hidden" id="sync-empty">
             <div class="empty-cloud">
@@ -147,7 +153,7 @@
       </div>
 
       <!-- ============ SETTINGS VIEW ============ -->
-      <div id="view-settings" class="hidden">
+      <div id="view-settings" class="hidden" role="tabpanel" aria-labelledby="tab-settings">
        <div class="settings-grid">
         <section class="card">
           <h2>General</h2>
@@ -293,7 +299,7 @@
             Each drive drops its oldest copies once it reaches the limit,
             which you can change per drive in its settings.
           </p>
-          <p class="error hidden" id="cache-warning"></p>
+          <p class="error hidden" id="cache-warning" role="status"></p>
         </section>
 
         <section class="card">
@@ -312,7 +318,7 @@
             <button class="btn hidden" id="cfglock-change">Change password</button>
             <button class="btn hidden" id="cfglock-remove">Remove the password</button>
           </div>
-          <p class="error hidden" id="cfglock-error"></p>
+          <p class="error hidden" id="cfglock-error" role="alert"></p>
         </section>
 
         <section class="card">
@@ -349,7 +355,7 @@
        </div>
       </div>
 
-      <p class="error hidden" id="global-error"></p>
+      <p class="error hidden" id="global-error" role="alert"></p>
     </main>
 
     <!-- ============ ADD CLOUD DIALOG ============ -->
@@ -649,7 +655,7 @@
         <p class="muted auth-wait hidden" id="add-status">
           ⏳ Waiting for you to authorize in the browser… Press Cancel to abort.
         </p>
-        <p class="error hidden" id="add-error"></p>
+        <p class="error hidden" id="add-error" role="alert"></p>
         <div class="dialog-actions">
           <button class="btn" type="button" id="add-cancel">Cancel</button>
           <button class="btn primary" type="submit" id="add-submit">Connect</button>
@@ -719,7 +725,7 @@
           <button class="btn" type="button" id="cfgpass-generate">Generate a password</button>
         </p>
         <p class="muted" id="cfgpass-what"></p>
-        <p class="error hidden" id="cfgpass-error"></p>
+        <p class="error hidden" id="cfgpass-error" role="alert"></p>
         <div class="dialog-actions">
           <button class="btn" type="button" id="cfgpass-cancel">Cancel</button>
           <button class="btn primary" type="submit" id="cfgpass-ok">Set the password</button>
@@ -819,7 +825,7 @@
           <button class="btn danger" type="button" id="remote-remove">Remove</button>
         </div>
 
-        <p class="error hidden" id="remote-error"></p>
+        <p class="error hidden" id="remote-error" role="alert"></p>
         <div class="dialog-actions">
           <button class="btn" type="button" id="remote-reconnect" title="Re-run the browser sign-in for this drive">Re-authorize</button>
           <span class="spacer"></span>
@@ -899,7 +905,7 @@
           <button class="btn" type="button" id="pair-folders-choose">Choose…</button>
         </div>
 
-        <p class="error hidden" id="pair-error"></p>
+        <p class="error hidden" id="pair-error" role="alert"></p>
         <div class="dialog-actions">
           <span class="spacer"></span>
           <button class="btn" type="button" id="pair-cancel">Cancel</button>

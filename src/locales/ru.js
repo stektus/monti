@@ -44,12 +44,15 @@ export default {
   "One more step": "Остался один шаг",
   "Download engine": "Загрузить движок",
   "Your drives": "Ваши диски",
-  "＋ Add cloud": "＋ Добавить облако",
+  "{name} is connected": "{name} подключён",
+  "{name} is disconnected": "{name} отключён",
+  "Sync of {name} started": "Синхронизация {name} начата",
+  "Sync of {name} finished": "Синхронизация {name} завершена",
+  "Add cloud": "Добавить облако",
   "No clouds connected yet": "Ни одного облака ещё не подключено",
 
   // ---------- синхронизация ----------
   "Synced folders": "Синхронизируемые папки",
-  "+ New sync": "+ Новая синхронизация",
   "Nothing is being synced": "Ничего не синхронизируется",
   "A synced folder is a real copy on this computer, kept the same as a folder in the cloud in both directions. Unlike a mounted drive it works with no network — and catches up afterwards. Syncing happens while Monti is running.":
     "Синхронизируемая папка — это настоящая копия на этом компьютере, которую Monti держит одинаковой с папкой в облаке в обе стороны. В отличие от подключённого диска она работает без сети, а изменения догоняют потом. Синхронизация идёт, пока запущен Monti.",

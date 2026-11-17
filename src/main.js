@@ -116,6 +116,20 @@ const SIGNIN_REFUSED = "monti:signin-refused";
 
 // Render the message inside the open modal dialog (the page-level banner
 // sits under the ::backdrop and would be invisible); clearing clears all.
+// Said out loud by a screen reader, and only there. Everything a sighted
+// person learns from a card changing colour — a drive mounted, a sync
+// finished — has to arrive as words for someone who cannot see the card.
+function say(text) {
+  const el = $("say");
+  if (!el) return;
+  // Same text twice in a row is a new announcement only if the region
+  // changes, so clear it first.
+  el.textContent = "";
+  setTimeout(() => {
+    el.textContent = text;
+  }, 60);
+}
+
 function showError(msg) {
   // The mark is for deciding what to do, never for reading.
   if (msg) msg = String(msg).replace(SIGNIN_REFUSED + "\n", "");
@@ -237,12 +251,64 @@ function markWorking(card, label) {
   if (!chip) return () => {};
   const text = chip.textContent;
   const cls = chip.className;
+  const name = card.dataset.name || "";
   chip.textContent = label;
   chip.className = "chip state working";
+  // Mounting a drive can take a few seconds against a slow provider. On
+  // screen the chip says so; out loud, nothing did.
+  card.setAttribute("aria-label", `${name} — ${label}`);
+  say(`${name} — ${label}`);
   return () => {
     chip.textContent = text;
     chip.className = cls;
+    card.setAttribute("aria-label", `${name} — ${text}`);
   };
+}
+
+// A switch with no name is a switch nobody can use without seeing it.
+// Settings are rows of "name / hint / control", three separate elements
+// with nothing tying them together: a screen reader read them as "check
+// box, not checked", with the name as unrelated text somewhere before it.
+// This ties each control to its own row, and does it in code so a row
+// added later cannot forget.
+function labelSettings() {
+  for (const row of document.querySelectorAll(".setting-row")) {
+    const control = row.querySelector("select, input");
+    const name = row.querySelector(".setting-name");
+    if (!control || !name) continue; // a row of prose, or a button
+    if (!name.id) name.id = `${control.id || "setting"}-name`;
+    control.setAttribute("aria-labelledby", name.id);
+    const hint = row.querySelector(".muted");
+    if (hint) {
+      if (!hint.id) hint.id = `${control.id || "setting"}-hint`;
+      control.setAttribute("aria-describedby", hint.id);
+    }
+  }
+}
+
+// Every card carries the same two or three buttons, so a screen reader
+// moving through the list hears "Mount" four times and is never told which
+// drive it would mount. The name goes into each button's own label, the
+// only place that travels with the button.
+function nameTheButtons(actions, name) {
+  for (const b of actions.querySelectorAll("button")) {
+    const what = b.title || b.textContent.trim();
+    if (what) b.setAttribute("aria-label", `${what} — ${name}`);
+  }
+}
+
+// A dialog is announced by its name, and a dialog with no name is
+// announced as "dialog". Each one here opens with a heading that is
+// exactly the name it should have, so they are tied together rather than
+// left to the browser's guess.
+function labelDialogs() {
+  for (const dlg of document.querySelectorAll("dialog")) {
+    if (dlg.getAttribute("aria-labelledby")) continue;
+    const head = dlg.querySelector("h2, h3");
+    if (!head) continue;
+    if (!head.id) head.id = `${dlg.id}-title`;
+    dlg.setAttribute("aria-labelledby", head.id);
+  }
 }
 
 function makeBtn(label, extra, onClick, title = "") {
@@ -1273,6 +1339,17 @@ async function refreshRemotes(opts = {}) {
 
     showQuota(card.querySelector(".remote-quota"), name);
 
+    // A group, so a screen reader announces the drive before reading what
+    // is on its card, and the state goes into the group's name: the chip
+    // that carries it on screen is not in the accessibility tree at all —
+    // WebKit drops a bare span — so without this the one thing a person
+    // most needs to know about a drive is the one thing not said.
+    card.setAttribute("role", "group");
+    card.setAttribute(
+      "aria-label",
+      `${name} — ${card.querySelector(".chip.state").textContent.trim()}`
+    );
+
     const actions = card.querySelector(".remote-actions");
 
     if (ownPoint) {
@@ -1301,6 +1378,7 @@ async function refreshRemotes(opts = {}) {
             if (!ok) return;
             await invoke("unmount_remote", { mountPoint: ownPoint, force: true });
           }
+          say(t("{name} is disconnected", { name }));
           await refreshRemotes();
         }),
         makeBtn("⚙", "icon", () => openRemoteDialog(name), t("Drive settings"))
@@ -1348,11 +1426,13 @@ async function refreshRemotes(opts = {}) {
             undo(); // the card is not being redrawn, so put the chip back
             throw e;
           }
+          say(t("{name} is connected", { name }));
           await refreshRemotes();
         }),
         makeBtn("⚙", "icon", () => openRemoteDialog(name), t("Drive settings"))
       );
     }
+    nameTheButtons(actions, name);
     place(card);
     next.set(name, { sig, el: card });
   }
@@ -1629,6 +1709,12 @@ async function refreshPairs() {
         makeBtn(t("Remove"), "danger", () => removePair(p))
       );
     }
+    nameTheButtons(actions, p.name);
+    card.setAttribute("role", "group");
+    card.setAttribute(
+      "aria-label",
+      `${p.name} — ${card.querySelector(".chip.state").textContent.trim()}`
+    );
     list.append(card);
     showConflicts(card, p.name);
   }
@@ -1724,6 +1810,7 @@ async function startSync(pair, force = false, interactive = true) {
     return;
   }
   syncJobs.set(pair.name, { jobid, resync: !pair.initialized, force, interactive });
+  say(t("Sync of {name} started", { name: pair.name }));
   await refreshPairs();
   followSync(pair.name);
 }
@@ -1865,6 +1952,9 @@ function followSync(name) {
       rememberDeletes: false,
       needsResync,
     }).catch(() => {});
+    if (p.success) {
+      say(t("Sync of {name} finished", { name }));
+    }
     if (!p.success) {
       showError(t('Sync of "{name}" failed: {error}', { name, error: detail }));
       notify(
@@ -2309,7 +2399,16 @@ function switchView(view) {
   $("view-settings").classList.toggle("hidden", view !== "settings");
   document
     .querySelectorAll(".seg-btn")
-    .forEach((b) => b.classList.toggle("active", b.dataset.view === view));
+    .forEach((b) => {
+      const current = b.dataset.view === view;
+      b.classList.toggle("active", current);
+      // The colour says which tab is open; this says it to everyone else.
+      b.setAttribute("aria-selected", current ? "true" : "false");
+      // A set of tabs is one stop on the way through the window, and the
+      // arrows move between them — what a screen reader tells its user to
+      // expect the moment these call themselves tabs.
+      b.tabIndex = current ? 0 : -1;
+    });
   // Numbers behind this tab go stale the moment it is hidden; refresh them
   // when it is actually being looked at rather than on a timer.
   if (view === "settings") {
@@ -2842,6 +2941,8 @@ async function boot() {
 window.addEventListener("DOMContentLoaded", () => {
   applyTheme(); // before anything is painted, so there is no flash
   applyDom(); // and the same for the language, for the same reason
+  labelSettings(); // after applyDom: the names it points at are translated
+  labelDialogs();
   addPasswordToggles();
   $("crypt-generate").addEventListener("click", () =>
     fillGenerated("crypt-pass", "crypt-pass2")
@@ -2984,6 +3085,22 @@ window.addEventListener("DOMContentLoaded", () => {
   document.querySelectorAll(".seg-btn").forEach((b) =>
     b.addEventListener("click", () => switchView(b.dataset.view))
   );
+
+  // Left and right along the tabs, Home and End to the ends.
+  document.querySelector(".seg").addEventListener("keydown", (e) => {
+    const tabs = [...document.querySelectorAll(".seg-btn")];
+    const at = tabs.indexOf(document.activeElement);
+    if (at < 0) return;
+    const step = { ArrowLeft: -1, ArrowRight: 1 }[e.key];
+    let to = null;
+    if (step) to = (at + step + tabs.length) % tabs.length;
+    else if (e.key === "Home") to = 0;
+    else if (e.key === "End") to = tabs.length - 1;
+    if (to === null) return;
+    e.preventDefault();
+    switchView(tabs[to].dataset.view);
+    tabs[to].focus();
+  });
 
   // --- engine recovery ---
   $("engine-restart").addEventListener("click", async () => {

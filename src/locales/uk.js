@@ -44,12 +44,15 @@ export default {
   "One more step": "Лишився один крок",
   "Download engine": "Завантажити рушій",
   "Your drives": "Ваші диски",
-  "＋ Add cloud": "＋ Додати хмару",
+  "{name} is connected": "{name} підключений",
+  "{name} is disconnected": "{name} відключений",
+  "Sync of {name} started": "Синхронізацію {name} розпочато",
+  "Sync of {name} finished": "Синхронізацію {name} завершено",
+  "Add cloud": "Додати хмару",
   "No clouds connected yet": "Жодної хмари ще не підключено",
 
   // ---------- синхронізація ----------
   "Synced folders": "Синхронізовані теки",
-  "+ New sync": "+ Нова синхронізація",
   "Nothing is being synced": "Ніщо не синхронізується",
   "A synced folder is a real copy on this computer, kept the same as a folder in the cloud in both directions. Unlike a mounted drive it works with no network — and catches up afterwards. Syncing happens while Monti is running.":
     "Синхронізована тека — це справжня копія на цьому комп'ютері, яку Monti тримає однаковою з текою в хмарі в обидва боки. На відміну від підключеного диска вона працює без мережі, а зміни наздоганяють згодом. Синхронізація відбувається, поки Monti запущено.",
