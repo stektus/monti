@@ -728,7 +728,12 @@ function markDrivesDisconnected() {
 
 
 async function healthTick() {
-  if (document.hidden) return;
+  // No visibility check here on purpose. Monti spends most of its life in
+  // the tray, so out of sight is exactly when a dying engine or a drive
+  // falling away has to be announced — and the desktop notification below
+  // is the only thing that can reach anyone then. Pausing with the window,
+  // the way the cosmetic polling does, made these two alarms silent for the
+  // one case they exist for.
   let alive;
   try {
     alive = await invoke("engine_health");
@@ -831,6 +836,10 @@ async function showQuota(el, name) {
 }
 
 async function pollActivity() {
+  // This one does pause with the window: it only paints the transfer pill
+  // and the per-drive chips, and it asks the engine about every mounted
+  // drive every two seconds. Nobody is reading it from the tray. The health
+  // tick above is the opposite case and deliberately keeps running.
   if (document.hidden) return;
   const pill = $("activity-pill");
   try {
