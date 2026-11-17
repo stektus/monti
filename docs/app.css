@@ -584,6 +584,19 @@ dialog .pw-wrap input:not([type="checkbox"]):not([type="radio"]) {
 
 .pw-generate { margin: -4px 0 13px; }
 
+/* The keys found in ~/.ssh, offered instead of a path to type. */
+.key-found {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: -6px 0 13px;
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--muted);
+}
+.key-found .btn { padding: 4px 10px; font-size: 12.5px; }
+
 /* "That name is taken" sits under the field with the way out beside it. */
 .name-problem {
   display: flex;

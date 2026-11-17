@@ -3058,6 +3058,16 @@ window.addEventListener("DOMContentLoaded", () => {
     });
   }
 
+  // --- the SSH key, which is a file and not a folder ---
+  $("sftp-key-browse").addEventListener("click", async () => {
+    try {
+      const picked = await invoke("pick_file", { start: $("sftp-key").value.trim() || null });
+      if (picked) $("sftp-key").value = picked;
+    } catch (e) {
+      showError(String(e));
+    }
+  });
+
   // --- choosing folders ---
   $("folders-cancel").addEventListener("click", () => $("folders-dialog").close());
   $("folders-all").addEventListener("click", () => {
@@ -3265,6 +3275,58 @@ window.addEventListener("DOMContentLoaded", () => {
   $("add-dialog").addEventListener("cancel", () => abortAuth());
 
   // Show the fields that match the chosen provider: OAuth clouds get the
+  // Offer the keys that are already on this computer. Somebody setting up
+  // SFTP knows they have a key; what they do not know is whether it is
+  // called id_ed25519 or id_rsa, and typing the wrong path fails with an
+  // error from the server rather than from the file name.
+  const offerSshKeys = async () => {
+    const row = $("sftp-key-found");
+    row.textContent = "";
+    row.classList.add("hidden");
+    const keys = await invoke("ssh_keys").catch(() => []);
+    if (!keys.length) return;
+    const label = document.createElement("span");
+    label.textContent = t("Found on this computer:");
+    row.append(label);
+    for (const key of keys.slice(0, 4)) {
+      const btn = makeBtn(
+        key.split("/").pop(),
+        "",
+        () => {
+          $("sftp-key").value = key;
+        },
+        key
+      );
+      btn.type = "button";
+      row.append(btn);
+    }
+    row.classList.remove("hidden");
+  };
+
+  // A field that the chosen service has no use for is not a field to leave
+  // on screen for somebody to fill in. `changed` separates the person
+  // picking a different service — where clearing what no longer applies is
+  // the point — from the form merely being shown, where the value on screen
+  // may have come from the drive being edited.
+  const updateS3Form = (changed) => {
+    const service = $("s3-provider").value;
+    $("s3-endpoint-row").classList.toggle("hidden", service === "AWS");
+    if (changed && service === "AWS") $("s3-endpoint").value = "";
+    // Cloudflare's storage has one region and it is spelled "auto". Left
+    // empty it still works, but rclone warns on every call.
+    if (changed && service === "Cloudflare" && !$("s3-region").value.trim()) {
+      $("s3-region").value = "auto";
+    }
+  };
+  $("s3-provider").addEventListener("change", () => updateS3Form(true));
+
+  const updateKoofrForm = (changed) => {
+    const other = $("koofr-provider").value === "other";
+    $("koofr-endpoint-row").classList.toggle("hidden", !other);
+    if (changed && !other) $("koofr-endpoint").value = "";
+  };
+  $("koofr-provider").addEventListener("change", () => updateKoofrForm(true));
+
   // API-key section and browser hint, servers get their own form.
   const updateAddForm = () => {
     const p = $("add-provider").value;
@@ -3277,6 +3339,9 @@ window.addEventListener("DOMContentLoaded", () => {
       .querySelectorAll(".params")
       .forEach((d) => d.classList.toggle("hidden", d.id !== `params-${p}`));
     if (p === "storj") updateStorjForm();
+    if (p === "sftp") offerSshKeys();
+    if (p === "s3") updateS3Form(false);
+    if (p === "koofr") updateKoofrForm(false);
     $("add-status").textContent = oauth
       ? t("⏳ Waiting for you to authorize in the browser… Press Cancel to abort.")
       : t("⏳ Connecting…");

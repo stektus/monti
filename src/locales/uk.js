@@ -137,7 +137,6 @@ export default {
   "Access key ID": "Ідентифікатор ключа доступу",
   "Secret access key": "Секретний ключ доступу",
   Endpoint: "Точка доступу",
-  "(not needed for Amazon)": "(для Amazon не потрібно)",
   Region: "Регіон",
   "e.g. eu-central-1": "напр. eu-central-1",
   "(optional)": "(необов'язково)",
@@ -208,7 +207,6 @@ export default {
     пароль можна відкликати окремо.`,
   "Other Koofr-compatible service": "Інший сервіс, сумісний з Koofr",
   "API endpoint": "Адреса API",
-  "(only for other services)": "(тільки для інших сервісів)",
   "App password": "Пароль для застосунку",
   "E-mail and app password are required.": "Потрібні пошта і пароль для застосунку.",
   "An API endpoint is required for other Koofr-compatible services.":
@@ -687,4 +685,6 @@ export default {
     "Сховати пароль",
   "Show the password":
     "Показати пароль",
+  "Found on this computer:":
+    "Знайдено на цьому комп'ютері:",
 };

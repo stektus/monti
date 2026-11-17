@@ -2140,6 +2140,81 @@ async fn pick_folder(app: AppHandle, start: Option<String>) -> Result<Option<Str
     Ok(dialog.pick_folder().map(|p| p.display().to_string()))
 }
 
+/// Choose one file. Used for an SSH key, which is why it starts in ~/.ssh
+/// and offers what is in there first: a key is picked once, by somebody who
+/// knows its name and not its path.
+///
+/// Same thread rule as `pick_folder`: `async`, so rfd's GTK dialog does not
+/// run on the main thread and freeze the window it belongs to.
+#[tauri::command(async)]
+async fn pick_file(app: AppHandle, start: Option<String>) -> Result<Option<String>, String> {
+    let home = app.path().home_dir().ok();
+    let mut dialog = rfd::FileDialog::new().set_title("Choose a file");
+    let start_dir = start
+        .map(|s| match s.strip_prefix("~/") {
+            Some(rest) => home.clone().map(|h| h.join(rest)).unwrap_or(rest.into()),
+            None => PathBuf::from(s),
+        })
+        .and_then(|p| {
+            if p.is_dir() {
+                Some(p)
+            } else {
+                p.parent().filter(|d| d.is_dir()).map(PathBuf::from)
+            }
+        })
+        .or_else(|| home.as_ref().map(|h| h.join(".ssh")).filter(|p| p.is_dir()))
+        .or(home);
+    if let Some(dir) = start_dir {
+        dialog = dialog.set_directory(dir);
+    }
+    Ok(dialog.pick_file().map(|p| p.display().to_string()))
+}
+
+/// The private keys sitting in ~/.ssh, newest first, so the SFTP form can
+/// offer them instead of asking for a path. A public key is not one, and
+/// neither is config, known_hosts or an agent socket.
+#[tauri::command]
+fn ssh_keys(app: AppHandle) -> Vec<String> {
+    let Ok(home) = app.path().home_dir() else {
+        return Vec::new();
+    };
+    let dir = home.join(".ssh");
+    let Ok(entries) = fs::read_dir(&dir) else {
+        return Vec::new();
+    };
+    let mut keys: Vec<(std::time::SystemTime, String)> = entries
+        .filter_map(Result::ok)
+        .filter(|e| e.path().is_file())
+        .filter(|e| {
+            let name = e.file_name();
+            let name = name.to_string_lossy();
+            !name.ends_with(".pub")
+                && !matches!(
+                    name.as_ref(),
+                    "config" | "known_hosts" | "known_hosts.old" | "authorized_keys"
+                )
+        })
+        // A key starts with a PEM header. Reading the first line keeps
+        // everything else in that folder out of a list of keys — and the
+        // file's contents never leave this function.
+        .filter(|e| {
+            fs::read(e.path())
+                .ok()
+                .map(|bytes| bytes.starts_with(b"-----BEGIN "))
+                .unwrap_or(false)
+        })
+        .map(|e| {
+            let when = e
+                .metadata()
+                .and_then(|m| m.modified())
+                .unwrap_or(std::time::UNIX_EPOCH);
+            (when, e.path().display().to_string())
+        })
+        .collect();
+    keys.sort_by_key(|k| std::cmp::Reverse(k.0));
+    keys.into_iter().map(|(_, path)| path).collect()
+}
+
 /// The drives Monti itself mounted: drive name → folder.
 ///
 /// The interface cannot get this from rclone's own listing. `mount/listmounts`
@@ -3074,6 +3149,8 @@ pub fn run() {
             clear_vfs_cache,
             list_cloud_dirs,
             pick_folder,
+            pick_file,
+            ssh_keys,
             supports_links,
             share_link,
             own_mounts,
