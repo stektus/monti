@@ -2310,9 +2310,13 @@ async fn mount_remote(
             mount_point.display()
         ));
     }
+    // Asked once, here, rather than guessed from the backend's name: the
+    // list of backends that can report changes moves with rclone, and the
+    // drive itself knows the answer.
+    let polls = remote_reports_changes(eng_port_pass.0, &eng_port_pass.1, &fs_wanted);
     let entry = MountEntry {
         mount_point: mount_point.display().to_string(),
-        vfs_opt: build_vfs_opt(&app, vfs.as_ref()),
+        vfs_opt: build_vfs_opt(&app, vfs.as_ref(), polls),
         excludes: excludes.unwrap_or_default(),
     };
     let mut eng = state.0.lock().unwrap();
@@ -2321,9 +2325,39 @@ async fn mount_remote(
     eng.record_saved = save_engine_file(&app, &eng);
     log_line(
         &app,
-        &format!("mounted {name}: at {}", mount_point.display()),
+        &format!(
+            "mounted {name}: at {}{}",
+            mount_point.display(),
+            // Worth a few words in the log: it is the difference between a
+            // file manager that opens a cloud folder instantly and one that
+            // stops to ask the cloud every five minutes, and the drive, not
+            // Monti, is what decides which happens.
+            if polls {
+                " (listings kept for an hour: this drive reports its changes)"
+            } else {
+                ""
+            }
+        ),
     );
     Ok(mount_point.display().to_string())
+}
+
+/// Whether a drive tells rclone when something in it changes — the feature
+/// rclone calls ChangeNotify, and the thing that decides how long a
+/// directory listing may be trusted. Google Drive, Dropbox and OneDrive
+/// have it; an S3 bucket or a WebDAV server does not.
+///
+/// A drive that cannot be reached answers nothing, and nothing means no:
+/// the cautious cache is the one that cannot show stale folders.
+fn remote_reports_changes(port: u16, pass: &str, fs: &str) -> bool {
+    engine::rc_raw_with_timeout(port, pass, "operations/fsinfo", &json!({ "fs": fs }), 10)
+        .ok()
+        .and_then(|v| {
+            v.get("Features")
+                .and_then(|f| f.get("ChangeNotify"))
+                .and_then(Value::as_bool)
+        })
+        .unwrap_or(false)
 }
 
 #[tauri::command]

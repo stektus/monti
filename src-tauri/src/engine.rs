@@ -173,11 +173,41 @@ pub fn default_cache_max_size(cache_root: &std::path::Path) -> String {
     format!("{}M", bytes / (1024 * 1024))
 }
 
+/// How long a directory listing is kept once it has been read.
+///
+/// rclone's own default is five minutes, and five minutes is why a file
+/// manager on a cloud folder feels broken: Dolphin and Nautilus ask for
+/// metadata on the main thread and block on it, so every visit after the
+/// cache expires freezes the window until the cloud answers. Holding the
+/// listing for an hour removes almost all of those waits.
+///
+/// It is only safe where the drive tells rclone when something changes.
+/// With that, a file added from a phone shows up within a poll interval
+/// whatever the cache says. Without it, a long cache would mean an hour of
+/// not seeing other people's changes, which is a worse bargain than a slow
+/// file manager — so those drives keep rclone's default.
+const DIR_CACHE_WHEN_POLLED: &str = "1h";
+
 /// Build the vfsOpt for a mount: CacheMode "full" is always forced (apps
 /// like KeePassXC corrupt saves without it), the rest is a whitelist of
 /// user-tunable options. Values are validated by rclone at mount time.
-pub fn build_vfs_opt(app: &AppHandle, user: Option<&Value>) -> Value {
+///
+/// `polls` is what the drive answered about ChangeNotify.
+pub fn build_vfs_opt(app: &AppHandle, user: Option<&Value>, polls: bool) -> Value {
+    let root = app
+        .path()
+        .cache_dir()
+        .unwrap_or_else(|_| PathBuf::from("/tmp"));
+    vfs_opt(user, polls, &default_cache_max_size(&root))
+}
+
+/// The part of the decision that needs nothing from the app: what goes into
+/// vfsOpt, given what the person asked for and what the drive can do.
+fn vfs_opt(user: Option<&Value>, polls: bool, cache_size_default: &str) -> Value {
     let mut opt = json!({ "CacheMode": 3 });
+    if polls {
+        opt["DirCacheTime"] = json!(DIR_CACHE_WHEN_POLLED);
+    }
     if let Some(Value::Object(map)) = user {
         for (key, value) in map {
             let ok = match key.as_str() {
@@ -193,11 +223,7 @@ pub fn build_vfs_opt(app: &AppHandle, user: Option<&Value>) -> Value {
         }
     }
     if opt.get("CacheMaxSize").is_none() {
-        let root = app
-            .path()
-            .cache_dir()
-            .unwrap_or_else(|_| PathBuf::from("/tmp"));
-        opt["CacheMaxSize"] = json!(default_cache_max_size(&root));
+        opt["CacheMaxSize"] = json!(cache_size_default);
     }
     opt
 }
@@ -1921,5 +1947,42 @@ mod cache_limit_tests {
             super::free_space(missing).is_some(),
             "free space must resolve through a missing directory"
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // A drive that reports its own changes may keep a listing for an hour;
+    // one that cannot must not, or a folder changed from a phone would go on
+    // looking the way it did an hour ago.
+    #[test]
+    fn only_a_drive_that_reports_changes_keeps_a_long_listing() {
+        let polled = vfs_opt(None, true, "10G");
+        assert_eq!(polled["DirCacheTime"], json!(DIR_CACHE_WHEN_POLLED));
+        let quiet = vfs_opt(None, false, "10G");
+        assert!(quiet.get("DirCacheTime").is_none());
+        // Whatever else changes, the write cache does not: without it some
+        // applications corrupt files they save onto the drive.
+        for opt in [&polled, &quiet] {
+            assert_eq!(opt["CacheMode"], json!(3));
+            assert_eq!(opt["CacheMaxSize"], json!("10G"));
+        }
+    }
+
+    #[test]
+    fn the_person_still_outranks_the_default() {
+        let user = json!({ "CacheMaxSize": "2G", "ReadOnly": true });
+        let opt = vfs_opt(Some(&user), true, "10G");
+        assert_eq!(opt["CacheMaxSize"], json!("2G"));
+        assert_eq!(opt["ReadOnly"], json!(true));
+        // Anything outside the whitelist is dropped rather than passed on to
+        // rclone, which would refuse the whole mount over one bad key.
+        let junk = json!({ "DirCacheTime": "9999h", "Nonsense": 1, "CacheMaxAge": "" });
+        let opt = vfs_opt(Some(&junk), false, "10G");
+        assert!(opt.get("Nonsense").is_none());
+        assert!(opt.get("CacheMaxAge").is_none());
+        assert!(opt.get("DirCacheTime").is_none());
     }
 }
