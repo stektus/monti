@@ -2,7 +2,7 @@
 # AUR package "monti-bin": repackages the .deb from the GitHub release.
 
 pkgname=monti-bin
-pkgver=0.9.12
+pkgver=0.9.14
 pkgrel=1
 pkgdesc="Mount your clouds — a friendly GUI for rclone (Google Drive, Dropbox, WebDAV, S3, SFTP as local folders)"
 arch=('x86_64')
@@ -23,7 +23,7 @@ source=("Monti-$pkgver.deb::$url/releases/download/v$pkgver/Monti_${pkgver}_amd6
         "LICENSE-$pkgver::$url/raw/v$pkgver/LICENSE")
 # Refreshed with `updpkgsums` after each release — the files do not exist
 # until the release workflow has published them.
-sha256sums=('8210c14c5b4a1a485415573321fa22b170ad6601974a03e7f16df3edf55571c3'
+sha256sums=('f468482ee1a91c018c730c1347d480144fc0fbb54949d6e5ed49fc7adf84751f'
             '16fbf90b022ad1dbc88cbcab922023eec51879ce067831b64d18c1bd30fd9339')
 
 package() {
