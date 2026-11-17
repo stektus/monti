@@ -635,6 +635,11 @@ const AGE_RE = /^(\d+(\.\d+)?(ms|s|m|h|d|w|y))+$/i;
 const NOTIFY_KEY = "monti.notify";
 const notifyEnabled = () => localStorage.getItem(NOTIFY_KEY) !== "off";
 
+// Mounted drives in the file manager's sidebar, on unless told otherwise:
+// a cloud that behaves like Dropbox is the point of mounting one.
+const SIDEBAR_KEY = "monti.sidebar";
+const sidebarEnabled = () => localStorage.getItem(SIDEBAR_KEY) !== "off";
+
 function notify(title, body) {
   if (!notifyEnabled()) return;
   invoke("notify_user", { title, body }).catch(() => {});
@@ -2717,6 +2722,21 @@ async function initSettings() {
     localStorage.setItem(NOTIFY_KEY, e.target.checked ? "on" : "off");
   });
 
+  // Drives in the file manager's sidebar. The preference lives here, like
+  // the other two, and the backend is told at every start: it writes into
+  // files that belong to the desktop and must never assume what a previous
+  // session left in them.
+  $("opt-sidebar").checked = sidebarEnabled();
+  await invoke("set_sidebar_links", { enabled: sidebarEnabled() }).catch(
+    () => {}
+  );
+  $("opt-sidebar").addEventListener("change", async (e) => {
+    localStorage.setItem(SIDEBAR_KEY, e.target.checked ? "on" : "off");
+    await invoke("set_sidebar_links", { enabled: e.target.checked }).catch(
+      () => {}
+    );
+  });
+
   // Hardware acceleration. The webview is created long before this page
   // runs, so the switch can only say what the next start will do — and it
   // has to show what this start actually got, which "auto" alone does not.
@@ -2796,6 +2816,12 @@ async function boot() {
     // dialog appears, once, before anything else needs the answer.
     await refreshRemotes();
     if (await autoRemount()) await refreshRemotes();
+    // Drives that came up without anyone pressing Mount — adopted from a
+    // previous session, remounted after a crash, mounted automatically at
+    // startup — still belong in the sidebar.
+    await invoke("set_sidebar_links", { enabled: sidebarEnabled() }).catch(
+      () => {}
+    );
     await syncOnStart();
     startSyncSchedules();
     if (!activityTimer) activityTimer = setInterval(pollActivity, 2000);

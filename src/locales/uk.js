@@ -77,6 +77,9 @@ export default {
   "Desktop notifications": "Сповіщення",
   "Only when something needs you: the engine stops, or the disk is nearly full.":
     "Тільки коли потрібна ваша увага: рушій зупинився або диск майже заповнений.",
+  "Drives in the file manager": "Диски у файловому менеджері",
+  "File managers list a drive by themselves when it is mounted inside your home folder. For a drive mounted anywhere else, Monti adds it to their sidebar while it is connected.":
+    "Диск, підключений усередині домашньої теки, файлові менеджери показують самі. Диск, підключений в іншому місці, Monti додає на їхню бічну панель, поки він підключений.",
   "Hardware acceleration": "Апаратне прискорення",
   "Smoother scrolling. Turn it off if the window comes up blank or draws strangely. Applies when Monti starts again.":
     "Плавне гортання. Вимкніть, якщо вікно відкривається порожнім або малюється неправильно. Застосується під час наступного запуску Monti.",

@@ -6,6 +6,7 @@
 
 mod config_lock;
 mod engine;
+mod places;
 mod render;
 mod sync;
 
@@ -48,6 +49,10 @@ struct Flags {
     /// Quitting leaves mounted drives (and the engine) running; the next
     /// Monti session re-adopts the engine via the state file.
     keep_mounts: AtomicBool,
+    /// Mounted drives get a place of their own in the file manager's
+    /// sidebar. The interface holds the preference and hands it over at
+    /// startup, the same way it does for the two above.
+    sidebar: AtomicBool,
 }
 
 /// The in-flight authorization: which flow holds the slot, and the jobid of
@@ -162,12 +167,18 @@ async fn lost_mounts(app: AppHandle, state: State<'_, EngineState>) -> Result<Ve
     if gone.is_empty() {
         return Ok(Vec::new());
     }
-    {
+    let points: Vec<String> = {
         let mut eng = state.0.lock().unwrap();
-        for fs in &gone {
-            eng.mounts.remove(fs);
-        }
+        let points = gone
+            .iter()
+            .filter_map(|fs| eng.mounts.remove(fs).map(|e| e.mount_point))
+            .collect();
         let _ = engine::save_engine_file(&app, &eng);
+        points
+    };
+    // The folder is not a drive any more, so it is not a place either.
+    for point in &points {
+        sidebar_forget(&app, point);
     }
     for fs in &gone {
         log_line(
@@ -2414,6 +2425,7 @@ async fn mount_remote(
             }
         ),
     );
+    sidebar_add(&app, &name, &mount_point.display().to_string());
     Ok(mount_point.display().to_string())
 }
 
@@ -2474,6 +2486,7 @@ async fn unmount_remote(
     engine::close_mount_folder(&mount_point);
     eng.record_saved = save_engine_file(&app, &eng);
     log_line(&app, &format!("unmounted {mount_point}"));
+    sidebar_forget(&app, &mount_point);
     Ok(())
 }
 
@@ -2554,6 +2567,68 @@ fn set_autostart(app: AppHandle, enabled: bool) -> Result<(), String> {
 #[tauri::command]
 fn set_close_to_tray(flags: State<Flags>, enabled: bool) {
     flags.close_to_tray.store(enabled, Ordering::Relaxed);
+}
+
+/// The sidebar files, in the places this desktop keeps them. None when the
+/// platform directories are unreadable, which is not worth an error: a
+/// missing sidebar entry is a cosmetic loss, never a failed mount.
+fn sidebar_places(app: &AppHandle) -> Option<places::Places> {
+    let path = app.path();
+    Some(places::Places::new(
+        &path.config_dir().ok()?,
+        &path.home_dir().ok()?,
+        &path.app_data_dir().ok()?,
+    ))
+}
+
+/// Put a drive in the sidebar, if that is what the person asked for.
+fn sidebar_add(app: &AppHandle, name: &str, mount_point: &str) {
+    if !app.state::<Flags>().sidebar.load(Ordering::Relaxed) {
+        return;
+    }
+    if let Some(places) = sidebar_places(app) {
+        places.add(mount_point, name);
+    }
+}
+
+/// Take a drive back out of the sidebar. Done whatever the preference says:
+/// turning the switch off must not strand the entries already written, and
+/// a folder that is no longer a drive has no business being a place.
+fn sidebar_forget(app: &AppHandle, mount_point: &str) {
+    if let Some(places) = sidebar_places(app) {
+        places.forget(mount_point);
+    }
+}
+
+#[tauri::command]
+fn set_sidebar_links(app: AppHandle, state: State<'_, EngineState>, enabled: bool) {
+    app.state::<Flags>()
+        .sidebar
+        .store(enabled, Ordering::Relaxed);
+    let Some(places) = sidebar_places(&app) else {
+        return;
+    };
+    if !enabled {
+        places.forget_all();
+        return;
+    }
+    // Switched on with drives already mounted: they belong there now, not
+    // after the next mount.
+    let mounted: Vec<(String, String)> = {
+        let eng = state.0.lock().unwrap();
+        eng.mounts
+            .iter()
+            .map(|(fs, entry)| {
+                (
+                    fs.split(':').next().unwrap_or(fs).to_string(),
+                    entry.mount_point.clone(),
+                )
+            })
+            .collect()
+    };
+    for (name, point) in mounted {
+        places.add(&point, &name);
+    }
 }
 
 #[tauri::command]
@@ -3026,6 +3101,7 @@ pub fn run() {
             close_to_tray: AtomicBool::new(true),
             tray_ok: AtomicBool::new(false),
             keep_mounts: AtomicBool::new(true),
+            sidebar: AtomicBool::new(true),
         })
         .setup(|app| {
             let handle = app.handle().clone();
@@ -3053,6 +3129,23 @@ pub fn run() {
             // report needs to say which renderer was in use.
             log_line(&handle, &format!("rendering: {}", render::describe()));
             render::remember_app(handle.clone());
+
+            // A drive that went away while Monti was not running — a crash,
+            // a kill, a logout that unmounted it — would otherwise leave a
+            // place in the file manager pointing at an empty folder. Monti
+            // wrote down what it added, so exactly the stale ones go, and
+            // the drives still mounted from the last session keep theirs.
+            if let Some(places) = sidebar_places(&handle) {
+                let live: HashSet<String> = read_proc_mounts()
+                    .iter()
+                    .map(|m| canonical_mount_point(&m.mount_point))
+                    .collect();
+                for point in places.recorded() {
+                    if !live.contains(&canonical_mount_point(&point)) {
+                        places.forget(&point);
+                    }
+                }
+            }
 
             // libappindicator-sys PANICS (not errors) when the appindicator
             // .so is absent, which would crash the whole app on distros
@@ -3165,6 +3258,7 @@ pub fn run() {
             set_autostart,
             set_close_to_tray,
             set_keep_mounts,
+            set_sidebar_links,
             app_info,
             problem_report,
             render_mode,
@@ -3223,6 +3317,11 @@ pub fn run() {
                         thread::sleep(Duration::from_secs(1));
                     }
                     stop_engine_locked(app, &mut eng);
+                    // The drives are going down with the daemon, so the
+                    // places that point at them go too.
+                    if let Some(places) = sidebar_places(app) {
+                        places.forget_all();
+                    }
                 }
             }
         });
