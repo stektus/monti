@@ -76,7 +76,7 @@ tested.
 
 ## Known advisories in the dependency tree
 
-`cargo audit` runs on every push and once a week. It reports five warnings,
+`cargo audit` runs on every push and once a week. It reports six warnings,
 none of them a vulnerability and none fixable here.
 
 - **`glib` 0.18.5** carries
@@ -88,6 +88,10 @@ none of them a vulnerability and none fixable here.
 - **`zvariant`, `zvariant_derive` and `zbus_names`** are unmaintained. They
   arrive underneath `zbus`, which comes from `notify-rust` — the desktop
   notifications — and from `tauri-plugin-single-instance`.
+- **`chrono`** was declared unmaintained on 2026-09-14
+  ([RUSTSEC-2026-0543](https://rustsec.org/advisories/RUSTSEC-2026-0543)). It
+  reaches the lockfile through `serde_with`, which `tauri-utils` depends on —
+  Tauri's own build-time machinery. Monti never names it.
 
 Every one of them is reached through a dependency, not through a choice made
 here, and Monti is on the newest Tauri there is. This is why the audit job
@@ -100,7 +104,7 @@ listed here too. RustSec withdrew those advisories on 2026-08-14. The
 bindings are still what Tauri 2 is built on; they are simply no longer
 flagged.
 
-Last checked against Tauri 2.12.5 on 2026-11-15.
+Last checked against Tauri 2.12.5 on 2026-11-17.
 
 ## Scope
 

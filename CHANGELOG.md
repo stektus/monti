@@ -2,8 +2,14 @@
 
 Notable changes per release. Dates are the release date.
 
-## Unreleased
+## v0.9.13 — 2026-11-17
 
+- **The empty screens draw their own icons.** The three "nothing here yet"
+  screens showed an emoji — a cloud, a padlock, a pair of arrows. An emoji is
+  not a picture, it is a character, and a machine with no emoji font draws it
+  as an empty box; the cloud needed a colour font even where the plain glyph
+  existed. They are line drawings now, in the same ink as the text beside
+  them, and they follow the dark theme.
 - **Hardware acceleration is back on, where it works.** Monti used to turn
   WebKitGTK's accelerated renderer off on every machine, because on some it
   cannot create an EGL display and the window comes up blank (v0.4.4). That
