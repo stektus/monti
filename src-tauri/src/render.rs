@@ -28,7 +28,7 @@
 
 use std::ffi::c_void;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::OnceLock;
 use std::time::{Duration, Instant};
@@ -40,6 +40,11 @@ use crate::engine::local_stamp;
 pub const DMABUF_ENV: &str = "WEBKIT_DISABLE_DMABUF_RENDERER";
 /// Hidden argument that turns a copy of Monti into the EGL probe.
 pub const PROBE_ARG: &str = "--egl-probe";
+/// What the probe says when it cannot get an EGL display, and when the
+/// library WebKit draws through is missing. They are separate because the
+/// line they produce is what a bug report arrives carrying.
+const NO_EGL: i32 = 1;
+const NO_GLES: i32 = 2;
 /// Written once the accelerated path has been seen to fail here.
 const MARKER: &str = "software-rendering";
 /// "auto" (or missing), "on", "off" — what Settings asked for.
@@ -56,6 +61,9 @@ static FALLING_BACK: AtomicBool = AtomicBool::new(false);
 static ENV_FORCED: AtomicBool = AtomicBool::new(false);
 /// What `choose` settled on, for the problem report and for Settings.
 static DECISION: OnceLock<Decision> = OnceLock::new();
+/// Why the probe refused, so the report says which part of the stack is
+/// missing rather than guessing at EGL every time.
+static PROBE_SAID: OnceLock<&'static str> = OnceLock::new();
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Decision {
@@ -153,11 +161,13 @@ fn decide() -> Decision {
     if fallback_reason().is_some() {
         return Decision::SoftwareAuto;
     }
-    if egl_probe_passes() {
-        Decision::Accelerated
-    } else {
-        log("no EGL display on this machine: rendering in software");
-        Decision::SoftwareAuto
+    match probe_verdict() {
+        None => Decision::Accelerated,
+        Some(why) => {
+            let _ = PROBE_SAID.set(why);
+            log(&format!("{why}: rendering in software"));
+            Decision::SoftwareAuto
+        }
     }
 }
 
@@ -168,9 +178,23 @@ pub fn decision() -> Decision {
 
 /// Run the probe in a child and wait briefly for an answer. A driver that
 /// hangs or aborts counts as "no".
-fn egl_probe_passes() -> bool {
+fn probe_verdict() -> Option<&'static str> {
+    verdict_for(probe_exit_status())
+}
+
+/// What a probe exit code means. `None` is "go ahead".
+fn verdict_for(code: i32) -> Option<&'static str> {
+    match code {
+        0 => None,
+        NO_GLES => Some("no OpenGL ES library on this machine"),
+        _ => Some("no EGL display on this machine"),
+    }
+}
+
+/// The probe's own exit code, or [`NO_EGL`] if it could not be asked.
+fn probe_exit_status() -> i32 {
     let Ok(exe) = std::env::current_exe() else {
-        return false;
+        return NO_EGL;
     };
     let mut child = match std::process::Command::new(exe)
         .arg(PROBE_ARG)
@@ -179,21 +203,21 @@ fn egl_probe_passes() -> bool {
         .spawn()
     {
         Ok(c) => c,
-        Err(_) => return false,
+        Err(_) => return NO_EGL,
     };
     let deadline = Instant::now() + Duration::from_secs(5);
     loop {
         match child.try_wait() {
-            Ok(Some(status)) => return status.success(),
+            Ok(Some(status)) => return status.code().unwrap_or(NO_EGL),
             Ok(None) => {
                 if Instant::now() > deadline {
                     let _ = child.kill();
                     let _ = child.wait();
-                    return false;
+                    return NO_EGL;
                 }
                 std::thread::sleep(Duration::from_millis(25));
             }
-            Err(_) => return false,
+            Err(_) => return NO_EGL,
         }
     }
 }
@@ -215,13 +239,25 @@ pub fn probe_exit_code() -> i32 {
     const GBM: u32 = 0x31D7;
 
     unsafe {
+        // A display is not enough. WebKit draws through libepoxy, which
+        // loads libGLESv2 by name at run time, so nothing links against it
+        // and nothing bundles it — the AppImage ships the graphics stack's
+        // users, never the stack. Where the library is absent epoxy prints
+        // "Couldn't open libGLESv2.so.2" and aborts the process before the
+        // window exists, which is too early for the stderr watcher to turn
+        // the run around. Asking for it here costs one dlopen and is the
+        // difference between software rendering and no application.
+        if libc::dlopen(c"libGLESv2.so.2".as_ptr(), libc::RTLD_NOW).is_null() {
+            return NO_GLES;
+        }
+
         let lib = libc::dlopen(c"libEGL.so.1".as_ptr(), libc::RTLD_NOW);
         if lib.is_null() {
-            return 1;
+            return NO_EGL;
         }
         let init = libc::dlsym(lib, c"eglInitialize".as_ptr());
         if init.is_null() {
-            return 1;
+            return NO_EGL;
         }
         type Initialize = unsafe extern "C" fn(*mut c_void, *mut i32, *mut i32) -> u32;
         let init: Initialize = std::mem::transmute(init);
@@ -271,7 +307,7 @@ pub fn probe_exit_code() -> i32 {
                 return 0;
             }
         }
-        1
+        NO_EGL
     }
 }
 
@@ -423,6 +459,22 @@ fn fall_back_to_software(saved_stderr: i32) {
     unsafe {
         libc::dup2(saved_stderr, 2);
     }
+    // Starting the .AppImage again means mounting it again, and that needs
+    // FUSE. Where there is none — a container, a locked-down host, anyone
+    // who reached this binary through --appimage-extract-and-run — the
+    // runtime refuses with "Cannot mount AppImage" and the restart loses
+    // the application instead of saving it. Asking the runtime to unpack
+    // itself instead is slower by a couple of seconds and always works.
+    // Tauri's own restart goes through $APPIMAGE too, so this is set for
+    // both paths below.
+    if std::env::var_os("APPIMAGE").is_some()
+        && std::env::var_os("APPIMAGE_EXTRACT_AND_RUN").is_none()
+        && !Path::new("/dev/fuse").exists()
+    {
+        // Safety: single-threaded by now in every path that gets here —
+        // the watcher thread is the only other one and it is leaving.
+        unsafe { std::env::set_var("APPIMAGE_EXTRACT_AND_RUN", "1") };
+    }
     // A restart through Tauri stops the engine and the mounts the way a
     // normal exit does. Only if the app is not up yet is the process
     // replaced directly.
@@ -462,7 +514,10 @@ pub fn describe() -> String {
         Decision::Accelerated => "accelerated".to_string(),
         Decision::SoftwareAuto => match fallback_reason() {
             Some(why) => format!("software (fell back: {why})"),
-            None => "software (no EGL display here)".to_string(),
+            None => format!(
+                "software ({})",
+                PROBE_SAID.get().copied().unwrap_or("no EGL display here")
+            ),
         },
         Decision::Forced(true) => "accelerated (asked for)".to_string(),
         Decision::Forced(false) => "software (asked for)".to_string(),
@@ -509,6 +564,23 @@ pub fn set_preference(value: &str) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // A missing OpenGL ES library and a missing EGL display both end in
+    // software rendering, but they are different machines to fix and the
+    // line below is what a bug report arrives carrying.
+    #[test]
+    fn the_probe_says_which_piece_is_missing() {
+        assert_eq!(verdict_for(0), None);
+        assert_eq!(
+            verdict_for(NO_GLES),
+            Some("no OpenGL ES library on this machine")
+        );
+        assert_eq!(verdict_for(NO_EGL), Some("no EGL display on this machine"));
+        // Anything unexpected — a killed probe, a signal — is not silently
+        // read as success.
+        assert!(verdict_for(42).is_some());
+        assert!(verdict_for(-1).is_some());
+    }
 
     #[test]
     fn mesa_warnings_do_not_cost_acceleration() {
