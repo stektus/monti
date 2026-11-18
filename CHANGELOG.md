@@ -2,6 +2,73 @@
 
 Notable changes per release. Dates are the release date.
 
+## v0.9.15 — 2026-11-18
+
+- **An alarm nobody could hear.** A drive that falls away — someone runs
+  `fusermount -u`, a mount dies — and an engine that stops are both
+  announced on the desktop, and both announcements were unreachable from
+  the place Monti spends most of its life. The health check that raises
+  them began with "do nothing while the window is hidden", a line copied
+  from the polling that paints the transfer pill, which nobody reads from
+  the tray. Measured here: with the window hidden, unmounting a drive
+  behind Monti's back produced nothing for a minute — the engine was not
+  even asked — and starting with `--hidden`, the way autostart starts it,
+  killing the engine stayed silent for as long as it was watched. Both now
+  arrive in four to five seconds with no window on screen, and the tray
+  menu stops claiming a lost drive is still mounted.
+- **Monti can be used without seeing it.** Read through the desktop's
+  accessibility bus — what a screen reader is handed — most of the app was
+  not there. Every switch and drop-down in Settings came through as "check
+  box, not checked" with no name at all, because the name, the hint and
+  the control are three separate elements and nothing tied them together.
+  Each drive card read as a name, a path, a size and then two buttons
+  called "Mount" and "⚙" — the same two on every card, never saying which
+  drive — and the chip that says whether a drive is mounted was missing
+  entirely. Now every setting carries its name and its explanation, every
+  dialog is named by the heading it opens with, a card is a group called
+  "<drive> — <state>" whose buttons carry the drive's name, the tabs say
+  which one is current and move under the arrow keys, and what has no
+  place on screen is said out loud instead: mounting, mounted,
+  disconnected, sync started, sync finished. The keyboard is visible
+  again, too — a focus ring on everything, including the switches, whose
+  own checkbox is invisible by design.
+- **Folders in the cloud are picked, not spelled.** Setting up a sync used
+  to mean typing the path on the cloud side from memory, where a typo is
+  an empty sync rather than an error. Monti now asks the drive what is in
+  it and shows the folders to choose from, the same way it already chose
+  what to leave out.
+- **A name that is taken says so while it is being typed**, with a free
+  one offered next to it, instead of failing after the whole form is
+  filled in.
+- **Passwords can be invented here.** Every password field — the encrypted
+  folder, the config password — has a button that makes a good one, and an
+  eye to read back what was typed before it is saved.
+- **Listings from a cloud that reports its own changes are kept for an
+  hour.** rclone trusts a directory listing for five minutes by default,
+  so a file manager walking a mounted drive stops to ask the provider
+  again and again; that is the "Dolphin freezes on an rclone mount"
+  complaint. Where the provider can report changes as they happen — Google
+  Drive, Dropbox, OneDrive — the listing is kept for an hour and the
+  provider's own notifications keep it honest. Where it cannot (S3,
+  WebDAV), nothing changes. The log says which of the two a drive got.
+- **The SSH key is chosen from a dialog**, which opens in `~/.ssh` and
+  offers the private keys already there by name. And the S3 endpoint field
+  disappears for Amazon, which does not use one — it was not only
+  pointless there, it was being sent to rclone anyway.
+- **A drive mounted outside the home folder gets a place in the file
+  manager's sidebar.** File managers list a mount inside the home
+  directory by themselves; one at `/mnt/work` or `/srv/backup` they do not
+  list at all, which is the other half of "my rclone mount is nowhere in
+  Files". That one gets a line in the GTK bookmarks while it is mounted,
+  and loses it when it is unmounted. Monti only ever adds lines it wrote,
+  and keeps a record of them, so a start after a crash clears exactly the
+  stale ones. There is a switch for it in Settings → General.
+- **Links open in front of you.** Pressing GitHub or rclone.org did
+  nothing visible on Wayland: the browser was told to open the page, and
+  its window stayed behind Monti's. Links now go through the desktop
+  portal with an activation token, which is what brings that window
+  forward, and fall back to the old way where there is no portal.
+
 ## v0.9.14 — 2026-11-17
 
 v0.9.13 was tagged with everything below except the two fixes at the

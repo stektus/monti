@@ -76,10 +76,16 @@ a way to use it without becoming an rclone expert. That is Monti.
 - **In your language.** English, Ukrainian and Russian; it follows your
   desktop's locale, or you pick one in Settings. Messages coming straight
   from the engine stay in English — they are rclone's own words.
+- **It can be used without seeing it.** Every control carries its name and
+  its explanation for a screen reader, each drive is a group that says which
+  drive it is and whether it is mounted, and what happens — mounting,
+  mounted, disconnected, a sync finished — is said out loud. The keyboard
+  reaches everything, and you can see where it is.
 - **A speed limit** so a big transfer does not take the whole connection, and
   a list of what has been transferred.
 - **It notices when a drive goes away** — unmounted from a terminal, or a
-  mount that dies — and tells you instead of showing an empty folder.
+  mount that dies — and says so on the desktop, from the tray, without a
+  window open.
 - **It tells you the truth.** How much disk the cache is using, what a button
   is about to delete, when something is still uploading — and what the
   provider's error actually means, with its own words kept underneath.
@@ -87,6 +93,9 @@ a way to use it without becoming an rclone expert. That is Monti.
   into it while the drive is unmounted and it would land on your disk instead
   of the cloud — and block the next mount. Monti leaves that folder read-only
   until the drive is back, so the save fails instead of disappearing.
+- **A drive your file manager would hide gets a place in its sidebar.** One
+  mounted outside your home folder is listed nowhere; Monti puts it in the
+  sidebar while it is connected and takes it back out afterwards.
 - **The tray does something.** Engine state at a glance, and one click to
   mount or unmount a drive without opening the window — plus *Unmount all*
   before you undock or suspend.
