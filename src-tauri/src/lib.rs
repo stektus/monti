@@ -204,12 +204,22 @@ async fn lost_mounts(app: AppHandle, state: State<'_, EngineState>) -> Result<Ve
 /// nothing, runs no command and reports success, so folders and links
 /// silently never opened. `detach_child` strips the AppImage entries from
 /// PATH, so the system xdg-open is used and the child outlives Monti.
-fn spawn_opener(target: &str) -> Result<(), String> {
+///
+/// The token, when there is one, travels in the environment the child
+/// inherits: that is how an application started this way is allowed to
+/// raise its window.
+fn spawn_opener(target: &str, token: Option<&str>) -> Result<(), String> {
     let mut cmd = Command::new("xdg-open");
     cmd.arg(target)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
+    if let Some(token) = token {
+        // Two names for one thing: Wayland reads the first, X11 the second,
+        // and an application on either ignores the name it does not know.
+        cmd.env("XDG_ACTIVATION_TOKEN", token);
+        cmd.env("DESKTOP_STARTUP_ID", token);
+    }
     detach_child(&mut cmd);
     let mut child = cmd
         .spawn()
@@ -224,13 +234,60 @@ fn spawn_opener(target: &str) -> Result<(), String> {
 
 /// Open a folder in the file manager. Directories only: pointing xdg-open
 /// at a file would let a `.desktop` file execute instead of being shown.
+///
+/// A file manager that is already running has the same trouble a browser
+/// has — it opens the folder in a window that stays where it was — so this
+/// carries the activation token too.
 #[tauri::command(async)]
-fn open_folder(path: String) -> Result<(), String> {
+fn open_folder(app: AppHandle, path: String) -> Result<(), String> {
     let p = PathBuf::from(&path);
     if !p.is_dir() {
         return Err(format!("{path} is not a folder"));
     }
-    spawn_opener(&p.display().to_string())
+    let token = fresh_activation_token(&app);
+    spawn_opener(&p.display().to_string(), token.as_deref())
+}
+
+/// A token from the compositor, asked for at the moment of the press.
+///
+/// Handing a link over is the easy half. The half that fails is the other
+/// window coming forward: on Wayland a window may only be raised by
+/// whoever carries an activation token, the compositor gives one to the
+/// application the person is using right now, and it is good for one use.
+///
+/// This used to read `XDG_ACTIVATION_TOKEN` out of Monti's own environment.
+/// Measured on COSMIC, 19.11.2026: the variable is not there at all when
+/// Monti is started from a menu, an autostart or its tray — so no token was
+/// ever sent, and nothing was ever raised. What that looked like was a link
+/// that worked when no browser was running (one starting up takes the focus
+/// by itself) and did nothing when one was, which is why it was first
+/// noticed in the middle of adding a Google key: the browser was already
+/// open from signing in.
+///
+/// GTK is the piece that knows how to ask — xdg-activation on Wayland,
+/// startup notification on X11 — so one call covers both, on whichever
+/// desktop is running. `None` is a fair answer: the link still opens, just
+/// without the raise, which is where this started.
+fn fresh_activation_token(app: &AppHandle) -> Option<String> {
+    let window = app.get_webview_window("main")?;
+    let (tx, rx) = std::sync::mpsc::channel();
+    // GTK may only be touched from the thread its main loop runs on, and a
+    // command does not run there.
+    app.run_on_main_thread(move || {
+        use gtk::prelude::*;
+        let token = window.gtk_window().ok().and_then(|w| {
+            let context = w.display().app_launch_context()?;
+            // Naming the handler is how the compositor can tell which
+            // application it is being asked to let through.
+            let handler = gtk::gio::AppInfo::default_for_uri_scheme("https")?;
+            context.startup_notify_id(&handler, &[]).map(String::from)
+        });
+        let _ = tx.send(token);
+    })
+    .ok()?;
+    // Asking goes over the Wayland connection. A desktop that never answers
+    // must not leave the button hanging.
+    rx.recv_timeout(Duration::from_secs(2)).ok().flatten()
 }
 
 /// Ask the desktop portal to open a link.
@@ -245,17 +302,15 @@ fn open_folder(path: String) -> Result<(), String> {
 /// it is what Flatpak applications already use, and every desktop that
 /// matters ships a backend for it. Where there is none, the caller falls
 /// back to `xdg-open` and the link still opens, just without the raise.
-fn portal_open_uri(uri: &str) -> Result<(), String> {
+fn portal_open_uri(uri: &str, token: Option<&str>) -> Result<(), String> {
     use zbus::zvariant::Value;
     let conn = zbus::blocking::Connection::session().map_err(|e| e.to_string())?;
     let mut options: HashMap<&str, Value> = HashMap::new();
-    // Hand the compositor's own token over when this process was given one:
-    // it is what lets the portal raise the window without being accused of
-    // stealing focus.
-    if let Ok(token) = std::env::var("XDG_ACTIVATION_TOKEN") {
-        if !token.is_empty() {
-            options.insert("activation_token", Value::new(token));
-        }
+    // The token is what lets the portal raise the window without being
+    // accused of stealing focus. Asked for just now — see
+    // `fresh_activation_token`, which explains why it cannot be kept.
+    if let Some(token) = token.filter(|t| !t.is_empty()) {
+        options.insert("activation_token", Value::new(token.to_owned()));
     }
     conn.call_method(
         Some("org.freedesktop.portal.Desktop"),
@@ -273,15 +328,18 @@ fn portal_open_uri(uri: &str) -> Result<(), String> {
 /// Open an https link in the browser. Only https, so a crafted link can't
 /// reach file:// or a custom scheme handler.
 #[tauri::command(async)]
-fn open_link(url: String) -> Result<(), String> {
+fn open_link(app: AppHandle, url: String) -> Result<(), String> {
     if !url.starts_with("https://") {
         return Err("only https links can be opened".into());
     }
-    match portal_open_uri(&url) {
+    // One token for both attempts: the portal refusing the call does not
+    // spend it.
+    let token = fresh_activation_token(&app);
+    match portal_open_uri(&url, token.as_deref()) {
         Ok(()) => Ok(()),
         // Both ways failing is worth both reasons: "could not run xdg-open"
         // alone sends people looking in the wrong place.
-        Err(portal) => spawn_opener(&url)
+        Err(portal) => spawn_opener(&url, token.as_deref())
             .map_err(|direct| format!("the desktop portal said: {portal}; and {direct}")),
     }
 }

@@ -39,4 +39,8 @@ zbus = "5"
 # is a GTK app already, so the dialog needs no portal service running and
 # appears on the app's own display like the rest of it.
 rfd = { version = "0.17", default-features = false, features = ["gtk3"] }
+# Only to ask the compositor for an activation token when a link is pressed,
+# which is what lets the browser's window come forward. The same version
+# Tauri draws the window with, so there is one GTK in the build.
+gtk = "0.18"
 

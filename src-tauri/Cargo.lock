@@ -2061,6 +2061,7 @@ name = "monti"
 version = "0.9.15"
 dependencies = [
  "base64 0.22.1",
+ "gtk",
  "libc",
  "notify-rust",
  "rfd",
