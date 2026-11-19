@@ -126,7 +126,6 @@ export default {
   // ---------- додавання хмари ----------
   "Add a cloud": "Додати хмару",
   Provider: "Сервіс",
-  "OneDrive (experimental)": "OneDrive (експериментально)",
   "WebDAV / Nextcloud": "WebDAV / Nextcloud",
   "S3-compatible storage": "Сховище, сумісне з S3",
   "Encrypted folder": "Зашифрована тека",

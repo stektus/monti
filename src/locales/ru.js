@@ -126,7 +126,6 @@ export default {
   // ---------- добавление облака ----------
   "Add a cloud": "Добавить облако",
   Provider: "Сервис",
-  "OneDrive (experimental)": "OneDrive (экспериментально)",
   "WebDAV / Nextcloud": "WebDAV / Nextcloud",
   "S3-compatible storage": "Хранилище, совместимое с S3",
   "Encrypted folder": "Зашифрованная папка",

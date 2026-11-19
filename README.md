@@ -404,7 +404,7 @@ the output of running the AppImage from a terminal, or
 ## Supported clouds
 
 Google Drive, Dropbox, Box, pCloud, Yandex Disk, MEGA, Proton Drive, Koofr
-(and Digi Storage), Storj, Jottacloud, OneDrive (experimental), Backblaze B2,
+(and Digi Storage), Storj, Jottacloud, OneDrive, Backblaze B2,
 and self-hosted storage: WebDAV / Nextcloud, S3-compatible, SFTP.
 
 Six sign in through the browser — Google Drive, Dropbox, Box, pCloud, Yandex
