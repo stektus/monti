@@ -939,8 +939,29 @@ fn config_state_machine(
         *slot = Some(AuthClaim { flow, jobid: 0 }); // claimed, no job yet
     }
     log_line(app, &format!("auth flow started ({endpoint} {name})"));
+    // Put the question in front of the person and wait for the answer. The
+    // webview is the only one who can ask; if it is gone, there is no
+    // choice to be made and the flow falls back to picking for itself.
+    let ask = |choices: &[DriveChoice]| -> Option<String> {
+        let pick = app.state::<PickState>();
+        let (tx, rx) = std::sync::mpsc::channel();
+        *pick.0.lock().unwrap() = Some(tx);
+        let payload = json!({
+            "drives": choices
+                .iter()
+                .map(|c| json!({ "value": c.value, "label": c.label }))
+                .collect::<Vec<_>>()
+        });
+        if app.emit("pick-drive", payload).is_err() {
+            *pick.0.lock().unwrap() = None;
+            return None;
+        }
+        let answer = rx.recv_timeout(Duration::from_secs(240)).ok();
+        *pick.0.lock().unwrap() = None;
+        answer.filter(|v| !v.is_empty())
+    };
     let result = drive_state_machine(
-        port, pass, auth, flow, endpoint, name, typ, parameters, answers,
+        port, pass, auth, flow, endpoint, name, typ, parameters, answers, &ask,
     );
     {
         // Only if the slot is still ours: a cancelled flow finishing late
@@ -971,14 +992,22 @@ fn drive_state_machine(
     // not the answer: Jottacloud asks which kind of sign-in this is and then
     // for a personal token, and neither can be guessed.
     answers: &HashMap<&str, String>,
+    // How to put a choice in front of the person. Used only when a list of
+    // drives has more than one entry worth showing; returns None if they
+    // closed the question.
+    ask: &dyn Fn(&[DriveChoice]) -> Option<String>,
 ) -> Result<(), String> {
-    let deadline = std::time::Instant::now() + Duration::from_secs(300);
+    let mut deadline = std::time::Instant::now() + Duration::from_secs(300);
+    // Drives already offered to rclone, so a second pass picks a new one.
+    let mut tried: HashSet<String> = HashSet::new();
+    // The last recoverable complaint, kept in case every drive fails.
+    let mut last_error: Option<String> = None;
     let stop_job = |jobid: u64| {
         let _ = rc_raw(port, pass, "job/stop", &json!({ "jobid": jobid }));
     };
     let mut opt = json!({ "nonInteractive": true, "obscure": true });
 
-    for _ in 0..20 {
+    for _ in 0..60 {
         let mut body = json!({
             "name": name,
             "parameters": parameters,
@@ -1023,10 +1052,26 @@ fn drive_state_machine(
         };
 
         let step_err = output["Error"].as_str().unwrap_or("");
-        if !step_err.is_empty() {
-            return Err(step_err.to_string());
-        }
         let state = output["State"].as_str().unwrap_or("");
+        if !step_err.is_empty() {
+            // rclone answers a refused step with the error AND the state to
+            // go back to — that is "that one did not work, choose another",
+            // not the end of the road. Treating it as fatal is what made a
+            // OneDrive account with a dud drive first in the list
+            // unconnectable. With no state there is nowhere to go back to.
+            if state.is_empty() {
+                return Err(step_err.to_string());
+            }
+            last_error = Some(step_err.to_string());
+            opt = json!({
+                "nonInteractive": true,
+                "obscure": true,
+                "continue": true,
+                "state": state,
+                "result": "",
+            });
+            continue;
+        }
         if state.is_empty() {
             return Ok(()); // machine done — token stored by the daemon
         }
@@ -1034,6 +1079,30 @@ fn drive_state_machine(
         let asked = option["Name"].as_str().unwrap_or_default();
         let answer = if let Some(given) = answers.get(asked) {
             given.clone()
+        } else if asked == "config_driveid" {
+            let (named, plumbing) = rank_drives(&option["Examples"], &tried);
+            let chosen = if named.len() > 1 && tried.is_empty() {
+                // Several drives with real names: a work account with more
+                // than one document library, where only the person knows
+                // which one they mean.
+                let asked_at = std::time::Instant::now();
+                let answer = ask(&named);
+                // Thinking time is theirs, not the flow's.
+                deadline += asked_at.elapsed();
+                match answer {
+                    Some(v) => v,
+                    None => return Err("Authorization cancelled.".into()),
+                }
+            } else if let Some(first) = named.first().or_else(|| plumbing.first()) {
+                first.value.clone()
+            } else {
+                // Everything on offer has been tried and refused.
+                return Err(last_error.unwrap_or_else(|| {
+                    "Microsoft offered no drive that could be opened.".to_string()
+                }));
+            };
+            tried.insert(chosen.clone());
+            chosen
         } else if asked == "config_is_local" {
             "true".to_string() // we are the machine with the browser
         } else if let Some(s) = option["DefaultStr"].as_str() {
@@ -1098,12 +1167,121 @@ fn allowed_params(provider: &str) -> Option<&'static [&'static str]> {
     })
 }
 
+/// Where the webview delivers the answer to "which drive?". One flow asks
+/// at a time, the same way one authorization runs at a time.
+pub struct PickState(pub Mutex<Option<std::sync::mpsc::Sender<String>>>);
+
+/// A drive as the person will see it: the id rclone wants, and the label
+/// rclone built out of the drive's name and type.
+#[derive(Clone, Debug)]
+struct DriveChoice {
+    value: String,
+    label: String,
+}
+
+/// Microsoft hands back every drive an account has ever touched, and most
+/// of them are plumbing: a metadata archive, a bundle container, drives
+/// named after a bare GUID. On one real account five of the six were of
+/// that kind, the sixth was the actual OneDrive — and the plumbing came
+/// first, which is why picking the first drive failed. A person cannot
+/// choose from such a list either, so Monti tells the two apart itself.
+fn is_machine_made_name(label: &str) -> bool {
+    // rclone's label is "Name (type)"; the type is its own, not the name's.
+    let name = match label.rfind(" (") {
+        Some(i) => &label[..i],
+        None => label,
+    }
+    .trim();
+    if name.is_empty() {
+        return true;
+    }
+    if name == "ODCMetadataArchive" || name.starts_with("Bundles_") {
+        return true;
+    }
+    let hex = |s: &str| !s.is_empty() && s.chars().all(|c| c.is_ascii_hexdigit());
+    // A bare GUID: 8-4-4-4-12.
+    let parts: Vec<&str> = name.split('-').collect();
+    if parts.len() == 5
+        && [8, 4, 4, 4, 12]
+            == [
+                parts[0].len(),
+                parts[1].len(),
+                parts[2].len(),
+                parts[3].len(),
+                parts[4].len(),
+            ]
+        && parts.iter().all(|p| hex(p))
+    {
+        return true;
+    }
+    // A long run of hex with no word in it is an id, not a name.
+    hex(name) && name.len() >= 16
+}
+
+/// Split the offered drives into the ones worth showing a person and the
+/// rest, keeping rclone's order inside each group and dropping the ones
+/// already tried.
+fn rank_drives(examples: &Value, tried: &HashSet<String>) -> (Vec<DriveChoice>, Vec<DriveChoice>) {
+    // One drive can be listed twice under different names: a real account
+    // returned its OneDrive once as "Bundles_b896…" and once as "OneDrive",
+    // the same id both times. Keep the name a person would recognize, or
+    // the drive looks like plumbing and is tried last for nothing.
+    let mut order: Vec<String> = Vec::new();
+    let mut labels: HashMap<String, String> = HashMap::new();
+    for item in examples.as_array().unwrap_or(&Vec::new()) {
+        let value = item["Value"].as_str().unwrap_or("").to_string();
+        if value.is_empty() || tried.contains(&value) {
+            continue;
+        }
+        let label = item["Help"].as_str().unwrap_or("").to_string();
+        match labels.get(&value) {
+            None => {
+                order.push(value.clone());
+                labels.insert(value, label);
+            }
+            Some(kept) if is_machine_made_name(kept) && !is_machine_made_name(&label) => {
+                labels.insert(value, label);
+            }
+            Some(_) => {}
+        }
+    }
+    let mut named = Vec::new();
+    let mut plumbing = Vec::new();
+    for value in order {
+        let label = labels.remove(&value).unwrap_or_default();
+        let choice = DriveChoice {
+            value,
+            label: label.clone(),
+        };
+        if is_machine_made_name(&label) {
+            plumbing.push(choice);
+        } else {
+            named.push(choice);
+        }
+    }
+    (named, plumbing)
+}
+
 /// Providers whose sign-in is a browser round trip rather than a form.
 const OAUTH_PROVIDERS: &[&str] = &["drive", "dropbox", "onedrive", "box", "pcloud", "yandex"];
 
 /// Providers whose sign-in is neither a form nor a browser, but a short
 /// dialog rclone runs: it asks, Monti answers from what the person typed.
 const DIALOG_PROVIDERS: &[&str] = &["jottacloud"];
+
+/// The webview's answer to "which drive?". An empty value means the
+/// question was closed, which cancels the sign-in rather than guessing.
+#[tauri::command]
+async fn choose_drive(pick: State<'_, PickState>, value: String) -> Result<(), String> {
+    let sender = pick.0.lock().unwrap().take();
+    match sender {
+        Some(tx) => {
+            let _ = tx.send(value);
+            Ok(())
+        }
+        None => Err("nothing is waiting for a drive to be chosen".into()),
+    }
+}
 
 /// Of the fields a form provider takes, the ones that may be shown again:
 /// an address, a user name, a key id. Never a password — everything left
@@ -3155,6 +3333,7 @@ pub fn run() {
         }))
         .manage(EngineState(Mutex::new(Engine::default())))
         .manage(AuthState(Mutex::new(None)))
+        .manage(PickState(Mutex::new(None)))
         .manage(Flags {
             close_to_tray: AtomicBool::new(true),
             tray_ok: AtomicBool::new(false),
@@ -3277,6 +3456,7 @@ pub fn run() {
             remote_credentials,
             update_remote_credentials,
             cancel_create_remote,
+            choose_drive,
             delete_remote,
             vfs_cache_size,
             remote_about,
@@ -4087,6 +4267,56 @@ mod tests {
         assert!(public_params("crypt").is_empty());
     }
 
+    /// The list a real personal OneDrive returned on 19.11.2026: five
+    /// pieces of Microsoft's own plumbing and one actual drive, which came
+    /// last — and whose id was also listed under a plumbing name. Taking
+    /// the list at face value is what made that account unconnectable.
+    #[test]
+    fn the_real_drive_is_told_apart_from_microsofts_plumbing() {
+        let examples = json!([
+            { "Value": "b!7ck1KU", "Help": "2974e5ed-d5e3-4e02-ab10-ae3d0d18680d (personal)" },
+            { "Value": "C017CF2BB4D61F72", "Help": "Bundles_b896e2bb7ca3447691823a44c4ad6ad7 (personal)" },
+            { "Value": "b!jgjMJY", "Help": "ODCMetadataArchive (personal)" },
+            { "Value": "b!GkylFH", "Help": "C022FB8E-9907-45F9-BF47-A403283F090E (personal)" },
+            { "Value": "b!uNQkCy", "Help": "AEEE102E-CFF8-4E2A-89C6-03841FF83500 (personal)" },
+            { "Value": "C017CF2BB4D61F72", "Help": "OneDrive (personal)" },
+        ]);
+        let (named, plumbing) = rank_drives(&examples, &HashSet::new());
+        assert_eq!(
+            named.iter().map(|d| d.value.as_str()).collect::<Vec<_>>(),
+            vec!["C017CF2BB4D61F72"],
+            "the one drive a person would recognize is the one to try first"
+        );
+        assert_eq!(
+            named[0].label, "OneDrive (personal)",
+            "the better of the two names for the same id wins"
+        );
+        assert_eq!(
+            plumbing.len(),
+            4,
+            "the rest are kept, just not first: {plumbing:?}"
+        );
+
+        // A drive already refused is not offered again.
+        let tried = HashSet::from(["C017CF2BB4D61F72".to_string()]);
+        let (named, plumbing) = rank_drives(&examples, &tried);
+        assert!(named.is_empty());
+        assert_eq!(plumbing.len(), 4);
+
+        // A work account's libraries are all real names — nothing to filter.
+        let work = json!([
+            { "Value": "w1", "Help": "Documents (business)" },
+            { "Value": "w2", "Help": "Shared Documents (documentLibrary)" },
+        ]);
+        let (named, plumbing) = rank_drives(&work, &HashSet::new());
+        assert_eq!(
+            named.len(),
+            2,
+            "a work account's choice belongs to the person"
+        );
+        assert!(plumbing.is_empty());
+    }
+
     /// Jottacloud's sign-in is a dialog, and two of its questions have no
     /// answer that can be guessed: which kind of account, and a personal
     /// token. Both come from the form, and the proof they arrive is that
@@ -4112,6 +4342,7 @@ mod tests {
             Some("jottacloud"),
             &json!({}),
             &answers,
+            &|_| None,
         )
         .expect_err("a made-up token cannot be traded for a session");
         assert!(
@@ -4134,6 +4365,7 @@ mod tests {
             Some("local"),
             &json!({}),
             &HashMap::new(),
+            &|_| None,
         );
         assert_eq!(r, Ok(()));
         let dump = rc_raw(d.port, &d.pass, "config/dump", &json!({})).unwrap();
@@ -4158,6 +4390,7 @@ mod tests {
                 Some("drive"),
                 &json!({}),
                 &HashMap::new(),
+                &|_| None,
             )
         });
         // Give the machine time to reach the browser-wait step, then cancel.

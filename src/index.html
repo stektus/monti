@@ -966,6 +966,26 @@
       </form>
     </dialog>
 
+    <!-- ============ CHOOSE DRIVE DIALOG ============ -->
+    <!-- Asked only when an account really offers a choice: a work account
+         with several document libraries. A personal OneDrive never gets
+         here — Monti picks its one real drive itself. -->
+    <dialog id="drive-dialog">
+      <form method="dialog" id="drive-form">
+        <h2>Which drive?</h2>
+        <p class="muted">
+          This account has more than one drive. Choose the one you want as a
+          folder on this computer.
+        </p>
+        <div class="tree" id="drive-list"></div>
+        <div class="dialog-actions">
+          <span class="spacer"></span>
+          <button class="btn" type="button" id="drive-cancel">Cancel</button>
+          <button class="btn primary" type="submit" id="drive-use">Use this drive</button>
+        </div>
+      </form>
+    </dialog>
+
     <!-- ============ FIRST SYNC DIALOG ============ -->
     <dialog id="firstsync-dialog">
       <form method="dialog" id="firstsync-form">

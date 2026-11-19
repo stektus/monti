@@ -695,4 +695,7 @@ export default {
     "Показать пароль",
   "Found on this computer:":
     "Найдены на этом компьютере:",
+  "Which drive?": "Какой диск?",
+  "This account has more than one drive. Choose the one you want as a folder on this computer.": "В этой учётной записи несколько дисков. Выберите тот, который станет папкой на этом компьютере.",
+  "Use this drive": "Использовать этот диск",
 };

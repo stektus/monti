@@ -2967,6 +2967,7 @@ window.addEventListener("DOMContentLoaded", () => {
     "remote-dialog",
     "pair-dialog",
     "folders-dialog",
+    "drive-dialog",
     "link-dialog",
     "firstsync-dialog",
   ]) {
@@ -3060,6 +3061,31 @@ window.addEventListener("DOMContentLoaded", () => {
         showError(String(err));
       }
     }
+  });
+
+  // One account, several drives. Microsoft answers for a personal account
+  // with its plumbing as well — a metadata archive, a bundle container,
+  // drives named after a GUID — and Monti sorts those out itself. This
+  // question is only asked when what is left is a real choice, which in
+  // practice means a work account with more than one document library.
+  listen("pick-drive", (e) => {
+    const drives = (e.payload && e.payload.drives) || [];
+    const list = $("drive-list");
+    list.innerHTML = "";
+    drives.forEach((drive, i) => {
+      const row = document.createElement("label");
+      row.className = "drive-row";
+      const radio = document.createElement("input");
+      radio.type = "radio";
+      radio.name = "drive-pick";
+      radio.value = drive.value;
+      if (i === 0) radio.checked = true;
+      const text = document.createElement("span");
+      text.textContent = drive.label;
+      row.append(radio, text);
+      list.append(row);
+    });
+    $("drive-dialog").showModal();
   });
 
   // Live progress for the engine download (first install and reinstall).
@@ -3221,6 +3247,19 @@ window.addEventListener("DOMContentLoaded", () => {
   });
 
   // --- choosing folders ---
+  let drivePicked = null;
+  $("drive-form").addEventListener("submit", () => {
+    const chosen = document.querySelector('input[name="drive-pick"]:checked');
+    drivePicked = chosen ? chosen.value : "";
+  });
+  $("drive-cancel").addEventListener("click", () => $("drive-dialog").close());
+  // An empty answer is "cancelled", which is what Escape and the backdrop
+  // mean too — the sign-in stops instead of picking a drive on its own.
+  $("drive-dialog").addEventListener("close", () => {
+    invoke("choose_drive", { value: drivePicked ?? "" }).catch(() => {});
+    drivePicked = null;
+  });
+
   $("folders-cancel").addEventListener("click", () => $("folders-dialog").close());
   $("folders-all").addEventListener("click", () => {
     picker.excluded.clear();

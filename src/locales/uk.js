@@ -693,4 +693,8 @@ export default {
     "Показати пароль",
   "Found on this computer:":
     "Знайдено на цьому комп'ютері:",
+  "Which drive?": "Який диск?",
+  "This account has more than one drive. Choose the one you want as a folder on this computer.":
+    "У цьому обліковому записі кілька дисків. Виберіть той, який стане текою на цьому комп'ютері.",
+  "Use this drive": "Використати цей диск",
 };
