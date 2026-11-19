@@ -2,6 +2,30 @@
 
 Notable changes per release. Dates are the release date.
 
+## v0.9.16 — 2026-11-19
+
+- **Links that open behind the window.** Reported from the Google key
+  instructions: the links in "Use my own API key" load the page, but the
+  browser stays behind Monti. The GitHub button had the same complaint in
+  0.9.14, and the answer then — handing links to the desktop portal, which
+  is allowed to raise a window — was only half of it. Raising needs an
+  activation token, and the token was read out of Monti's own environment,
+  where there is none: measured on COSMIC, a Monti started from a menu, an
+  autostart or its tray has no `XDG_ACTIVATION_TOKEN` at all, so the portal
+  was called with nothing to raise with, every time. Whether the browser
+  came forward was luck — one starting up takes the focus by itself, one
+  already running, which is the case right after signing in to Google, does
+  not. The token is now asked for at the moment of the press, through GTK,
+  which speaks xdg-activation on Wayland and startup notification on X11:
+  the same call on whichever desktop is running. Where no portal answers,
+  the fallback hands the token to the browser in its environment instead.
+  Measured on a stand that records what the portal is given, with the link
+  pressed through the accessibility bus because a Wayland client cannot be
+  clicked from outside: before, on both Wayland and X11, the options were
+  empty; after, the same link in the same dialog carries the token.
+- **Folders too.** A file manager that is already open had exactly the same
+  trouble, so "Open folder" now carries the token as well.
+
 ## v0.9.15 — 2026-11-18
 
 - **An alarm nobody could hear.** A drive that falls away — someone runs
