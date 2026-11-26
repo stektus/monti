@@ -794,6 +794,37 @@ dialog select:focus-visible {
 }
 .tree.loading { color: var(--muted); }
 
+/* The hint under an error is advice, not another failure: it keeps the red
+   block's shape so the two read as one message, but steps back a tone. */
+.key-hint {
+  /* The error above keeps pre-wrap, because the provider's own message
+     carries the line breaks it was written with. This one is markup, so it
+     has to wrap like ordinary prose or every indent in the HTML shows up on
+     screen. */
+  white-space: normal;
+  margin-top: 8px;
+  font-weight: 400;
+  opacity: 0.92;
+}
+.key-hint a { text-decoration: underline; }
+
+/* One drive per line, read the same way as the folder tree above. */
+.drive-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 6px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-weight: 450;
+}
+.drive-row:hover { background: var(--surface); }
+.drive-row span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .tree-row {
   display: flex;
   align-items: center;
