@@ -176,7 +176,9 @@ I built Monti around the things that actually go wrong with rclone mounts:
   back. Whatever was waiting — drives from the last run, syncs due to start —
   runs by itself the moment it is unlocked.
 - **rclone's shared API key being retired during 2026.** Monti walks you through
-  creating your own key, including the test-user step that trips up most people.
+  creating your own key, including publishing the app — the step everyone
+  misses, and the one that decides whether the drive keeps working after a
+  week or drops off every seven days.
 
 ## Install
 

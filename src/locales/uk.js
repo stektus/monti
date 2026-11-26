@@ -15,7 +15,7 @@ export default {
   "key.step.project": `<a href="https://console.cloud.google.com/projectcreate" class="ext">Створіть проєкт</a> у Google Cloud (назва будь-яка).`,
   "key.step.api": `<a href="https://console.cloud.google.com/apis/library/drive.googleapis.com" class="ext">Увімкніть для нього Google Drive API</a>.`,
   "key.step.consent": `<a href="https://console.cloud.google.com/auth/branding" class="ext">Налаштуйте екран згоди</a>: оберіть External.`,
-  "key.step.tester": `<b><a href="https://console.cloud.google.com/auth/audience" class="ext">Додайте себе як тестового користувача</a></b> (Audience → Test users → ваша пошта). <b>Пропустити цей крок — помилка №1</b>: Google відмовить у вході з «403 access_denied».`,
+  "key.step.publish": `<b><a href="https://console.cloud.google.com/auth/audience" class="ext">Опублікуйте застосунок</a></b> (Audience → Publish app → підтвердьте, щоб статус став «In production»). <b>Не пропускайте цей крок.</b> Поки стоїть «Testing», Google не впустить вас без списку тестових користувачів, а кожен вдалий вхід <b>перестає діяти рівно через сім днів</b> — диск відпадатиме щотижня.`,
   "key.step.credentials": `<a href="https://console.cloud.google.com/apis/credentials" class="ext">Створіть облікові дані</a> → OAuth client ID → тип «Desktop app».`,
   "key.unverified": `Під час входу Google попередить «Google hasn’t verified
     this app» — для власного ключа це нормально: натисніть
@@ -696,4 +696,10 @@ export default {
   "This account has more than one drive. Choose the one you want as a folder on this computer.":
     "У цьому обліковому записі кілька дисків. Виберіть той, який стане текою на цьому комп'ютері.",
   "Use this drive": "Використати цей диск",
+  "error.testingkey": `Google скасовує вхід, зроблений ключем зі статусом
+    <b>Testing</b>, рівно через сім днів — увійти ще раз означає купити собі
+    тиждень, і не більше.
+    <a href="https://console.cloud.google.com/auth/audience" class="ext">Опублікуйте
+    застосунок</a> один раз (Audience → Publish app), а тоді увійдіть знову —
+    і цей вхід триватиме.`,
 };

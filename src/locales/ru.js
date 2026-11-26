@@ -15,7 +15,7 @@ export default {
   "key.step.project": `<a href="https://console.cloud.google.com/projectcreate" class="ext">Создайте проект</a> в Google Cloud (название любое).`,
   "key.step.api": `<a href="https://console.cloud.google.com/apis/library/drive.googleapis.com" class="ext">Включите для него Google Drive API</a>.`,
   "key.step.consent": `<a href="https://console.cloud.google.com/auth/branding" class="ext">Настройте экран согласия</a>: выберите External.`,
-  "key.step.tester": `<b><a href="https://console.cloud.google.com/auth/audience" class="ext">Добавьте себя в тестовые пользователи</a></b> (Audience → Test users → ваша почта). <b>Пропустить этот шаг — ошибка №1</b>: Google откажет во входе с «403 access_denied».`,
+  "key.step.publish": `<b><a href="https://console.cloud.google.com/auth/audience" class="ext">Опубликуйте приложение</a></b> (Audience → Publish app → подтвердите, чтобы статус стал «In production»). <b>Не пропускайте этот шаг.</b> Пока стоит «Testing», Google не пустит вас без списка тестовых пользователей, а каждый удавшийся вход <b>перестаёт действовать ровно через семь дней</b> — диск будет отваливаться раз в неделю.`,
   "key.step.credentials": `<a href="https://console.cloud.google.com/apis/credentials" class="ext">Создайте учётные данные</a> → OAuth client ID → тип «Desktop app».`,
   "key.unverified": `При входе Google предупредит «Google hasn’t verified this
     app» — для собственного ключа это нормально: нажмите
@@ -697,4 +697,10 @@ export default {
   "Which drive?": "Какой диск?",
   "This account has more than one drive. Choose the one you want as a folder on this computer.": "В этой учётной записи несколько дисков. Выберите тот, который станет папкой на этом компьютере.",
   "Use this drive": "Использовать этот диск",
+  "error.testingkey": `Google отзывает вход, сделанный ключом со статусом
+    <b>Testing</b>, ровно через семь дней — войти заново значит купить себе
+    неделю, и только.
+    <a href="https://console.cloud.google.com/auth/audience" class="ext">Опубликуйте
+    приложение</a> один раз (Audience → Publish app), а затем войдите снова —
+    и этот вход будет держаться.`,
 };

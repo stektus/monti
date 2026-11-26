@@ -114,6 +114,12 @@ function setEngine(stateClass, label) {
 // the config-lock code that uses them.
 const SIGNIN_REFUSED = "monti:signin-refused";
 
+// Whether any Google drive here signs in with the person's own API key. The
+// seven-day expiry below is true for those and only those: rclone's shared
+// key belongs to a published app, so a refusal on it means something else
+// entirely and the hint would send people to a console page for nothing.
+let hasOwnGoogleKey = false;
+
 // Render the message inside the open modal dialog (the page-level banner
 // sits under the ::backdrop and would be invisible); clearing clears all.
 // Said out loud by a screen reader, and only there. Everything a sighted
@@ -140,6 +146,7 @@ function showError(msg) {
       el.textContent = "";
       el.classList.add("hidden");
     }
+    for (const id of ["global-key-hint", "remote-key-hint"]) $(id).classList.add("hidden");
     return;
   }
   let target = "global-error";
@@ -150,6 +157,12 @@ function showError(msg) {
   const el = $(target);
   el.textContent = msg;
   el.classList.remove("hidden");
+  // A key still in "Testing" is the usual reason a Google sign-in stops
+  // working — Google expires those after exactly seven days, so "sign in
+  // again" alone would have the person doing this every week forever.
+  const expiredOwnKey = hasOwnGoogleKey && /invalid_grant/i.test(msg);
+  const hint = { "global-error": "global-key-hint", "remote-error": "remote-key-hint" }[target];
+  if (hint) $(hint).classList.toggle("hidden", !expiredOwnKey);
   if (target !== "global-error") el.scrollIntoView({ block: "nearest" });
 }
 
@@ -1246,6 +1259,7 @@ async function refreshRemotes(opts = {}) {
     .catch(() => {});
 
   sharedKeyWarning($("shared-key-warning"), remotes);
+  hasOwnGoogleKey = remotes.some((r) => r.type === "drive" && r.hasOwnKey);
 
   for (const { name, type, hasOwnKey: ownKey, mountedReadOnly, wraps } of remotes) {
     const ownPoint = own.get(name);
