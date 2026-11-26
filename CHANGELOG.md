@@ -2,6 +2,44 @@
 
 Notable changes per release. Dates are the release date.
 
+## v0.9.17 — 2026-11-26
+
+- **OneDrive accounts that could not be connected at all.** Reported from a
+  fresh Manjaro install: signing in to OneDrive succeeded, and then the
+  setup died on `Failed to query root for drive "b!7ck1…": HTTP error 400 …
+  ObjectHandle is Invalid`. Microsoft answers `/me/drives` with everything
+  the account has ever touched — that account returned six drives, and five
+  of them were plumbing: a metadata archive, a bundle container, three
+  named after a bare GUID. The real OneDrive came last, and the drive that
+  came first refuses to open its own root. rclone defaults a choice to the
+  first item on the list and Monti answered with that default, so the
+  sign-in failed every time, on an error the person could do nothing about.
+  rclone was not even reporting a dead end: a refused step comes back with
+  the error *and* the state to go back to, which means "try another one" —
+  and that was being treated as fatal. Now an error that carries a state is
+  a reason to go round again with the next drive; drives whose names are
+  plainly Microsoft's own plumbing are tried last; and the same id listed
+  twice keeps the name a person would recognize, because that account's
+  real drive appeared both as `Bundles_b896…` and as `OneDrive`. Where what
+  is left is a genuine choice — a work account with several document
+  libraries — Monti asks instead of guessing.
+- **OneDrive is no longer marked experimental.** The label went up when it
+  could fail for reasons Monti could not explain, let alone fix. That
+  reason is now known and handled.
+- **A Google key that stopped working every seventh day.** An OAuth client
+  whose consent screen is still in "Testing" hands out sign-ins that Google
+  cancels exactly seven days later — their own words: "Authorizations by a
+  test user will expire seven days from the time of consent." The drive
+  then stops mounting with `invalid_grant`, and signing in again buys
+  another week and no more. Monti's own instructions walked straight into
+  it: step four said to add yourself as a test user, which is what
+  "Testing" needs, and said nothing about the seventh day. That step is now
+  "Publish the app", which settles both problems at once — no test-user
+  list to be on, and sign-ins that last. When it has already happened, the
+  error now carries the reason and a link to the page that fixes it, shown
+  only for drives using their own Google key: on rclone's shared key the
+  same refusal means something else.
+
 ## v0.9.16 — 2026-11-19
 
 - **Links that open behind the window.** Reported from the Google key
